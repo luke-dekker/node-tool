@@ -6,7 +6,7 @@ from typing import Type
 from core.node import BaseNode
 
 # Import all node subpackages to trigger registration
-from nodes import math, logic, string, data, numpy, pandas, sklearn, scipy, viz
+from nodes import math, logic, string, data, numpy, pandas, sklearn, scipy, viz, code
 from nodes import pytorch
 # also import pytorch submodules so _discover finds all classes
 from nodes.pytorch import layers, losses, optimizers, schedulers
@@ -61,6 +61,7 @@ _discover(network_nodes)
 _discover(file_nodes)
 _discover(ollama_nodes)
 _discover(hf_nodes)
+_discover(code)
 
 # Grouped by category for the palette
 CATEGORY_ORDER = [
@@ -69,7 +70,7 @@ CATEGORY_ORDER = [
     # General compute
     "Data", "NumPy", "Pandas", "Math", "Logic", "String", "Sklearn", "SciPy",
     # Output
-    "IO",
+    "IO", "Code",
 ]
 
 def get_nodes_by_category() -> dict[str, list[Type[BaseNode]]]:

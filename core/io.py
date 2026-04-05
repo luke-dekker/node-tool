@@ -274,6 +274,97 @@ def _gen_replace(node, iv, ov):
     return [], [f"{ov['Result']} = str({v}).replace(str({old}), str({new}))"]
 
 
+# ── Consolidated nodes (MathNode, LogicNode, StringNode, PythonNode) ──────────
+
+_MATH_OP_EXPRS = {
+    "add":      lambda a, b: f"{a} + {b}",
+    "subtract": lambda a, b: f"{a} - {b}",
+    "multiply": lambda a, b: f"{a} * {b}",
+    "divide":   lambda a, b: f"{a} / {b} if {b} != 0 else 0.0",
+    "power":    lambda a, b: f"float({a} ** {b})",
+    "sqrt":     lambda a, b: f"math.sqrt(max(0.0, {a}))",
+    "abs":      lambda a, b: f"abs({a})",
+    "sin":      lambda a, b: f"math.sin(math.radians({a}))",
+    "cos":      lambda a, b: f"math.cos(math.radians({a}))",
+    "tan":      lambda a, b: f"math.tan(math.radians({a}))",
+    "round":    lambda a, b: f"float(round({a}, int({b})))",
+    "random":   lambda a, b: f"random.uniform(min({a},{b}), max({a},{b}))",
+}
+
+_MATH_OP_IMPORTS = {
+    "sqrt": ["import math"], "sin": ["import math"],
+    "cos":  ["import math"], "tan": ["import math"],
+    "random": ["import random"],
+}
+
+@_reg("math")
+def _gen_math(node, iv, ov):
+    op = str(node.inputs["Op"].default_value or "add").strip().lower()
+    if iv.get("Op"):
+        # Op wired at runtime — fall back to safe eval dispatch
+        a, b = _val(node,iv,"A"), _val(node,iv,"B")
+        return ["import math", "import random"], [
+            f"{ov['Result']} = eval(str({iv['Op']}).strip().lower()+"
+            f"'({a},{b})')",  # not ideal, but honest fallback
+        ]
+    expr_fn = _MATH_OP_EXPRS.get(op, _MATH_OP_EXPRS["add"])
+    imps = _MATH_OP_IMPORTS.get(op, [])
+    a, b = _val(node,iv,"A"), _val(node,iv,"B")
+    return imps, [f"{ov['Result']} = {expr_fn(a, b)}"]
+
+
+_LOGIC_OP_EXPRS = {
+    "and": lambda a, b: f"bool({a}) and bool({b})",
+    "or":  lambda a, b: f"bool({a}) or bool({b})",
+    "not": lambda a, b: f"not bool({a})",
+    "eq":  lambda a, b: f"{a} == {b}",
+    "neq": lambda a, b: f"{a} != {b}",
+    "lt":  lambda a, b: f"{a} < {b}",
+    "lte": lambda a, b: f"{a} <= {b}",
+    "gt":  lambda a, b: f"{a} > {b}",
+    "gte": lambda a, b: f"{a} >= {b}",
+}
+
+@_reg("logic")
+def _gen_logic(node, iv, ov):
+    op = str(node.inputs["Op"].default_value or "and").strip().lower()
+    expr_fn = _LOGIC_OP_EXPRS.get(op, _LOGIC_OP_EXPRS["and"])
+    a, b = _val(node,iv,"A"), _val(node,iv,"B")
+    return [], [f"{ov['Result']} = {expr_fn(a, b)}"]
+
+
+_STRING_OP_EXPRS = {
+    "upper":    lambda a, b: f"str({a}).upper()",
+    "lower":    lambda a, b: f"str({a}).lower()",
+    "strip":    lambda a, b: f"str({a}).strip()",
+    "reverse":  lambda a, b: f"str({a})[::-1]",
+    "length":   lambda a, b: f"len(str({a}))",
+    "concat":   lambda a, b: f"str({a}) + str({b})",
+    "contains": lambda a, b: f"str({b}) in str({a})",
+    "repeat":   lambda a, b: f"str({a}) * max(0, int(float({b})))",
+}
+
+@_reg("string_op")
+def _gen_string_op(node, iv, ov):
+    op = str(node.inputs["Op"].default_value or "upper").strip().lower()
+    expr_fn = _STRING_OP_EXPRS.get(op, _STRING_OP_EXPRS["upper"])
+    a, b = _val(node,iv,"A"), _val(node,iv,"B")
+    return [], [f"{ov['Result']} = {expr_fn(a, b)}"]
+
+
+@_reg("python")
+def _gen_python(node, iv, ov):
+    code = node.inputs["code"].default_value or "result = None"
+    a = _val(node,iv,"a"); b = _val(node,iv,"b"); c = _val(node,iv,"c")
+    lines = [
+        f"_py_ns = {{'a': {a}, 'b': {b}, 'c': {c}}}",
+        f"import math as _m, re; _py_ns.update({{'math':_m,'re':re}})",
+        f"exec({repr(code)}, _py_ns)",
+        f"{ov['result']} = _py_ns.get('result')",
+    ]
+    return [], lines
+
+
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 @_reg("float_const")

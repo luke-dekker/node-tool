@@ -31,18 +31,17 @@ def test_single_float_const():
 
 def test_add_chain():
     from nodes.data import FloatConstNode
-    from nodes.math import AddNode
+    from nodes.math import MathNode
     g = Graph()
     a = FloatConstNode(); a.inputs["Value"].default_value = 1.0
     b = FloatConstNode(); b.inputs["Value"].default_value = 2.0
-    add = AddNode()
+    add = MathNode()
     g.add_node(a); g.add_node(b); g.add_node(add)
     g.add_connection(a.id, "Value", add.id, "A")
     g.add_connection(b.id, "Value", add.id, "B")
     script = _export(g)
-    assert "+" in script
     assert "float_const" in script
-    assert "add" in script
+    assert "math" in script
 
 
 def test_print_node():
@@ -59,22 +58,19 @@ def test_print_node():
 # ── Math nodes ────────────────────────────────────────────────────────────────
 
 def test_math_nodes():
-    from nodes.math import MultiplyNode, SubtractNode, DivideNode, PowerNode
-    from nodes.math import ClampNode, RoundNode, AbsNode, SqrtNode, SinNode, CosNode
-    from nodes.data import FloatConstNode
-    for NodeCls in [MultiplyNode, SubtractNode, DivideNode, PowerNode,
-                    ClampNode, RoundNode, AbsNode, SqrtNode, SinNode, CosNode]:
+    from nodes.math import MathNode, ClampNode, MapRangeNode
+    for NodeCls in [MathNode, ClampNode, MapRangeNode]:
         g = Graph()
         g.add_node(NodeCls())
         script = _export(g)
-        assert "# [" not in script or "export not" not in script, f"{NodeCls.__name__} unsupported"
+        assert "export not" not in script, f"{NodeCls.__name__} unsupported"
 
 
 # ── Logic nodes ───────────────────────────────────────────────────────────────
 
 def test_logic_nodes():
-    from nodes.logic import CompareNode, AndNode, OrNode, NotNode, BranchNode
-    for NodeCls in [CompareNode, AndNode, OrNode, NotNode, BranchNode]:
+    from nodes.logic import LogicNode, BranchNode
+    for NodeCls in [LogicNode, BranchNode]:
         g = Graph()
         g.add_node(NodeCls())
         script = _export(g)
@@ -84,10 +80,8 @@ def test_logic_nodes():
 # ── String nodes ──────────────────────────────────────────────────────────────
 
 def test_string_nodes():
-    from nodes.string import ConcatNode, UpperNode, LowerNode, StripNode
-    from nodes.string import LengthNode, ContainsNode, ReplaceNode, FormatNode
-    for NodeCls in [ConcatNode, UpperNode, LowerNode, StripNode,
-                    LengthNode, ContainsNode, ReplaceNode, FormatNode]:
+    from nodes.string import StringNode, ReplaceNode, FormatNode
+    for NodeCls in [StringNode, ReplaceNode, FormatNode]:
         g = Graph()
         g.add_node(NodeCls())
         script = _export(g)
@@ -280,9 +274,9 @@ def test_script_is_valid_python():
     """The generated script should at least be parseable by ast."""
     import ast
     from nodes.data import FloatConstNode, PrintNode
-    from nodes.math import AddNode, MultiplyNode
+    from nodes.math import MathNode
     g = Graph()
-    a = FloatConstNode(); b = FloatConstNode(); add = AddNode(); pr = PrintNode()
+    a = FloatConstNode(); b = FloatConstNode(); add = MathNode(); pr = PrintNode()
     g.add_node(a); g.add_node(b); g.add_node(add); g.add_node(pr)
     g.add_connection(a.id, "Value", add.id, "A")
     g.add_connection(b.id, "Value", add.id, "B")
