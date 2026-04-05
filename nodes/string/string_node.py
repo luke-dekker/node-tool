@@ -22,9 +22,9 @@ class StringNode(BaseNode):
     description = f"String operations. Op: {_OP_LIST}. B used by concat/contains/repeat."
 
     def _setup_ports(self):
-        self.add_input("A", PortType.STRING, "")
-        self.add_input("B", PortType.STRING, "")
-        self.add_input("Op", PortType.STRING, "upper")
+        self.add_input("A",  PortType.STRING, "")
+        self.add_input("B",  PortType.STRING, "")
+        self.add_input("Op", PortType.STRING, "upper", choices=list(_OPS))
         self.add_output("Result", PortType.ANY)
 
     def execute(self, inputs):

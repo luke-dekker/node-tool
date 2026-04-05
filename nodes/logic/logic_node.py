@@ -23,9 +23,9 @@ class LogicNode(BaseNode):
     description = f"Logic and comparison operations. Op: {_OP_LIST}. B unused for 'not'."
 
     def _setup_ports(self):
-        self.add_input("A",  PortType.ANY, False)
-        self.add_input("B",  PortType.ANY, False)
-        self.add_input("Op", PortType.STRING, "and")
+        self.add_input("A",  PortType.ANY,    False)
+        self.add_input("B",  PortType.ANY,    False)
+        self.add_input("Op", PortType.STRING, "and", choices=list(_OPS))
         self.add_output("Result", PortType.BOOL)
 
     def execute(self, inputs):

@@ -28,9 +28,9 @@ class MathNode(BaseNode):
     description = f"Math operations. Op: {_OP_LIST}. B unused for unary ops (sqrt, abs, sin, cos, tan)."
 
     def _setup_ports(self):
-        self.add_input("A", PortType.FLOAT, 0.0)
-        self.add_input("B", PortType.FLOAT, 1.0)
-        self.add_input("Op", PortType.STRING, "add")
+        self.add_input("A",  PortType.FLOAT,  0.0)
+        self.add_input("B",  PortType.FLOAT,  1.0)
+        self.add_input("Op", PortType.STRING, "add", choices=list(_OPS))
         self.add_output("Result", PortType.FLOAT)
 
     def execute(self, inputs):

@@ -1,3 +1,5 @@
+from nodes.numpy.array_func import NpArrayFuncNode
+from nodes.numpy.reduce import NpReduceNode
 from nodes.numpy.creation import (
     NpArangeNode, NpLinspaceNode, NpZerosNode, NpOnesNode,
     NpRandNode, NpRandnNode, NpFromListNode, NpEyeNode,
