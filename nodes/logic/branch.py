@@ -5,7 +5,8 @@ from core.node import BaseNode, PortType
 class BranchNode(BaseNode):
     type_name = "branch"
     label = "Branch"
-    category = "Logic"
+    category = "Python"
+    subcategory = "Logic"
     description = "Outputs True Value if Condition is true, else False Value."
 
     def _setup_ports(self):
@@ -18,3 +19,9 @@ class BranchNode(BaseNode):
         if bool(inputs["Condition"]):
             return {"Result": inputs["True Value"]}
         return {"Result": inputs["False Value"]}
+
+    def export(self, iv, ov):
+        cond = self._val(iv,"Condition")
+        tv   = self._val(iv,"True Value")
+        fv   = self._val(iv,"False Value")
+        return [], [f"{ov['Result']} = {tv} if {cond} else {fv}"]

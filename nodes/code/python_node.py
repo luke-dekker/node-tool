@@ -25,7 +25,8 @@ _GLOBALS = {k: v for k, v in
 class PythonNode(BaseNode):
     type_name = "python"
     label = "Python"
-    category = "Code"
+    category = "Python"
+    subcategory = "Code"
     description = "Run Python. Inputs: a, b, c (any type). Write: result = <expression>"
 
     def _setup_ports(self):
@@ -42,3 +43,13 @@ class PythonNode(BaseNode):
         except Exception:
             pass
         return {"result": ns.get("result")}
+
+    def export(self, iv, ov):
+        code = self.inputs["code"].default_value or "result = None"
+        a = self._val(iv,"a"); b = self._val(iv,"b"); c = self._val(iv,"c")
+        return [], [
+            f"_py_ns = {{'a': {a}, 'b': {b}, 'c': {c}}}",
+            f"import math as _m, re; _py_ns.update({{'math':_m,'re':re}})",
+            f"exec({repr(code)}, _py_ns)",
+            f"{ov['result']} = _py_ns.get('result')",
+        ]

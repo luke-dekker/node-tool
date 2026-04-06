@@ -304,7 +304,7 @@ def test_model_info_none():
 
 def test_exporter_persistence_nodes():
     from core.graph import Graph
-    from core.io import GraphExporter
+    from core.exporter import GraphExporter
     from nodes.pytorch.persistence import (
         SaveWeightsNode, LoadWeightsNode,
         SaveCheckpointNode, LoadCheckpointNode,
@@ -322,7 +322,7 @@ def test_exporter_persistence_nodes():
 
 def test_save_weights_exporter_contains_torch_save():
     from core.graph import Graph
-    from core.io import GraphExporter
+    from core.exporter import GraphExporter
     from nodes.pytorch.persistence import SaveWeightsNode
     g = Graph()
     g.add_node(SaveWeightsNode())
@@ -332,7 +332,7 @@ def test_save_weights_exporter_contains_torch_save():
 
 def test_load_weights_exporter_contains_load():
     from core.graph import Graph
-    from core.io import GraphExporter
+    from core.exporter import GraphExporter
     from nodes.pytorch.persistence import LoadWeightsNode
     g = Graph()
     g.add_node(LoadWeightsNode())
@@ -342,7 +342,7 @@ def test_load_weights_exporter_contains_load():
 
 def test_checkpoint_exporter_has_epoch_and_loss():
     from core.graph import Graph
-    from core.io import GraphExporter
+    from core.exporter import GraphExporter
     from nodes.pytorch.persistence import SaveCheckpointNode
     g = Graph()
     g.add_node(SaveCheckpointNode())

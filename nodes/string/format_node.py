@@ -5,7 +5,8 @@ from core.node import BaseNode, PortType
 class FormatNode(BaseNode):
     type_name = "format"
     label = "Format"
-    category = "String"
+    category = "Python"
+    subcategory = "String"
     description = "Formats Template using {0} and {1} placeholders."
 
     def _setup_ports(self):
@@ -19,3 +20,7 @@ class FormatNode(BaseNode):
             return {"Result": str(inputs["Template"]).format(inputs["Arg0"], inputs["Arg1"])}
         except (IndexError, KeyError):
             return {"Result": str(inputs["Template"])}
+
+    def export(self, iv, ov):
+        t = self._val(iv,"Template"); a0 = self._val(iv,"Arg0"); a1 = self._val(iv,"Arg1")
+        return [], [f"{ov['Result']} = str({t}).format({a0}, {a1})"]

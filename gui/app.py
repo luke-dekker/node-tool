@@ -13,11 +13,10 @@ import dearpygui.dearpygui as dpg
 
 from core.graph import Graph, CommandStack, Command
 from core.node import PortType, BaseNode
-from core.io import Serializer
 from nodes import NODE_REGISTRY, get_nodes_by_category, CATEGORY_ORDER
+from gui.constants import VIEWPORT_W, VIEWPORT_H, PALETTE_W, INSPECTOR_W, TERMINAL_H, NODE_INPUT_W
 from gui.theme import (
-    create_global_theme, create_node_theme, create_run_button_theme,
-    create_clear_button_theme, CATEGORY_COLORS, TEXT, TEXT_DIM,
+    create_global_theme, create_node_theme, CATEGORY_COLORS, TEXT, TEXT_DIM,
     ACCENT, ACCENT2, BG_DARK, BG_MID, BG_LIGHT,
     FLOAT_PIN, INT_PIN, BOOL_PIN, STRING_PIN, ANY_PIN,
     TENSOR_PIN, MODULE_PIN, DATALOADER_PIN, OPTIMIZER_PIN, LOSS_FN_PIN,
@@ -25,14 +24,10 @@ from gui.theme import (
     SCHEDULER_PIN, DATASET_PIN, TRANSFORM_PIN,
 )
 from gui.training_panel import TrainingController
-
-# -- Constants ----------------------------------------------------------------
-
-VIEWPORT_W = 1600
-VIEWPORT_H = 950
-PALETTE_W  = 220
-INSPECTOR_W = 270
-TERMINAL_H  = 185
+from gui.mixins import (
+    TrainingMixin, PollingMixin, FileOpsMixin,
+    EditOpsMixin, LayoutMixin, HandlersMixin,
+)
 
 PIN_COLORS = {
     PortType.FLOAT:        FLOAT_PIN,
@@ -163,8 +158,11 @@ _PRIMITIVE_OUT_TYPES = {
 }
 
 
-class NodeApp:
-    """Main application class."""
+class NodeApp(
+    TrainingMixin, PollingMixin, FileOpsMixin,
+    EditOpsMixin, LayoutMixin, HandlersMixin,
+):
+    """Main application class. Behaviour split across gui/mixins/ by concern."""
 
     def __init__(self) -> None:
         self.graph = Graph()
@@ -265,14 +263,14 @@ class NodeApp:
         if ptype == PortType.FLOAT:
             tag = dpg.add_input_float(
                 label=port_name, default_value=float(default) if default is not None else 0.0,
-                width=130, step=0, parent=parent_tag,
+                width=NODE_INPUT_W, step=0, parent=parent_tag,
                 callback=lambda s, a, u: self._on_input_changed(u),
                 user_data=key,
             )
         elif ptype == PortType.INT:
             tag = dpg.add_input_int(
                 label=port_name, default_value=int(default) if default is not None else 0,
-                width=130, step=0, parent=parent_tag,
+                width=NODE_INPUT_W, step=0, parent=parent_tag,
                 callback=lambda s, a, u: self._on_input_changed(u),
                 user_data=key,
             )
@@ -289,7 +287,7 @@ class NodeApp:
                     label=port_name,
                     items=port.choices,
                     default_value=str(default) if default is not None else port.choices[0],
-                    width=130, parent=parent_tag,
+                    width=NODE_INPUT_W, parent=parent_tag,
                     callback=lambda s, a, u: self._on_input_changed(u),
                     user_data=key,
                 )
@@ -297,7 +295,7 @@ class NodeApp:
                 tag = dpg.add_input_text(
                     label=port_name,
                     default_value=str(default) if default is not None else "",
-                    width=130, parent=parent_tag,
+                    width=NODE_INPUT_W, parent=parent_tag,
                     callback=lambda s, a, u: self._on_input_changed(u),
                     user_data=key,
                 )
@@ -305,7 +303,7 @@ class NodeApp:
             tag = dpg.add_input_text(
                 label=port_name,
                 default_value=str(default) if default is not None else "",
-                width=130, parent=parent_tag,
+                width=NODE_INPUT_W, parent=parent_tag,
                 callback=lambda s, a, u: self._on_input_changed(u),
                 user_data=key,
             )
@@ -689,75 +687,51 @@ class NodeApp:
                              color=list(TEXT_DIM))
                 return
 
-            # Title
+            # Title + category on one line
             cat_color = list(CATEGORY_COLORS.get(node.category, (160, 160, 180, 255)))
-            dpg.add_text(node.label, parent="inspector_content",
-                         color=[255, 255, 255, 255])
-            dpg.add_spacer(height=2, parent="inspector_content")
-
-            # Category badge
-            dpg.add_text(f"[ {node.category} ]", parent="inspector_content",
-                         color=cat_color)
-            dpg.add_spacer(height=4, parent="inspector_content")
-            dpg.add_separator(parent="inspector_content")
-            dpg.add_spacer(height=4, parent="inspector_content")
+            with dpg.group(horizontal=True, parent="inspector_content"):
+                dpg.add_text(node.label, color=[255, 255, 255, 255])
+                dpg.add_text(f"({node.category})", color=cat_color)
 
             # Description
-            dpg.add_text("Description:", parent="inspector_content", color=list(TEXT_DIM))
             dpg.add_text(node.description, parent="inspector_content",
-                         wrap=INSPECTOR_W - 20, color=list(TEXT))
-            dpg.add_spacer(height=6, parent="inspector_content")
+                         wrap=INSPECTOR_W - 20, color=list(TEXT_DIM))
             dpg.add_separator(parent="inspector_content")
-            dpg.add_spacer(height=4, parent="inspector_content")
 
-            # Inputs section
+            # Inputs
             if node.inputs:
-                dpg.add_text("Inputs:", parent="inspector_content", color=list(TEXT_DIM))
-                dpg.add_spacer(height=2, parent="inspector_content")
+                dpg.add_text("Inputs", parent="inspector_content", color=list(TEXT_DIM))
                 for port_name, port in node.inputs.items():
-                    ptype_str = port.port_type.name
                     pin_col = list(PIN_COLORS.get(port.port_type, (160, 160, 180, 255)))
-                    with dpg.group(horizontal=True, parent="inspector_content"):
-                        dpg.add_text(f"  {port_name}", color=pin_col)
-                        dpg.add_text(f"({ptype_str})", color=list(TEXT_DIM))
                     val = port.default_value
-                    # Show current value from widget if available
                     widget_tag = self.input_widgets.get((node_id, port_name))
                     if widget_tag is not None:
-                        try:
-                            val = dpg.get_value(widget_tag)
-                        except Exception:
-                            pass
-                    dpg.add_text(f"    = {val}", parent="inspector_content",
-                                 color=list(TEXT))
-                dpg.add_spacer(height=6, parent="inspector_content")
+                        try: val = dpg.get_value(widget_tag)
+                        except Exception: pass
+                    with dpg.group(horizontal=True, parent="inspector_content"):
+                        dpg.add_text(f"  {port_name}", color=pin_col)
+                        dpg.add_text(f"= {val}", color=list(TEXT))
 
-            # Outputs section
+            # Outputs
             if node.outputs:
                 dpg.add_separator(parent="inspector_content")
-                dpg.add_spacer(height=4, parent="inspector_content")
-                dpg.add_text("Outputs:", parent="inspector_content", color=list(TEXT_DIM))
-                dpg.add_spacer(height=2, parent="inspector_content")
+                dpg.add_text("Outputs", parent="inspector_content", color=list(TEXT_DIM))
                 for port_name, port in node.outputs.items():
                     if port_name == "__terminal__":
                         continue
-                    ptype_str = port.port_type.name
                     pin_col = list(PIN_COLORS.get(port.port_type, (160, 160, 180, 255)))
-                    with dpg.group(horizontal=True, parent="inspector_content"):
-                        dpg.add_text(f"  {port_name}", color=pin_col)
-                        dpg.add_text(f"({ptype_str})", color=list(TEXT_DIM))
-                    # Show last execution result
                     result_val = "-"
                     if node_id in self._last_outputs and port_name in self._last_outputs[node_id]:
                         raw = self._last_outputs[node_id][port_name]
                         if isinstance(raw, float):
                             result_val = f"{raw:.6g}"
-                        elif hasattr(raw, "shape"):  # torch.Tensor or np.ndarray
+                        elif hasattr(raw, "shape"):
                             result_val = f"shape={list(raw.shape)} dtype={getattr(raw, 'dtype', '?')}"
                         else:
                             result_val = str(raw)
-                    dpg.add_text(f"    = {result_val}", parent="inspector_content",
-                                 color=list(ACCENT))
+                    with dpg.group(horizontal=True, parent="inspector_content"):
+                        dpg.add_text(f"  {port_name}", color=pin_col)
+                        dpg.add_text(f"= {result_val}", color=list(ACCENT))
 
         except Exception as exc:
             print(f"[Inspector] Error: {exc}")
@@ -806,1058 +780,6 @@ class NodeApp:
                         callback=lambda s, a, u: self.spawn_node(u),
                         user_data=cls.type_name,
                     )
-
-    # -- Training methods --------------------------------------------------
-
-    def _collect_model_layers(self, cfg_node_id: str):
-        """Walk tensor_in connections backwards from Training Config to collect
-        layer nodes in forward order. Returns nn.Sequential or None."""
-        import torch.nn as nn
-        conn_map = {(c.to_node_id, c.to_port): (c.from_node_id, c.from_port)
-                    for c in self.graph.connections}
-        ordered_nodes = []
-        current_id   = cfg_node_id
-        current_port = "tensor_in"
-        while True:
-            key = (current_id, current_port)
-            if key not in conn_map:
-                break
-            from_id, _ = conn_map[key]
-            node = self.graph.nodes.get(from_id)
-            if node is None:
-                break
-            if hasattr(node, "get_layers"):
-                ordered_nodes.append(node)
-            current_id   = from_id
-            current_port = "tensor_in"
-        ordered_nodes.reverse()
-        all_modules = []
-        for node in ordered_nodes:
-            all_modules.extend(node.get_layers())
-        return nn.Sequential(*all_modules) if all_modules else None
-
-    def _train_start(self) -> None:
-        """Find pt_training_config node, build model from graph, start training."""
-        from nodes.pytorch.training import _build_optimizer, _build_scheduler
-        self._sync_inputs_from_widgets()
-        try:
-            outputs, _ = self.graph.execute()
-        except Exception as exc:
-            self._log(f"[Train] Graph error: {exc}")
-            return
-        cfg_node_id = None
-        config = None
-        for node_id, node in self.graph.nodes.items():
-            if node.type_name == "pt_training_config" and node_id in outputs:
-                cfg_node_id = node_id
-                config = outputs[node_id].get("config")
-                break
-        if config is None:
-            self._log("[Train] No Training Config node found.")
-            return
-        if config.get("dataloader") is None:
-            self._log("[Train] No dataloader connected to Training Config.")
-            return
-        model = self._collect_model_layers(cfg_node_id)
-        if model is None:
-            self._log("[Train] No layers found - wire layers into Training Config's tensor_in.")
-            return
-        optimizer = _build_optimizer(
-            config["optimizer_name"], model,
-            config["lr"], config["weight_decay"], config["momentum"],
-        )
-        scheduler = _build_scheduler(
-            config["scheduler_name"], optimizer,
-            config["step_size"], config["gamma"], config["T_max"],
-        )
-        full_config = {
-            "model":          model,
-            "optimizer":      optimizer,
-            "loss_fn":        config["loss_fn"],
-            "dataloader":     config["dataloader"],
-            "val_dataloader": config.get("val_dataloader"),
-            "scheduler":      scheduler,
-            "epochs":         config["epochs"],
-            "device":         config["device"],
-        }
-        self._log(f"[Train] Starting: {config['epochs']} epochs on {config['device']}  "
-                  f"({len(list(model.parameters()))} param tensors)")
-        self._training_ctrl.on_epoch_end = self.refresh_graph_silent
-        self._training_ctrl.start(full_config)
-        try:
-            dpg.set_value("train_status_text", "Status: Running")
-        except Exception:
-            pass
-
-    def _train_check_wiring(self) -> None:
-        """Run the graph and report training wiring status."""
-        self._sync_inputs_from_widgets()
-        self._log("-" * 40)
-        self._log("Checking training wiring...")
-        try:
-            outputs, _ = self.graph.execute()
-        except Exception as exc:
-            self._log(f"[Check] Graph error: {exc}")
-            return
-        cfg_node_id = None
-        config = None
-        for node_id, node in self.graph.nodes.items():
-            if node.type_name == "pt_training_config" and node_id in outputs:
-                cfg_node_id = node_id
-                config = outputs[node_id].get("config")
-                break
-        if config is None:
-            self._log("[Check] No Training Config node found.")
-            return
-        model = self._collect_model_layers(cfg_node_id)
-        if model is None:
-            self._log("[Check] [x] No layers connected to tensor_in.")
-        else:
-            n_params = sum(p.numel() for p in model.parameters())
-            self._log(f"[Check] [ok] Model: {len(list(model.children()))} modules, {n_params:,} parameters")
-        if config.get("dataloader") is not None:
-            self._log("[Check] [ok] dataloader connected")
-        else:
-            self._log("[Check] [x] dataloader not connected")
-        val_dl = config.get("val_dataloader")
-        self._log(f"[Check]   val_dataloader: {'connected' if val_dl else 'not connected (optional)'}")
-        self._log(f"[Check]   optimizer: {config.get('optimizer_name', '?')}  lr={config.get('lr', '?')}")
-        self._log(f"[Check]   loss: {config.get('loss_fn', '?').__class__.__name__}")
-        if model is not None and config.get("dataloader") is not None:
-            self._log("[Check] Ready to train!")
-
-    def _train_pause_resume(self) -> None:
-        if self._training_ctrl.status == "running":
-            self._training_ctrl.pause()
-            try:
-                dpg.set_value("train_status_text", "Status: Paused")
-            except Exception:
-                pass
-        elif self._training_ctrl.status == "paused":
-            self._training_ctrl.resume()
-            try:
-                dpg.set_value("train_status_text", "Status: Running")
-            except Exception:
-                pass
-
-    def _train_stop(self) -> None:
-        self._training_ctrl.stop()
-        try:
-            dpg.set_value("train_status_text", "Status: Stopped")
-        except Exception:
-            pass
-
-    def _save_model(self) -> None:
-        model = self._training_ctrl.last_model
-        if model is None:
-            self._log("[Train] No trained model to save.")
-            return
-        import tkinter as tk
-        from tkinter import filedialog
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            path = filedialog.asksaveasfilename(
-                title="Save Model As",
-                defaultextension=".pt",
-                filetypes=[("PyTorch model", "*.pt"), ("All files", "*.*")],
-            )
-            root.destroy()
-            if not path:
-                return
-            import torch
-            torch.save(model, path)
-            total = sum(p.numel() for p in model.parameters())
-            self._log(f"[Train] Model saved -> {path}  ({total:,} params)")
-            self._log("[Train] Load it on any canvas with the Pretrained Block node.")
-        except Exception as e:
-            self._log(f"[Train] Save failed: {e}")
-
-    def _poll_hot_reload(self) -> None:
-        """Check nodes/custom/ for new/changed files and update palette."""
-        results = self._hot_reloader.poll()
-        for msg, new_types in results:
-            self._log(msg)
-            for type_name in new_types:
-                self._add_palette_button(type_name)
-                # Hide the hint text once real nodes appear
-                if dpg.does_item_exist("custom_hint_text"):
-                    dpg.hide_item("custom_hint_text")
-
-    def _add_palette_button(self, type_name: str) -> None:
-        """Add a button for type_name to the correct palette category."""
-        from nodes import NODE_REGISTRY
-        cls = NODE_REGISTRY.get(type_name)
-        if cls is None:
-            return
-        tag = f"palette_btn_{type_name}"
-        if dpg.does_item_exist(tag):
-            return  # already present
-
-        cat = cls.category
-        sub = getattr(cls, "subcategory", "") or ""
-        sub_key = f"{cat}/{sub}" if sub else cat
-
-        if cat not in self._palette_cat_items:
-            with dpg.collapsing_header(
-                label=cat, default_open=False, parent="PaletteWindow"
-            ) as hdr:
-                self._palette_cat_items[cat] = hdr
-
-        if sub and sub_key not in self._palette_cat_items:
-            with dpg.collapsing_header(
-                label=sub, default_open=False,
-                parent=self._palette_cat_items[cat]
-            ) as sub_hdr:
-                self._palette_cat_items[sub_key] = sub_hdr
-
-        hdr = self._palette_cat_items[sub_key]
-        btn_w = PALETTE_W - 36 if sub else PALETTE_W - 24
-
-        dpg.add_button(
-            label=cls.label,
-            tag=tag,
-            width=btn_w,
-            callback=lambda s, a, u: self.spawn_node(u),
-            user_data=type_name,
-            parent=hdr,
-        )
-        dpg.add_spacer(height=2, parent=hdr)
-
-    def _poll_terminal_resize(self) -> None:
-        """Resize terminal content widgets to fill the (user-resizable) TerminalWindow."""
-        try:
-            w, h = dpg.get_item_rect_size("TerminalWindow")
-        except Exception:
-            return
-        if (w, h) == self._term_last_size:
-            return
-        self._term_last_size = (w, h)
-        content_h = max(60, h - 70)   # subtract toolbar + tab-bar header
-        content_w = max(100, w - 30)
-        try:
-            dpg.set_item_height("terminal_scroll", content_h)
-        except Exception:
-            pass
-        try:
-            dpg.set_item_height("code_scroll", content_h)
-            dpg.set_item_height("code_text", content_h - 10)
-            dpg.set_item_width("code_text", content_w)
-        except Exception:
-            pass
-        try:
-            dpg.set_item_width("terminal_text", content_w)
-            dpg.set_item_height("terminal_text", content_h - 10)
-        except Exception:
-            pass
-
-    def _poll_layout(self) -> None:
-        """Reanchor all panels to the viewport edges whenever the viewport or terminal is resized."""
-        try:
-            vw = dpg.get_viewport_client_width()
-            vh = dpg.get_viewport_client_height()
-        except Exception:
-            return
-        try:
-            _, term_h = dpg.get_item_rect_size("TerminalWindow")
-            term_h = max(80, term_h)
-        except Exception:
-            term_h = TERMINAL_H
-
-        key = (vw, vh, term_h)
-        if key == self._layout_last:
-            return
-        self._layout_last = key
-
-        MENU_H   = 20
-        center_x = PALETTE_W + 4
-        center_w = max(200, vw - PALETTE_W - INSPECTOR_W - 8)
-        right_x  = vw - INSPECTOR_W - 2
-        editor_h = max(100, vh - term_h - MENU_H - 40)
-        term_y   = editor_h + MENU_H + 4
-
-        # Palette - full height, left edge
-        try:
-            dpg.set_item_height("PaletteWindow", vh - MENU_H - 18)
-        except Exception:
-            pass
-
-        # Editor - fills centre above terminal
-        try:
-            dpg.set_item_pos("EditorWindow", [center_x, MENU_H])
-            dpg.set_item_width("EditorWindow", center_w)
-            dpg.set_item_height("EditorWindow", editor_h)
-        except Exception:
-            pass
-
-        # Terminal - bottom of centre column, right-edge tracks viewport
-        try:
-            dpg.set_item_pos("TerminalWindow", [center_x, term_y])
-            dpg.set_item_width("TerminalWindow", center_w)
-        except Exception:
-            pass
-
-        # Right column - all three panels track the right edge
-        try:
-            dpg.set_item_pos("InspectorWindow", [right_x, MENU_H])
-            dpg.set_item_pos("TrainingWindow",  [right_x, MENU_H + 284])
-            dpg.set_item_pos("InferenceWindow", [right_x, MENU_H + 668])
-        except Exception:
-            pass
-
-    def _poll_training(self) -> None:
-        """Called each frame - drain training events, update UI."""
-        lines = self._training_ctrl.poll()
-        for line in lines:
-            self._log(line)
-        if lines:  # update plot
-            losses = self._training_ctrl.train_losses
-            if losses:
-                try:
-                    xs = list(range(1, len(losses) + 1))
-                    dpg.set_value("loss_series", [xs, losses])
-                    val_losses = self._training_ctrl.val_losses
-                    if val_losses:
-                        dpg.set_value("val_loss_series", [list(range(1, len(val_losses) + 1)), val_losses])
-                    dpg.fit_axis_data("loss_x_axis")
-                    dpg.fit_axis_data("loss_y_axis")
-                    dpg.set_value("train_epoch_text",
-                        f"Epoch: {self._training_ctrl.current_epoch}/{self._training_ctrl.total_epochs}")
-                    val_str = f"  val={val_losses[-1]:.6f}" if val_losses else ""
-                    dpg.set_value("train_loss_text",
-                        f"Best loss: {self._training_ctrl.best_loss:.6f}{val_str}")
-                    if self._training_ctrl.status in ("done", "error"):
-                        status_str = f"Status: {self._training_ctrl.status.capitalize()}"
-                        dpg.set_value("train_status_text", status_str)
-                except Exception:
-                    pass
-
-    # -- Save/Load methods -------------------------------------------------
-
-    def _save_graph(self) -> None:
-        """Ctrl+S - save graph to JSON."""
-        try:
-            positions = {}
-            for node_id, node_tag in self.node_id_to_dpg.items():
-                try:
-                    pos = dpg.get_item_pos(node_tag)
-                    positions[node_id] = pos
-                except Exception:
-                    positions[node_id] = [100, 100]
-            path = self._save_path or "graph.json"
-            Serializer.save(self.graph, positions, path)
-            self._save_path = path
-            self._log(f"Graph saved to {path}")
-        except Exception as e:
-            self._log(f"Save failed: {e}")
-
-    def _save_graph_as(self) -> None:
-        """Save graph to a user-chosen path."""
-        import tkinter as tk
-        from tkinter import filedialog
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            path = filedialog.asksaveasfilename(
-                title="Save Graph As",
-                defaultextension=".json",
-                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            )
-            root.destroy()
-            if not path:
-                return
-            self._save_path = path
-            self._save_graph()
-        except Exception as e:
-            self._log(f"Save As failed: {e}")
-
-    def _load_graph(self) -> None:
-        """Ctrl+O - load graph from JSON."""
-        import tkinter as tk
-        from tkinter import filedialog
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            path = filedialog.askopenfilename(
-                title="Load Graph",
-                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-            )
-            root.destroy()
-            if not path:
-                return
-            graph, positions = Serializer.load(path)
-            # Clear existing editor (clears self.graph in-place)
-            self._clear_editor()
-            # Populate the same graph object the executor already holds
-            for node in graph.nodes.values():
-                self.graph.add_node(node)
-            for conn in graph.connections:
-                self.graph.add_connection(
-                    conn.from_node_id, conn.from_port,
-                    conn.to_node_id, conn.to_port
-                )
-            # Rebuild DPG nodes
-            for node_id, node in graph.nodes.items():
-                pos = positions.get(node_id, [100, 100])
-                self.add_node_to_editor(node, tuple(pos))
-            # Rebuild DPG links
-            for conn in graph.connections:
-                from_attr = f"attr_out_{conn.from_node_id}_{conn.from_port}"
-                to_attr = f"attr_in_{conn.to_node_id}_{conn.to_port}"
-                if dpg.does_item_exist(from_attr) and dpg.does_item_exist(to_attr):
-                    lt = dpg.add_node_link(from_attr, to_attr, parent="NodeEditor")
-                    self.dpg_link_to_conn[lt] = (conn.from_node_id, conn.from_port, conn.to_node_id, conn.to_port)
-            self._log(f"Graph loaded from {path}")
-        except Exception as e:
-            import traceback
-            self._log(f"Load failed: {traceback.format_exc()}")
-
-    def _refresh_code_panel(self) -> None:
-        """Regenerate the export script and show it in the Code tab."""
-        try:
-            from core.io import GraphExporter
-            script = GraphExporter().export(self.graph)
-            dpg.set_value("code_text", script)
-        except Exception as e:
-            try:
-                dpg.set_value("code_text", f"# Code generation error: {e}")
-            except Exception:
-                pass
-
-    def _export_script(self) -> None:
-        """Ctrl+E - export graph to a runnable Python script."""
-        import tkinter as tk
-        from tkinter import filedialog
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            path = filedialog.asksaveasfilename(
-                title="Export Python Script",
-                defaultextension=".py",
-                filetypes=[("Python files", "*.py"), ("All files", "*.*")]
-            )
-            root.destroy()
-            if not path:
-                return
-            from core.io import GraphExporter
-            script = GraphExporter().export(self.graph)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(script)
-            self._log(f"Script exported to {path}")
-            try:
-                dpg.set_value("code_text", script)
-            except Exception:
-                pass
-        except Exception as e:
-            import traceback
-            self._log(f"Export failed: {traceback.format_exc()}")
-
-    def _clear_editor(self) -> None:
-        """Delete all nodes and links from DPG, clear all dicts, and reset the graph."""
-        # Delete all links first
-        for lt in list(self.dpg_link_to_conn.keys()):
-            try:
-                if dpg.does_item_exist(lt):
-                    dpg.delete_item(lt)
-            except Exception:
-                pass
-        self.dpg_link_to_conn.clear()
-        # Delete all nodes
-        for node_tag in list(self.node_id_to_dpg.values()):
-            try:
-                if dpg.does_item_exist(node_tag):
-                    dpg.delete_item(node_tag)
-            except Exception:
-                pass
-        self.dpg_node_to_node_id.clear()
-        self.node_id_to_dpg.clear()
-        self.dpg_attr_to_key.clear()
-        self.input_widgets.clear()
-        self.output_displays.clear()
-        self.selected_node_id = None
-        self._update_inspector(None)
-        self._node_base_pos.clear()
-        self._zoom = 1.0
-        # Clear graph in-place so executor and code panel stay in sync
-        self.graph.clear()
-
-    # -- Copy/paste --------------------------------------------------------
-
-    def _copy_nodes(self) -> None:
-        try:
-            selected = list(dpg.get_selected_nodes("NodeEditor"))
-        except Exception:
-            return
-        self._clipboard.clear()
-        positions = []
-        for nt in selected:
-            node_id = self.dpg_node_to_node_id.get(nt)
-            if node_id is None:
-                continue
-            node = self.graph.get_node(node_id)
-            if node is None:
-                continue
-            try:
-                pos = dpg.get_item_pos(self.node_id_to_dpg.get(node_id, nt))
-            except Exception:
-                pos = [100, 100]
-            positions.append(pos)
-            self._clipboard.append({
-                "type_name": node.type_name,
-                "orig_id": node_id,
-                "input_defaults": {k: p.default_value for k, p in node.inputs.items()},
-                "pos": pos,
-            })
-        if not positions:
-            return
-        # Make positions relative to centroid
-        cx = sum(p[0] for p in positions) / len(positions)
-        cy = sum(p[1] for p in positions) / len(positions)
-        for entry in self._clipboard:
-            entry["rel_pos"] = [entry["pos"][0] - cx, entry["pos"][1] - cy]
-        self._log(f"Copied {len(self._clipboard)} node(s)")
-
-    def _paste_nodes(self) -> None:
-        if not self._clipboard:
-            return
-        ox, oy = 400, 300  # default paste position
-        id_map = {}  # orig_id -> new node_id
-        for entry in self._clipboard:
-            cls = NODE_REGISTRY.get(entry["type_name"])
-            if cls is None:
-                continue
-            node = cls()
-            # Restore primitive input defaults
-            for k, v in entry.get("input_defaults", {}).items():
-                if k in node.inputs and v is not None:
-                    if node.inputs[k].port_type in (PortType.FLOAT, PortType.INT, PortType.BOOL, PortType.STRING):
-                        node.inputs[k].default_value = v
-            self.graph.add_node(node)
-            rx, ry = entry.get("rel_pos", [0, 0])
-            pos = (int(ox + rx + 40), int(oy + ry + 40))
-            self.add_node_to_editor(node, pos)
-            id_map[entry["orig_id"]] = node.id
-        self._log(f"Pasted {len(id_map)} node(s)")
-
-    # -- Palette search ----------------------------------------------------
-
-    def _filter_palette(self, text: str) -> None:
-        text = text.lower().strip()
-        for type_name, cls in NODE_REGISTRY.items():
-            btn_tag = f"palette_btn_{type_name}"
-            if dpg.does_item_exist(btn_tag):
-                if not text or text in type_name.lower() or text in cls.label.lower():
-                    dpg.show_item(btn_tag)
-                else:
-                    dpg.hide_item(btn_tag)
-
-    # -- Request processing (between frames) -------------------------------
-
-    def _process_requests(self) -> None:
-        if self._undo_requested:
-            self._undo_requested = False
-            self.command_stack.undo()
-        if self._redo_requested:
-            self._redo_requested = False
-            self.command_stack.redo()
-        if self._save_requested:
-            self._save_requested = False
-            self._save_graph()
-        if self._export_requested:
-            self._export_requested = False
-            self._export_script()
-        if self._copy_requested:
-            self._copy_requested = False
-            self._copy_nodes()
-        if self._paste_requested:
-            self._paste_requested = False
-            self._paste_nodes()
-
-    # -- Demo graph --------------------------------------------------------
-    # Demo graph only uses existing Math/Data nodes (FloatConst, Add, Multiply, Print)
-
-    def _build_demo_graph(self) -> None:
-        """Pre-populate with the MNIST digit recognition demo.
-
-        Each layer node owns its weights (self._layer). Two wires per layer:
-          - tensor_out: live forward pass through that layers current weights
-          - model: assembles the Sequential chain for the training loop
-
-        After each training epoch the graph re-executes automatically, so
-        tensor_out values update to reflect the newly trained weights.
-
-          MNIST (train) --dataloader--> Training Config
-                        --dataloader--> Sample Batch --x--> Flatten --tensor_out--> Lin1 --tensor_out--> Lin2 --tensor_out--> Lin3
-          MNIST (val)   --dataloader--> Training Config
-          Flatten --model--> Lin1 --model--> Lin2 --model--> Lin3 --model--> Training Config
-        """
-        from nodes.pytorch.layers import FlattenNode, LinearNode
-        from nodes.pytorch.data import MNISTDatasetNode, SampleBatchNode
-        from nodes.pytorch.training import TrainingConfigNode
-
-        # -- Architecture nodes --------------------------------------------
-        flatten = FlattenNode()
-        self.graph.add_node(flatten)
-
-        lin1 = LinearNode()
-        lin1.inputs["in_features"].default_value  = 784
-        lin1.inputs["out_features"].default_value = 256
-        lin1.inputs["activation"].default_value   = "relu"
-        self.graph.add_node(lin1)
-
-        lin2 = LinearNode()
-        lin2.inputs["in_features"].default_value  = 256
-        lin2.inputs["out_features"].default_value = 128
-        lin2.inputs["activation"].default_value   = "relu"
-        self.graph.add_node(lin2)
-
-        lin3 = LinearNode()
-        lin3.inputs["in_features"].default_value  = 128
-        lin3.inputs["out_features"].default_value = 10
-        self.graph.add_node(lin3)
-
-        # -- Data nodes ----------------------------------------------------
-        mnist_train = MNISTDatasetNode()
-        mnist_train.inputs["train"].default_value      = True
-        mnist_train.inputs["batch_size"].default_value = 64
-        self.graph.add_node(mnist_train)
-
-        mnist_val = MNISTDatasetNode()
-        mnist_val.inputs["train"].default_value      = False
-        mnist_val.inputs["batch_size"].default_value = 64
-        self.graph.add_node(mnist_val)
-
-        sample = SampleBatchNode()
-        self.graph.add_node(sample)
-
-        # -- Training Config -----------------------------------------------
-        cfg = TrainingConfigNode()
-        cfg.inputs["epochs"].default_value    = 5
-        cfg.inputs["device"].default_value    = "cpu"
-        cfg.inputs["optimizer"].default_value = "adam"
-        cfg.inputs["lr"].default_value        = 0.001
-        cfg.inputs["loss"].default_value      = "crossentropy"
-        cfg.inputs["scheduler"].default_value = "none"
-        self.graph.add_node(cfg)
-
-        # -- Connections ---------------------------------------------------
-        self.graph.add_connection(mnist_train.id, "dataloader", cfg.id,    "dataloader")
-        self.graph.add_connection(mnist_train.id, "dataloader", sample.id, "dataloader")
-        self.graph.add_connection(mnist_val.id,   "dataloader", cfg.id,    "val_dataloader")
-        self.graph.add_connection(sample.id,      "x",          flatten.id, "tensor_in")
-        self.graph.add_connection(flatten.id,     "tensor_out", lin1.id,    "tensor_in")
-        self.graph.add_connection(lin1.id,        "tensor_out", lin2.id,    "tensor_in")
-        self.graph.add_connection(lin2.id,        "tensor_out", lin3.id,    "tensor_in")
-        self.graph.add_connection(lin3.id,        "tensor_out", cfg.id,     "tensor_in")
-
-        # -- Positions -----------------------------------------------------
-        positions = {
-            mnist_train.id: (  40,  30),
-            mnist_val.id:   (  40, 200),
-            sample.id:      ( 270,  30),
-            flatten.id:     ( 460,  30),
-            lin1.id:        ( 640,  30),
-            lin2.id:        ( 840,  30),
-            lin3.id:        (1040,  30),
-            cfg.id:         (1240,  30),
-        }
-        all_nodes = [mnist_train, mnist_val, sample, flatten, lin1, lin2, lin3, cfg]
-        for node in all_nodes:
-            self.add_node_to_editor(node, positions[node.id])
-
-        # -- DPG visual links ----------------------------------------------
-        link_pairs = [
-            (mnist_train.id, "dataloader", cfg.id,    "dataloader"),
-            (mnist_train.id, "dataloader", sample.id, "dataloader"),
-            (mnist_val.id,   "dataloader", cfg.id,    "val_dataloader"),
-            (sample.id,      "x",          flatten.id, "tensor_in"),
-            (flatten.id,     "tensor_out", lin1.id,    "tensor_in"),
-            (lin1.id,        "tensor_out", lin2.id,    "tensor_in"),
-            (lin2.id,        "tensor_out", lin3.id,    "tensor_in"),
-            (lin3.id,        "tensor_out", cfg.id,     "tensor_in"),
-        ]
-        for fn, fp, tn, tp in link_pairs:
-            from_attr = f"attr_out_{fn}_{fp}"
-            to_attr   = f"attr_in_{tn}_{tp}"
-            if dpg.does_item_exist(from_attr) and dpg.does_item_exist(to_attr):
-                link_tag = dpg.add_node_link(from_attr, to_attr, parent="NodeEditor")
-                self.dpg_link_to_conn[link_tag] = (fn, fp, tn, tp)
-
-    # -- Layout ------------------------------------------------------------
-
-    def _build_layout(self) -> None:
-        """Create all DPG windows and the node editor."""
-        # Create texture registry early (needed for inline Viz node images)
-        with dpg.texture_registry(tag="__tex_registry__"):
-            pass
-
-        MENU_H = 20   # viewport menu bar height
-
-        editor_x = PALETTE_W + 4
-        editor_w = VIEWPORT_W - PALETTE_W - INSPECTOR_W - 8
-        editor_h = VIEWPORT_H - TERMINAL_H - 40 - MENU_H
-        inspector_x = PALETTE_W + 4 + editor_w + 4
-
-        # -- Palette header themes -----------------------------------------
-        with dpg.theme() as _cat_theme:
-            with dpg.theme_component(dpg.mvCollapsingHeader):
-                dpg.add_theme_color(dpg.mvThemeCol_Header,        (40,  42,  70,  255))
-                dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,  (55,  58,  95,  255))
-                dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,   (70,  74, 118,  255))
-        self._cat_header_theme = _cat_theme
-
-        with dpg.theme() as _sub_theme:
-            with dpg.theme_component(dpg.mvCollapsingHeader):
-                dpg.add_theme_color(dpg.mvThemeCol_Header,        (28,  35,  45,  255))
-                dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,  (38,  48,  62,  255))
-                dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,   (48,  60,  78,  255))
-        self._sub_header_theme = _sub_theme
-
-        # -- File menu bar -------------------------------------------------
-        with dpg.viewport_menu_bar():
-            with dpg.menu(label="File"):
-                dpg.add_menu_item(label="New",         shortcut="Ctrl+N",
-                                  callback=lambda: self._clear_editor())
-                dpg.add_separator()
-                dpg.add_menu_item(label="Open Graph...", shortcut="Ctrl+O",
-                                  callback=lambda: self._load_graph())
-                dpg.add_menu_item(label="Save Graph",  shortcut="Ctrl+S",
-                                  callback=lambda: self._save_graph())
-                dpg.add_menu_item(label="Save Graph As...",
-                                  callback=lambda: self._save_graph_as())
-                dpg.add_separator()
-                dpg.add_menu_item(label="Export Script...", shortcut="Ctrl+E",
-                                  callback=lambda: self._export_script())
-            with dpg.menu(label="Edit"):
-                dpg.add_menu_item(label="Undo",  shortcut="Ctrl+Z",
-                                  callback=lambda: setattr(self, "_undo_requested", True))
-                dpg.add_menu_item(label="Redo",  shortcut="Ctrl+Y",
-                                  callback=lambda: setattr(self, "_redo_requested", True))
-                dpg.add_separator()
-                dpg.add_menu_item(label="Copy",  shortcut="Ctrl+C",
-                                  callback=lambda: setattr(self, "_copy_requested",  True))
-                dpg.add_menu_item(label="Paste", shortcut="Ctrl+V",
-                                  callback=lambda: setattr(self, "_paste_requested", True))
-
-        # -- Palette window ------------------------------------------------
-        with dpg.window(
-            label="Node Palette",
-            tag="PaletteWindow",
-            pos=[0, MENU_H],
-            width=PALETTE_W,
-            height=VIEWPORT_H - 20,
-            no_close=True,
-            no_collapse=True,
-        ):
-            dpg.add_text("NODES", color=list(ACCENT))
-            dpg.add_separator()
-            dpg.add_spacer(height=4)
-
-            # Search box
-            dpg.add_input_text(
-                tag="palette_search",
-                hint="Search nodes...",
-                width=-1,
-                callback=lambda s, a: self._filter_palette(a),
-            )
-            dpg.add_spacer(height=4)
-
-            categories = get_nodes_by_category()
-            for cat in CATEGORY_ORDER:
-                if cat not in categories:
-                    continue
-
-                nodes_in_cat = categories[cat]
-                # Check if any node in this category uses subcategories
-                has_subs = any(getattr(cls, "subcategory", "") for cls in nodes_in_cat)
-
-                with dpg.collapsing_header(label=cat, default_open=False) as hdr:
-                    self._palette_cat_items[cat] = hdr
-                    dpg.bind_item_theme(hdr, self._cat_header_theme)
-
-                    if not has_subs:
-                        for cls in nodes_in_cat:
-                            dpg.add_button(
-                                label=cls.label,
-                                tag=f"palette_btn_{cls.type_name}",
-                                width=PALETTE_W - 24,
-                                callback=lambda s, a, u: self.spawn_node(u),
-                                user_data=cls.type_name,
-                            )
-                            dpg.add_spacer(height=2)
-                    else:
-                        # Group by subcategory, preserving insertion order
-                        sub_groups: dict[str, list] = {}
-                        for cls in nodes_in_cat:
-                            sub = getattr(cls, "subcategory", "") or ""
-                            sub_groups.setdefault(sub, []).append(cls)
-                        for sub_label, sub_nodes in sub_groups.items():
-                            sub_key = f"{cat}/{sub_label}"
-                            dpg.add_spacer(height=1)
-                            with dpg.collapsing_header(
-                                label=f"  > {sub_label}", default_open=False,
-                                indent=8,
-                            ) as sub_hdr:
-                                self._palette_cat_items[sub_key] = sub_hdr
-                                dpg.bind_item_theme(sub_hdr, self._sub_header_theme)
-                                for cls in sub_nodes:
-                                    dpg.add_button(
-                                        label=cls.label,
-                                        tag=f"palette_btn_{cls.type_name}",
-                                        width=PALETTE_W - 48,
-                                        callback=lambda s, a, u: self.spawn_node(u),
-                                        user_data=cls.type_name,
-                                    )
-                                    dpg.add_spacer(height=2)
-                dpg.add_spacer(height=4)
-
-            # Custom (hot-reload) section - starts empty, populated at runtime
-            with dpg.collapsing_header(label="Custom", default_open=False) as hdr:
-                self._palette_cat_items["Custom"] = hdr
-                dpg.add_text("Drop .py files in nodes/custom/", color=list(TEXT_DIM),
-                             tag="custom_hint_text", wrap=PALETTE_W - 24)
-            dpg.add_spacer(height=4)
-
-            dpg.add_separator()
-            dpg.add_spacer(height=6)
-            dpg.add_text("Hotkeys:", color=list(TEXT_DIM))
-            dpg.add_text("Del - delete nodes or links", color=list(TEXT_DIM))
-            dpg.add_text("Right-click - context menu", color=list(TEXT_DIM))
-            dpg.add_text("Ctrl+Z / Y - undo / redo", color=list(TEXT_DIM))
-            dpg.add_text("Ctrl+C / V - copy / paste", color=list(TEXT_DIM))
-            dpg.add_text("Ctrl+S - save graph", color=list(TEXT_DIM))
-            dpg.add_text("Ctrl+E - export to .py", color=list(TEXT_DIM))
-
-        # -- Node Editor window --------------------------------------------
-        with dpg.window(
-            label="Node Editor",
-            tag="EditorWindow",
-            pos=[PALETTE_W + 4, MENU_H],
-            width=editor_w,
-            height=editor_h,
-            no_close=True,
-            no_collapse=True,
-        ):
-            with dpg.node_editor(
-                tag="NodeEditor",
-                callback=self._link_callback,
-                delink_callback=self._delink_callback,
-                minimap=True,
-                minimap_location=dpg.mvNodeMiniMap_Location_BottomRight,
-            ):
-                pass  # nodes added dynamically
-
-        # -- Inspector window ----------------------------------------------
-        inspector_height = 280
-        with dpg.window(
-            label="Inspector",
-            tag="InspectorWindow",
-            pos=[inspector_x, MENU_H],
-            width=INSPECTOR_W,
-            height=inspector_height,
-            no_close=True,
-            no_collapse=True,
-        ):
-            dpg.add_text("INSPECTOR", color=list(ACCENT))
-            dpg.add_separator()
-            dpg.add_spacer(height=4)
-            with dpg.child_window(tag="inspector_content", autosize_x=True,
-                                  height=inspector_height - 60, border=False):
-                dpg.add_text("Click a node to inspect.", color=list(TEXT_DIM))
-
-        # -- Training Panel window -----------------------------------------
-        training_y = inspector_height + MENU_H + 4
-        training_h = 380
-        with dpg.window(
-            label="Training",
-            tag="TrainingWindow",
-            pos=[inspector_x, training_y],
-            width=INSPECTOR_W,
-            height=training_h,
-            no_close=True,
-            no_collapse=True,
-        ):
-            dpg.add_text("Training", color=list(ACCENT))
-            dpg.add_separator()
-            dpg.add_spacer(height=4)
-            dpg.add_text("Status: Idle", tag="train_status_text", color=list(TEXT_DIM))
-            dpg.add_spacer(height=4)
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Start", tag="train_start_btn",
-                               callback=lambda: self._train_start())
-                dpg.add_button(label="Pause", tag="train_pause_btn",
-                               callback=lambda: self._train_pause_resume())
-                dpg.add_button(label="Stop", tag="train_stop_btn",
-                               callback=lambda: self._train_stop())
-            dpg.add_button(label="Check Wiring", width=-1,
-                           callback=lambda: self._train_check_wiring())
-            dpg.add_spacer(height=4)
-            dpg.add_text("Epoch: 0/0", tag="train_epoch_text", color=list(TEXT))
-            dpg.add_text("Best loss: -", tag="train_loss_text", color=list(TEXT))
-            dpg.add_spacer(height=4)
-            with dpg.plot(label="Loss", height=150, width=-1, tag="loss_plot"):
-                dpg.add_plot_axis(dpg.mvXAxis, label="Epoch", tag="loss_x_axis")
-                with dpg.plot_axis(dpg.mvYAxis, label="Loss", tag="loss_y_axis"):
-                    dpg.add_line_series([], [], label="train", tag="loss_series")
-                    dpg.add_line_series([], [], label="val", tag="val_loss_series")
-            dpg.add_spacer(height=4)
-            dpg.add_button(label="Save Model", tag="save_model_btn",
-                           callback=lambda: self._save_model())
-
-        # -- Terminal window -----------------------------------------------
-        term_y = editor_h + MENU_H + 4
-        term_w = VIEWPORT_W - PALETTE_W - INSPECTOR_W - 8
-        with dpg.window(
-            label="Terminal",
-            tag="TerminalWindow",
-            pos=[PALETTE_W + 4, term_y],
-            width=term_w,
-            height=TERMINAL_H,
-            no_close=True,
-            no_collapse=True,
-        ):
-            with dpg.group(horizontal=True):
-                run_btn = dpg.add_button(
-                    label="  >  Run Graph  ",
-                    callback=lambda: self.run_graph(),
-                    height=32,
-                )
-                dpg.add_spacer(width=8)
-                dpg.add_button(
-                    label="  Export .py  ",
-                    callback=lambda: self._export_script(),
-                    height=32,
-                )
-                dpg.add_spacer(width=8)
-                clear_btn = dpg.add_button(
-                    label="  Clear All  ",
-                    callback=lambda: self._clear_all(),
-                    height=32,
-                )
-
-            dpg.add_spacer(height=4)
-            tab_content_h = TERMINAL_H - 70
-
-            with dpg.tab_bar(tag="terminal_tab_bar"):
-                with dpg.tab(label="Output", tag="tab_output"):
-                    with dpg.child_window(tag="terminal_scroll", autosize_x=True,
-                                          height=tab_content_h, border=False):
-                        dpg.add_input_text(
-                            tag="terminal_text",
-                            default_value="",
-                            multiline=True,
-                            readonly=True,
-                            width=-1,
-                            height=tab_content_h - 10,
-                        )
-
-                with dpg.tab(label="Code", tag="tab_code"):
-                    with dpg.child_window(tag="code_scroll", autosize_x=True,
-                                          height=tab_content_h, border=False):
-                        dpg.add_input_text(
-                            tag="code_text",
-                            default_value="# Run the graph to generate code preview.",
-                            multiline=True,
-                            readonly=True,
-                            width=term_w - 30,
-                            height=tab_content_h - 10,
-                            tab_input=True,
-                        )
-
-            # Apply colored button themes
-            dpg.bind_item_theme(run_btn, create_run_button_theme())
-            dpg.bind_item_theme(clear_btn, create_clear_button_theme())
-
-    # -- Event handlers ----------------------------------------------------
-
-    def _handle_zoom(self, sender, app_data) -> None:
-        """Ctrl+scroll to zoom the canvas by rescaling all node positions."""
-        if not (dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)):
-            return
-        # app_data is the scroll delta (positive = up = zoom in)
-        delta = app_data
-        factor = 1.1 if delta > 0 else (1 / 1.1)
-        new_zoom = max(0.2, min(3.0, self._zoom * factor))
-        if new_zoom == self._zoom:
-            return
-
-        # Get mouse position as zoom pivot
-        mx, my = dpg.get_mouse_pos(local=False)
-        # Convert to canvas coords at current zoom
-        try:
-            ex, ey = dpg.get_item_pos("EditorWindow")
-        except Exception:
-            ex, ey = 0, 0
-        pivot_x = (mx - ex) / self._zoom
-        pivot_y = (my - ey) / self._zoom
-
-        self._zoom = new_zoom
-
-        # Sync base positions from actual current DPG positions (user may have dragged nodes)
-        for node_id, node_tag in self.node_id_to_dpg.items():
-            try:
-                cx, cy = dpg.get_item_pos(node_tag)
-                self._node_base_pos[node_id] = [cx / (new_zoom / factor),
-                                                cy / (new_zoom / factor)]
-            except Exception:
-                pass
-
-        # Reposition every node: scale from pivot
-        for node_id, node_tag in self.node_id_to_dpg.items():
-            base = self._node_base_pos.get(node_id)
-            if base is None:
-                continue
-            try:
-                nx = pivot_x + (base[0] - pivot_x) * new_zoom
-                ny = pivot_y + (base[1] - pivot_y) * new_zoom
-                dpg.set_item_pos(node_tag, [int(nx), int(ny)])
-            except Exception:
-                pass
-
-    def _handle_undo(self):
-        if dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl):
-            self._undo_requested = True
-
-    def _handle_redo(self):
-        if dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl):
-            self._redo_requested = True
-
-    def _handle_copy(self):
-        if dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl):
-            self._copy_requested = True
-
-    def _handle_paste(self):
-        if dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl):
-            self._paste_requested = True
-
-    def _handle_save(self):
-        if dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl):
-            self._save_requested = True
-
-    def _handle_export(self):
-        if dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl):
-            self._export_requested = True
-
-    def _setup_handlers(self) -> None:
-        """Register keyboard and mouse handlers."""
-        with dpg.handler_registry():
-            dpg.add_key_press_handler(
-                key=dpg.mvKey_Delete,
-                callback=lambda: self.delete_selected(),
-            )
-            dpg.add_key_press_handler(key=dpg.mvKey_Z, callback=self._handle_undo)
-            dpg.add_key_press_handler(key=dpg.mvKey_Y, callback=self._handle_redo)
-            dpg.add_key_press_handler(key=dpg.mvKey_C, callback=self._handle_copy)
-            dpg.add_key_press_handler(key=dpg.mvKey_V, callback=self._handle_paste)
-            dpg.add_key_press_handler(key=dpg.mvKey_S, callback=self._handle_save)
-            dpg.add_key_press_handler(key=dpg.mvKey_E, callback=self._handle_export)
-            dpg.add_mouse_click_handler(
-                button=1,  # right mouse
-                callback=self._show_context_menu,
-            )
-            dpg.add_mouse_wheel_handler(callback=self._handle_zoom)
-
-    # -- Main run ----------------------------------------------------------
 
     def run(self, screenshot_path: str | None = None) -> None:
         self.screenshot_path = screenshot_path

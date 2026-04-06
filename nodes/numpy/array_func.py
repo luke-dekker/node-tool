@@ -38,3 +38,25 @@ class NpArrayFuncNode(BaseNode):
             return {"result": fn(arr)}
         except Exception:
             return {"result": None}
+
+    def export(self, iv, ov):
+        arr = self._val(iv, "array")
+        op = self._val(iv, "Op")
+        _OP_EXPRS = {
+            "abs":       f"np.abs({arr})",
+            "sqrt":      f"np.sqrt({arr})",
+            "log":       f"np.log(np.clip({arr}, 1e-12, None))",
+            "exp":       f"np.exp({arr})",
+            "transpose": f"np.transpose({arr})",
+            "flatten":   f"{arr}.flatten()",
+            "normalize": f"({arr} - {arr}.min()) / ({arr}.max() - {arr}.min()) if {arr}.max() != {arr}.min() else np.zeros_like({arr}, dtype=float)",
+            "sign":      f"np.sign({arr})",
+            "cumsum":    f"np.cumsum({arr})",
+            "diff":      f"np.diff({arr})",
+        }
+        op_val = self.inputs["Op"].default_value
+        expr = _OP_EXPRS.get(op_val, f"np.abs({arr})")
+        return (
+            ["import numpy as np"],
+            [f"{ov['result']} = {expr}"],
+        )

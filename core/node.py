@@ -148,5 +148,35 @@ class BaseNode(ABC):
             return self.inputs[name].default_value
         return None
 
+    # ── Export helpers (used inside each node's export() method) ─────────────
+
+    def _val(self, iv: dict, port_name: str) -> str:
+        """Return a Python expression: connected variable name OR literal default."""
+        v = iv.get(port_name)
+        if v is not None:
+            return v
+        default = self.inputs[port_name].default_value
+        if isinstance(default, bool):
+            return "True" if default else "False"
+        if isinstance(default, str):
+            return repr(default)
+        if default is None:
+            return "None"
+        return repr(default)
+
+    def _axis(self, iv: dict, port_name: str = "axis") -> str:
+        """Translate axis=-99 sentinel → None, else use value."""
+        v = iv.get(port_name)
+        if v is not None:
+            return v
+        default = self.inputs[port_name].default_value
+        if default is None or (isinstance(default, int) and default == -99):
+            return "None"
+        return repr(default)
+
+    def export(self, iv: dict, ov: dict) -> tuple[list[str], list[str]]:
+        """Override to provide Python code export. Returns (imports, lines)."""
+        return [], [f"# [{self.label}]: export not supported"]
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} id={self.id[:8]}>"

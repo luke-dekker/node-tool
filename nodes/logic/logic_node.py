@@ -19,7 +19,8 @@ _OP_LIST = ", ".join(_OPS)
 class LogicNode(BaseNode):
     type_name = "logic"
     label = "Logic"
-    category = "Logic"
+    category = "Python"
+    subcategory = "Logic"
     description = f"Logic and comparison operations. Op: {_OP_LIST}. B unused for 'not'."
 
     def _setup_ports(self):
@@ -35,3 +36,16 @@ class LogicNode(BaseNode):
             return {"Result": fn(inputs["A"], inputs["B"])}
         except Exception:
             return {"Result": False}
+
+    def export(self, iv, ov):
+        op = str(self.inputs["Op"].default_value or "and").strip().lower()
+        a, b = self._val(iv,"A"), self._val(iv,"B")
+        exprs = {
+            "and": f"bool({a}) and bool({b})",
+            "or":  f"bool({a}) or bool({b})",
+            "not": f"not bool({a})",
+            "eq":  f"{a} == {b}", "neq": f"{a} != {b}",
+            "lt":  f"{a} < {b}",  "lte": f"{a} <= {b}",
+            "gt":  f"{a} > {b}",  "gte": f"{a} >= {b}",
+        }
+        return [], [f"{ov['Result']} = {exprs.get(op, exprs['and'])}"]

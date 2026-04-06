@@ -5,7 +5,8 @@ from core.node import BaseNode, PortType
 class MapRangeNode(BaseNode):
     type_name = "map_range"
     label = "Map Range"
-    category = "Math"
+    category = "Python"
+    subcategory = "Math"
     description = "Re-maps Value from [InMin, InMax] to [OutMin, OutMax]."
 
     def _setup_ports(self):
@@ -22,3 +23,11 @@ class MapRangeNode(BaseNode):
             return {"Result": inputs["OutMin"]}
         t = (inputs["Value"] - inputs["InMin"]) / denom
         return {"Result": inputs["OutMin"] + t * (inputs["OutMax"] - inputs["OutMin"])}
+
+    def export(self, iv, ov):
+        v  = self._val(iv,"Value"); i0 = self._val(iv,"InMin"); i1 = self._val(iv,"InMax")
+        o0 = self._val(iv,"OutMin"); o1 = self._val(iv,"OutMax")
+        return [], [
+            f"_denom = {i1} - {i0}",
+            f"{ov['Result']} = {o0} + ({v} - {i0}) / _denom * ({o1} - {o0}) if _denom != 0 else {o0}",
+        ]

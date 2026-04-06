@@ -5,7 +5,8 @@ from core.node import BaseNode, PortType
 class ClampNode(BaseNode):
     type_name = "clamp"
     label = "Clamp"
-    category = "Math"
+    category = "Python"
+    subcategory = "Math"
     description = "Clamps Value between Min and Max."
 
     def _setup_ports(self):
@@ -19,3 +20,7 @@ class ClampNode(BaseNode):
         if lo > hi:
             lo, hi = hi, lo
         return {"Result": max(lo, min(hi, inputs["Value"]))}
+
+    def export(self, iv, ov):
+        v, lo, hi = self._val(iv,"Value"), self._val(iv,"Min"), self._val(iv,"Max")
+        return [], [f"{ov['Result']} = max({lo}, min({hi}, {v}))"]

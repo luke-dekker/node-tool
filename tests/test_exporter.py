@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 from core.graph import Graph
-from core.io import GraphExporter
+from core.exporter import GraphExporter
 
 
 def _export(graph):

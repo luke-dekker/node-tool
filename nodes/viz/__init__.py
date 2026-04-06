@@ -7,6 +7,12 @@ import numpy as np
 CATEGORY = "Analyze"
 
 
+class _VizBase(BaseNode):
+    """Shared base for viz nodes — inline rendering only, no code export."""
+    def export(self, iv, ov):
+        return [], [f"# [{self.label}]: visualization nodes render inline - skipped in export"]
+
+
 def _render_fig(fig) -> np.ndarray:
     """Render a matplotlib figure to an RGB uint8 numpy array."""
     import io
@@ -35,7 +41,7 @@ def _dark_fig(figsize=(5, 3.5)):
 
 # ── Line Plot ─────────────────────────────────────────────────────────────────
 
-class VizLineNode(BaseNode):
+class VizLineNode(_VizBase):
     type_name = "viz_line"
     label = "Line Plot"
     category = CATEGORY
@@ -73,7 +79,7 @@ class VizLineNode(BaseNode):
 
 # ── Scatter Plot ──────────────────────────────────────────────────────────────
 
-class VizScatterNode(BaseNode):
+class VizScatterNode(_VizBase):
     type_name = "viz_scatter"
     label = "Scatter Plot"
     category = CATEGORY
@@ -111,7 +117,7 @@ class VizScatterNode(BaseNode):
 
 # ── Bar Chart ─────────────────────────────────────────────────────────────────
 
-class VizBarNode(BaseNode):
+class VizBarNode(_VizBase):
     type_name = "viz_bar"
     label = "Bar Chart"
     category = CATEGORY
@@ -145,7 +151,7 @@ class VizBarNode(BaseNode):
 
 # ── Histogram ─────────────────────────────────────────────────────────────────
 
-class VizHistNode(BaseNode):
+class VizHistNode(_VizBase):
     type_name = "viz_hist"
     label = "Histogram"
     category = CATEGORY
@@ -177,7 +183,7 @@ class VizHistNode(BaseNode):
 
 # ── Heatmap ───────────────────────────────────────────────────────────────────
 
-class VizHeatmapNode(BaseNode):
+class VizHeatmapNode(_VizBase):
     type_name = "viz_heatmap"
     label = "Heatmap"
     category = CATEGORY
@@ -209,7 +215,7 @@ class VizHeatmapNode(BaseNode):
 
 # ── Box Plot ──────────────────────────────────────────────────────────────────
 
-class VizBoxNode(BaseNode):
+class VizBoxNode(_VizBase):
     type_name = "viz_box"
     label = "Box Plot"
     category = CATEGORY
@@ -244,7 +250,7 @@ class VizBoxNode(BaseNode):
 
 # ── Confusion Matrix Viz ──────────────────────────────────────────────────────
 
-class VizConfMatrixNode(BaseNode):
+class VizConfMatrixNode(_VizBase):
     type_name = "viz_conf_matrix"
     label = "Confusion Matrix"
     category = CATEGORY
@@ -278,7 +284,7 @@ class VizConfMatrixNode(BaseNode):
 
 # ── PCA 2D Scatter ────────────────────────────────────────────────────────────
 
-class VizPCANode(BaseNode):
+class VizPCANode(_VizBase):
     type_name = "viz_pca_2d"
     label = "PCA 2D"
     category = CATEGORY
@@ -314,7 +320,7 @@ class VizPCANode(BaseNode):
 
 # ── Loss Curve ────────────────────────────────────────────────────────────────
 
-class VizLossNode(BaseNode):
+class VizLossNode(_VizBase):
     type_name = "viz_loss_curve"
     label = "Loss Curve"
     category = CATEGORY
@@ -351,7 +357,7 @@ class VizLossNode(BaseNode):
 
 # ── Image Grid ────────────────────────────────────────────────────────────────
 
-class VizImageGridNode(BaseNode):
+class VizImageGridNode(_VizBase):
     type_name = "viz_image_grid"
     label = "Image Grid"
     category = CATEGORY

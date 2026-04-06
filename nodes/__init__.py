@@ -7,19 +7,19 @@ from core.node import BaseNode
 
 # Import all node subpackages to trigger registration
 from nodes import math, logic, string, data, numpy, pandas, sklearn, scipy, viz, code
-from nodes import pytorch
-# also import pytorch submodules so _discover finds all classes
-from nodes.pytorch import layers, losses, optimizers, schedulers
-from nodes.pytorch import data as pt_data, training
-from nodes.pytorch import dataset_sources, dataset_transforms, dataset_ops
-from nodes.pytorch import tensor_ops, recurrent, backbones
-from nodes.pytorch import autoencoder
-from nodes.pytorch import persistence
-from nodes.pytorch import viz as pt_viz
-# pipeline.py is now a stub — nodes unified into layers.py
-from nodes import io
+from nodes import pytorch, io, ai
+
+# Import individual pytorch node modules (shims forward to individual files)
+from nodes.pytorch import (
+    layers, losses, optimizers, schedulers,
+    training, dataset_sources, dataset_transforms, dataset_ops,
+    tensor_ops, recurrent, backbones, autoencoder, persistence,
+    viz as pt_viz, architecture,
+)
+from nodes.pytorch import data as pt_data
+
+# Import individual IO and AI modules (shims forward to individual files)
 from nodes.io import serial_nodes, network_nodes, file_nodes
-from nodes import ai
 from nodes.ai import ollama_nodes, hf_nodes
 
 NODE_REGISTRY: dict[str, Type[BaseNode]] = {}
@@ -56,11 +56,15 @@ _discover(backbones)
 _discover(autoencoder)
 _discover(persistence)
 _discover(pt_viz)
+_discover(architecture)
+_discover(pytorch)   # catches any individual files not covered above
 _discover(serial_nodes)
 _discover(network_nodes)
 _discover(file_nodes)
+_discover(io)
 _discover(ollama_nodes)
 _discover(hf_nodes)
+_discover(ai)
 _discover(code)
 
 # Grouped by category for the palette
@@ -68,9 +72,9 @@ CATEGORY_ORDER = [
     # ML workflow
     "Datasets", "Layers", "Models", "Training", "AI", "Analyze",
     # General compute
-    "Data", "NumPy", "Pandas", "Math", "Logic", "String", "Sklearn", "SciPy",
+    "Python", "NumPy", "Pandas", "Sklearn", "SciPy",
     # Output
-    "IO", "Code",
+    "IO",
 ]
 
 def get_nodes_by_category() -> dict[str, list[Type[BaseNode]]]:

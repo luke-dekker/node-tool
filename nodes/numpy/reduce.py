@@ -42,3 +42,25 @@ class NpReduceNode(BaseNode):
             return {"result": fn(arr, axis=ax)}
         except Exception:
             return {"result": None}
+
+    def export(self, iv, ov):
+        arr = self._val(iv, "array")
+        ax = self._axis(iv)
+        op_val = self.inputs["Op"].default_value
+        _OP_EXPRS = {
+            "mean":   f"np.mean({arr}, axis={ax})",
+            "std":    f"np.std({arr}, axis={ax})",
+            "sum":    f"np.sum({arr}, axis={ax})",
+            "min":    f"np.min({arr}, axis={ax})",
+            "max":    f"np.max({arr}, axis={ax})",
+            "median": f"np.median({arr}, axis={ax})",
+            "var":    f"np.var({arr}, axis={ax})",
+            "prod":   f"np.prod({arr}, axis={ax})",
+            "any":    f"np.any({arr}, axis={ax})",
+            "all":    f"np.all({arr}, axis={ax})",
+        }
+        expr = _OP_EXPRS.get(op_val, f"np.mean({arr}, axis={ax})")
+        return (
+            ["import numpy as np"],
+            [f"{ov['result']} = {expr}"],
+        )

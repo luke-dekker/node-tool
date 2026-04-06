@@ -56,11 +56,10 @@ SKLEARN_COLOR    = (230, 140,  40)        # sklearn orange
 SCIPY_COLOR      = ( 60, 180, 130)        # scipy teal
 VIZ_COLOR        = (220,  60, 120)        # viz pink
 
+PYTHON_COLOR     = (100, 180,  80)         # unified green
+
 CATEGORY_COLORS = {
-    "Math":    MATH_COLOR,
-    "Logic":   LOGIC_COLOR,
-    "String":  STRING_COLOR,
-    "Data":    DATA_COLOR,
+    "Python":  (PYTHON_COLOR[0], PYTHON_COLOR[1], PYTHON_COLOR[2], 255),
     "PyTorch": (PYTORCH_COLOR[0], PYTORCH_COLOR[1], PYTORCH_COLOR[2], 255),
     "NumPy":   (NUMPY_COLOR[0],   NUMPY_COLOR[1],   NUMPY_COLOR[2],   255),
     "Pandas":  (PANDAS_COLOR[0],  PANDAS_COLOR[1],  PANDAS_COLOR[2],  255),
@@ -141,8 +140,8 @@ def create_global_theme() -> int:
             dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize,  1.0)
             dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize,   0.0)
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,     10.0, 8.0)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,      6.0, 4.0)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,       8.0, 4.0)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,      8.0, 5.0)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,       8.0, 6.0)
             dpg.add_theme_style(dpg.mvStyleVar_IndentSpacing,     14.0)
             dpg.add_theme_style(dpg.mvStyleVar_ScrollbarSize,     12.0)
 

@@ -29,11 +29,11 @@ class TestOllamaGenerateNode:
         mock_resp.json.return_value = {"message": {"content": "Hello world"}}
         mock_resp.raise_for_status = MagicMock()
         with patch("requests.post", return_value=mock_resp):
-            r = n.execute({"prompt": "Hi", "model": "qwen3:32b",
+            r = n.execute({"prompt": "Hi", "model": "llama3.1:8b",
                             "system": "", "temperature": 0.7,
                             "max_tokens": 100, "host": "http://localhost:11434"})
         assert r["response"] == "Hello world"
-        assert "qwen3:32b" in r["__terminal__"]
+        assert "llama3.1:8b" in r["__terminal__"]
 
     def test_with_system_prompt(self):
         n = self._node()
@@ -71,7 +71,7 @@ class TestOllamaEmbedNode:
 
     def test_no_text_returns_none(self):
         n = self._node()
-        r = n.execute({"text": "", "model": "nomic-embed-text",
+        r = n.execute({"text": "", "model": "all-minilm",
                         "host": "http://localhost:11434"})
         assert r["embedding"] is None
 
@@ -82,7 +82,7 @@ class TestOllamaEmbedNode:
         mock_resp.json.return_value = {"embeddings": [[0.1, 0.2, 0.3]]}
         mock_resp.raise_for_status = MagicMock()
         with patch("requests.post", return_value=mock_resp):
-            r = n.execute({"text": "hello", "model": "nomic-embed-text",
+            r = n.execute({"text": "hello", "model": "all-minilm",
                             "host": "http://localhost:11434"})
         assert isinstance(r["embedding"], np.ndarray)
         assert r["embedding"].shape == (3,)
@@ -106,7 +106,7 @@ class TestAgnoAgentNode:
 
     def test_no_message_returns_empty(self):
         n = self._node()
-        r = n.execute({"message": "", "agent_id": "coding-team",
+        r = n.execute({"message": "", "agent_id": "my-agent",
                         "host": "http://localhost:8000", "stream": False})
         assert r["response"] == ""
 
@@ -120,7 +120,7 @@ class TestAgnoAgentNode:
             captured["url"] = url
             return mock_resp
         with patch("requests.post", side_effect=capture):
-            n.execute({"message": "hi", "agent_id": "coding-team",
+            n.execute({"message": "hi", "agent_id": "my-team",
                         "host": "http://localhost:8000", "stream": False})
         assert "/teams/" in captured["url"]
 

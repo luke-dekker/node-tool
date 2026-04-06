@@ -1,17 +1,13 @@
 """Serial port IO nodes (pyserial).
 
 Install:  pip install pyserial
-These nodes degrade gracefully if pyserial is not installed.
-"""
 
+Each node degrades gracefully when pyserial is not installed.
+"""
 from __future__ import annotations
 import json
 from typing import Any
-from core.node import BaseNode
-from core.node import PortType
-
-CATEGORY    = "IO"
-SUBCATEGORY = "Serial"
+from core.node import BaseNode, PortType
 
 
 def _serial_available() -> bool:
@@ -22,12 +18,46 @@ def _serial_available() -> bool:
         return False
 
 
+def _flatten(lst):
+    for item in lst:
+        if isinstance(item, (list, tuple)):
+            yield from _flatten(item)
+        else:
+            yield item
+
+
+def _encode(data: Any, encoding: str) -> bytes:
+    """Convert data to bytes for serial transmission."""
+    try:
+        import torch
+        if isinstance(data, torch.Tensor):
+            data = data.detach().cpu().tolist()
+    except ImportError:
+        pass
+    try:
+        import numpy as np
+        if isinstance(data, np.ndarray):
+            data = data.tolist()
+    except ImportError:
+        pass
+
+    if encoding == "json":
+        return json.dumps(data).encode("utf-8")
+    if encoding == "csv":
+        if isinstance(data, (list, tuple)):
+            flat = _flatten(data)
+            return ",".join(str(v) for v in flat).encode("utf-8")
+        return str(data).encode("utf-8")
+    # raw
+    return str(data).encode("utf-8")
+
+
 class SerialOutputNode(BaseNode):
     """Send data to a serial port (Arduino, servo controller, MCU)."""
     type_name   = "io_serial_out"
     label       = "Serial Output"
-    category    = CATEGORY
-    subcategory = SUBCATEGORY
+    category    = "IO"
+    subcategory = "Serial"
     description = (
         "Write data to a serial port. Data can be a tensor, list, number, or string. "
         "Encoding: 'json' (default), 'csv', or 'raw' (str conversion)."
@@ -58,7 +88,6 @@ class SerialOutputNode(BaseNode):
         if data is None:
             return {"status": "no data"}
 
-        # Convert data to bytes
         try:
             payload = _encode(data, encoding)
             if newline:
@@ -73,13 +102,16 @@ class SerialOutputNode(BaseNode):
         except Exception as e:
             return {"status": f"error: {e}"}
 
+    def export(self, iv, ov):
+        return [], [f"# [{self.label}]: visualization nodes render inline - skipped in export"]
+
 
 class SerialInputNode(BaseNode):
     """Read one line from a serial port (sensors, encoders, MCU feedback)."""
     type_name   = "io_serial_in"
     label       = "Serial Input"
-    category    = CATEGORY
-    subcategory = SUBCATEGORY
+    category    = "IO"
+    subcategory = "Serial"
     description = (
         "Read one line from a serial port. Returns the raw string and, "
         "if parseable, a list of floats."
@@ -105,7 +137,6 @@ class SerialInputNode(BaseNode):
         try:
             with serial.Serial(port, baud, timeout=timeout) as ser:
                 raw = ser.readline().decode("utf-8", errors="replace").strip()
-            # Try parsing CSV floats
             try:
                 values = [float(v.strip()) for v in raw.split(",") if v.strip()]
             except ValueError:
@@ -114,13 +145,16 @@ class SerialInputNode(BaseNode):
         except Exception as e:
             return {"raw": "", "values": None, "status": f"error: {e}"}
 
+    def export(self, iv, ov):
+        return [], [f"# [{self.label}]: visualization nodes render inline - skipped in export"]
+
 
 class ListSerialPortsNode(BaseNode):
     """List available serial ports on the system."""
     type_name   = "io_serial_list"
     label       = "List Serial Ports"
-    category    = CATEGORY
-    subcategory = SUBCATEGORY
+    category    = "IO"
+    subcategory = "Serial"
     description = "Return a comma-separated list of serial ports found on the system."
 
     def _setup_ports(self) -> None:
@@ -134,38 +168,5 @@ class ListSerialPortsNode(BaseNode):
         ports = [p.device for p in list_ports.comports()]
         return {"ports": ", ".join(ports), "status": "ok"}
 
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-def _encode(data: Any, encoding: str) -> bytes:
-    """Convert data to bytes for serial transmission."""
-    try:
-        import torch
-        if isinstance(data, torch.Tensor):
-            data = data.detach().cpu().tolist()
-    except ImportError:
-        pass
-    try:
-        import numpy as np
-        if isinstance(data, np.ndarray):
-            data = data.tolist()
-    except ImportError:
-        pass
-
-    if encoding == "json":
-        return json.dumps(data).encode("utf-8")
-    if encoding == "csv":
-        if isinstance(data, (list, tuple)):
-            flat = _flatten(data)
-            return ",".join(str(v) for v in flat).encode("utf-8")
-        return str(data).encode("utf-8")
-    # raw
-    return str(data).encode("utf-8")
-
-
-def _flatten(lst):
-    for item in lst:
-        if isinstance(item, (list, tuple)):
-            yield from _flatten(item)
-        else:
-            yield item
+    def export(self, iv, ov):
+        return [], [f"# [{self.label}]: visualization nodes render inline - skipped in export"]

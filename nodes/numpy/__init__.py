@@ -1,20 +1,35 @@
+from nodes.numpy.np_arange import NpArangeNode
+from nodes.numpy.np_linspace import NpLinspaceNode
+from nodes.numpy.np_zeros import NpZerosNode
+from nodes.numpy.np_ones import NpOnesNode
+from nodes.numpy.np_rand import NpRandNode
+from nodes.numpy.np_randn import NpRandnNode
+from nodes.numpy.np_from_list import NpFromListNode
+from nodes.numpy.np_eye import NpEyeNode
+from nodes.numpy.np_abs import NpAbsNode
+from nodes.numpy.np_sqrt import NpSqrtNode
+from nodes.numpy.np_log import NpLogNode
+from nodes.numpy.np_exp import NpExpNode
+from nodes.numpy.np_clip import NpClipNode
+from nodes.numpy.np_normalize import NpNormalizeNode
+from nodes.numpy.np_mean import NpMeanNode
+from nodes.numpy.np_std import NpStdNode
+from nodes.numpy.np_sum import NpSumNode
+from nodes.numpy.np_min import NpMinNode
+from nodes.numpy.np_max import NpMaxNode
+from nodes.numpy.np_reshape import NpReshapeNode
+from nodes.numpy.np_transpose import NpTransposeNode
+from nodes.numpy.np_flatten import NpFlattenNode
+from nodes.numpy.np_concat import NpConcatNode
+from nodes.numpy.np_stack import NpStackNode
+from nodes.numpy.np_slice import NpSliceNode
+from nodes.numpy.np_where import NpWhereNode
+from nodes.numpy.np_dot import NpDotNode
+from nodes.numpy.np_matmul import NpMatMulNode
+from nodes.numpy.np_inv import NpInvNode
+from nodes.numpy.np_eig import NpEigNode
+from nodes.numpy.np_svd import NpSVDNode
+from nodes.numpy.np_array_info import NpArrayInfoNode
+from nodes.numpy.np_shape import NpShapeNode
 from nodes.numpy.array_func import NpArrayFuncNode
 from nodes.numpy.reduce import NpReduceNode
-from nodes.numpy.creation import (
-    NpArangeNode, NpLinspaceNode, NpZerosNode, NpOnesNode,
-    NpRandNode, NpRandnNode, NpFromListNode, NpEyeNode,
-)
-from nodes.numpy.math import (
-    NpAbsNode, NpSqrtNode, NpLogNode, NpExpNode, NpClipNode, NpNormalizeNode,
-)
-from nodes.numpy.stats import (
-    NpMeanNode, NpStdNode, NpSumNode, NpMinNode, NpMaxNode,
-)
-from nodes.numpy.ops import (
-    NpReshapeNode, NpTransposeNode, NpFlattenNode,
-    NpConcatNode, NpStackNode, NpSliceNode, NpWhereNode,
-)
-from nodes.numpy.linalg import (
-    NpDotNode, NpMatMulNode, NpInvNode, NpEigNode, NpSVDNode,
-)
-from nodes.numpy.info import NpArrayInfoNode, NpShapeNode

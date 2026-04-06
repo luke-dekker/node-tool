@@ -24,7 +24,8 @@ _OP_LIST = ", ".join(_OPS)
 class MathNode(BaseNode):
     type_name = "math"
     label = "Math"
-    category = "Math"
+    category = "Python"
+    subcategory = "Math"
     description = f"Math operations. Op: {_OP_LIST}. B unused for unary ops (sqrt, abs, sin, cos, tan)."
 
     def _setup_ports(self):
@@ -40,3 +41,23 @@ class MathNode(BaseNode):
             return {"Result": float(fn(inputs["A"], inputs["B"]))}
         except Exception:
             return {"Result": 0.0}
+
+    def export(self, iv, ov):
+        op = str(self.inputs["Op"].default_value or "add").strip().lower()
+        a, b = self._val(iv, "A"), self._val(iv, "B")
+        exprs = {
+            "add":      ([], f"{a} + {b}"),
+            "subtract": ([], f"{a} - {b}"),
+            "multiply": ([], f"{a} * {b}"),
+            "divide":   ([], f"{a} / {b} if {b} != 0 else 0.0"),
+            "power":    ([], f"float({a} ** {b})"),
+            "sqrt":     (["import math"], f"math.sqrt(max(0.0, {a}))"),
+            "abs":      ([], f"abs({a})"),
+            "sin":      (["import math"], f"math.sin(math.radians({a}))"),
+            "cos":      (["import math"], f"math.cos(math.radians({a}))"),
+            "tan":      (["import math"], f"math.tan(math.radians({a}))"),
+            "round":    ([], f"float(round({a}, int({b})))"),
+            "random":   (["import random"], f"random.uniform(min({a},{b}), max({a},{b}))"),
+        }
+        imps, expr = exprs.get(op, ([], f"{a} + {b}"))
+        return imps, [f"{ov['Result']} = {expr}"]

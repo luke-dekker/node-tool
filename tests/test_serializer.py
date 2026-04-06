@@ -6,7 +6,7 @@ import pytest
 
 def test_save_load_roundtrip():
     from core.graph import Graph
-    from core.io import Serializer
+    from core.serializer import Serializer
     from nodes.math import MathNode
     from nodes.data import FloatConstNode
 
@@ -36,7 +36,7 @@ def test_save_load_roundtrip():
 
 
 def test_unknown_type_raises():
-    from core.io import Serializer
+    from core.serializer import Serializer
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
         json.dump({
             "version": 1,

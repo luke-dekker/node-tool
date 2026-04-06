@@ -18,7 +18,8 @@ _OP_LIST = ", ".join(_OPS)
 class StringNode(BaseNode):
     type_name = "string_op"
     label = "String"
-    category = "String"
+    category = "Python"
+    subcategory = "String"
     description = f"String operations. Op: {_OP_LIST}. B used by concat/contains/repeat."
 
     def _setup_ports(self):
@@ -34,3 +35,18 @@ class StringNode(BaseNode):
             return {"Result": fn(inputs["A"], inputs["B"])}
         except Exception:
             return {"Result": None}
+
+    def export(self, iv, ov):
+        op = str(self.inputs["Op"].default_value or "upper").strip().lower()
+        a, b = self._val(iv,"A"), self._val(iv,"B")
+        exprs = {
+            "upper":    f"str({a}).upper()",
+            "lower":    f"str({a}).lower()",
+            "strip":    f"str({a}).strip()",
+            "reverse":  f"str({a})[::-1]",
+            "length":   f"len(str({a}))",
+            "concat":   f"str({a}) + str({b})",
+            "contains": f"str({b}) in str({a})",
+            "repeat":   f"str({a}) * max(0, int(float({b})))",
+        }
+        return [], [f"{ov['Result']} = {exprs.get(op, exprs['upper'])}"]
