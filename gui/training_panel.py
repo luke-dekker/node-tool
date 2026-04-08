@@ -66,6 +66,9 @@ class TrainingController:
             except queue.Empty:
                 break
             evt_type = evt[0]
+            if evt_type == "log":
+                lines.append(evt[1])
+                continue
             if evt_type == "epoch_end":
                 _, epoch, loss, val_loss, current_lr = evt
                 self.current_epoch = epoch
@@ -130,6 +133,11 @@ class TrainingController:
             beta   = float(config.get("beta", 1.0))
             recon_loss_type = config.get("recon_loss_type", "mse")
 
+            is_multimodal   = config.get("multimodal", False)
+            freeze_strategy = config.get("freeze_strategy", "hard")
+            log_modalities  = config.get("log_modalities", True)
+            is_graph_module = config.get("graph_module", False)
+
             for epoch in range(1, epochs + 1):
                 # Check for stop/pause
                 try:
@@ -157,6 +165,48 @@ class TrainingController:
                             return
                     except queue.Empty:
                         pass
+
+                    # GraphAsModule path: model takes the full batch dict/tuple directly
+                    if is_graph_module:
+                        # Move batch tensors to device, extract labels
+                        labels = None
+                        present = []
+                        if isinstance(batch, dict) and "data" in batch:
+                            # Multimodal collate format
+                            dev_data = {}
+                            for m, v in batch["data"].items():
+                                dev_data[m] = v.to(device) if hasattr(v, "to") else v
+                            labels = batch.get("label")
+                            if hasattr(labels, "to"):
+                                labels = labels.to(device)
+                            dev_batch = {"data": dev_data, "label": labels,
+                                         "present": batch.get("present", [])}
+                            present = dev_batch["present"]
+                        elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
+                            dev_batch = (batch[0].to(device), batch[1].to(device))
+                            labels = dev_batch[1]
+                        else:
+                            dev_batch = batch.to(device) if hasattr(batch, "to") else batch
+
+                        # Hard-freeze strategy: walk upstream from inactive modality ports
+                        if is_multimodal and freeze_strategy == "hard" and present:
+                            try:
+                                model.freeze_inactive_encoders(present)
+                            except Exception:
+                                pass
+
+                        optimizer.zero_grad()
+                        out = model(dev_batch)
+                        if out is None or labels is None or not hasattr(labels, "shape"):
+                            continue
+                        loss = loss_fn(out, labels)
+                        loss.backward()
+                        optimizer.step()
+                        epoch_loss += loss.item()
+                        batches += 1
+                        if is_multimodal and log_modalities and batches % 10 == 0:
+                            self._evt_q.put(("log", f"[MM] batch {batches} present={present}"))
+                        continue
 
                     if isinstance(batch, (list, tuple)):
                         x, y = batch[0].to(device), batch[1].to(device)
@@ -193,6 +243,28 @@ class TrainingController:
                     val_batches = 0
                     with torch.no_grad():
                         for batch in val_dataloader:
+                            # GraphAsModule validation: same batch handling as training
+                            if is_graph_module:
+                                labels_v = None
+                                if isinstance(batch, dict) and "data" in batch:
+                                    dev_data = {m: (v.to(device) if hasattr(v, "to") else v)
+                                                for m, v in batch["data"].items()}
+                                    labels_v = batch.get("label")
+                                    if hasattr(labels_v, "to"):
+                                        labels_v = labels_v.to(device)
+                                    dev_b = {"data": dev_data, "label": labels_v,
+                                             "present": batch.get("present", [])}
+                                elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
+                                    dev_b = (batch[0].to(device), batch[1].to(device))
+                                    labels_v = dev_b[1]
+                                else:
+                                    dev_b = batch.to(device) if hasattr(batch, "to") else batch
+                                out_v = model(dev_b)
+                                if out_v is None or labels_v is None or not hasattr(labels_v, "shape"):
+                                    continue
+                                val_epoch_loss += loss_fn(out_v, labels_v).item()
+                                val_batches += 1
+                                continue
                             if isinstance(batch, (list, tuple)):
                                 x, y = batch[0].to(device), batch[1].to(device)
                             else:

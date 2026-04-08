@@ -21,14 +21,17 @@ def _make_activation(name: str) -> nn.Module | None:
 
 
 def _forward(layer: nn.Module, act: nn.Module | None, tensor: torch.Tensor | None):
-    """Run tensor through layer (+ optional activation). Returns None if no input."""
+    """Run tensor through layer (+ optional activation). Returns None if no input.
+
+    Honors the surrounding grad context: live preview callers wrap in torch.no_grad(),
+    training callers (GraphAsModule) leave grad enabled.
+    """
     if tensor is None:
         return None
     try:
-        with torch.no_grad():
-            out = layer(tensor)
-            if act is not None:
-                out = act(out)
+        out = layer(tensor)
+        if act is not None:
+            out = act(out)
         return out
     except Exception:
         return None

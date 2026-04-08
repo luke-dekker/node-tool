@@ -9,10 +9,9 @@ from nodes.pytorch.conv2d import Conv2dNode
 from nodes.pytorch.maxpool2d import MaxPool2dNode
 from nodes.pytorch.avgpool2d import AvgPool2dNode
 from nodes.pytorch.batchnorm2d import BatchNorm2dNode
-from nodes.pytorch.sequential import SequentialNode
 
 __all__ = [
     "FlattenNode", "LinearNode", "DropoutNode", "BatchNorm1dNode",
     "EmbeddingNode", "ActivationNode", "Conv2dNode", "MaxPool2dNode",
-    "AvgPool2dNode", "BatchNorm2dNode", "SequentialNode",
+    "AvgPool2dNode", "BatchNorm2dNode",
 ]

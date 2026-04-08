@@ -157,16 +157,6 @@ def test_pytorch_layer_nodes():
         assert "import torch" in script, f"{NodeCls.__name__} missing torch import"
 
 
-def test_pytorch_sequential_with_layers():
-    from nodes.pytorch import SequentialNode
-    import torch.nn as nn
-    g = Graph()
-    seq = SequentialNode()
-    g.add_node(seq)
-    script = _export(g)
-    assert "nn.Sequential" in script
-
-
 def test_training_config_expands_to_loop():
     from nodes.pytorch import (
         LinearNode, FlattenNode, MNISTDatasetNode, TrainingConfigNode
@@ -230,31 +220,16 @@ def test_scheduler_nodes_export():
 
 
 def test_training_config_with_scheduler():
-    from nodes.pytorch import (
-        LinearNode, SequentialNode, AdamNode,
-        CrossEntropyLossNode, MNISTDatasetNode, TrainingConfigNode, StepLRNode
-    )
+    from nodes.pytorch import LinearNode, MNISTDatasetNode, TrainingConfigNode
     g = Graph()
-    lin  = LinearNode()
-    seq  = SequentialNode()
-    adam = AdamNode()
-    loss = CrossEntropyLossNode()
-    dl   = MNISTDatasetNode()
-    sched = StepLRNode()
-    cfg  = TrainingConfigNode()
-
-    for n in [lin, seq, adam, loss, dl, sched, cfg]:
+    lin = LinearNode()
+    dl  = MNISTDatasetNode()
+    cfg = TrainingConfigNode()
+    cfg.inputs["scheduler"].default_value = "steplr"
+    for n in [lin, dl, cfg]:
         g.add_node(n)
-
-    g.add_connection(lin.id,   "module",    seq.id,  "layer_1")
-    g.add_connection(seq.id,   "model",     adam.id, "model")
-    g.add_connection(seq.id,   "model",     cfg.id,  "model")
-    g.add_connection(adam.id,  "optimizer", cfg.id,  "optimizer")
-    g.add_connection(adam.id,  "optimizer", sched.id,"optimizer")
-    g.add_connection(loss.id,  "loss_fn",   cfg.id,  "loss_fn")
-    g.add_connection(dl.id,    "dataloader",cfg.id,  "dataloader")
-    g.add_connection(sched.id, "scheduler", cfg.id,  "scheduler")
-
+    g.add_connection(lin.id, "tensor_out", cfg.id, "tensor_in")
+    g.add_connection(dl.id,  "dataloader", cfg.id, "dataloader")
     script = _export(g)
     assert "StepLR" in script
     assert ".step()" in script or "scheduler" in script

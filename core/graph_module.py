@@ -1,0 +1,245 @@
+"""GraphAsModule — wraps a Graph as an nn.Module that runs the DAG on forward().
+
+Design principle: the graph IS the model. Training reuses graph.execute() directly,
+with the current batch's tensors injected into BatchInput node outputs before the
+topological traversal runs.
+
+Usage:
+    model = GraphAsModule(graph, output_node_id, output_port="tensor_in")
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    for batch in dataloader:
+        logits = model(batch)           # batch is a dict or tensor
+        loss = loss_fn(logits, labels)
+        loss.backward()
+        optimizer.step()
+"""
+from __future__ import annotations
+from typing import Any
+import torch
+import torch.nn as nn
+
+from core.graph import Graph
+
+
+def _collect_layer_modules(graph: Graph) -> dict[str, nn.Module]:
+    """Walk every node in the graph and return {node_id: nn.Module} for any
+    node that exposes a `_layer` attribute containing an nn.Module.
+
+    This is the only piece of code that knows how layer nodes store their modules.
+    All PyTorch layer nodes follow the convention `self._layer = <nn.Module>`.
+    """
+    modules: dict[str, nn.Module] = {}
+    for node_id, node in graph.nodes.items():
+        layer = getattr(node, "_layer", None)
+        if isinstance(layer, nn.Module):
+            modules[node_id] = layer
+        # Also pick up multimodal models — they hold encoders/projections internally
+        mm_model = getattr(node, "_mm_model", None)
+        if isinstance(mm_model, nn.Module):
+            modules[node_id + "_mm"] = mm_model
+    return modules
+
+
+class GraphAsModule(nn.Module):
+    """Makes a Graph behave like an nn.Module for training.
+
+    The forward() method:
+      1. Runs all BatchInput nodes once to materialize their initial outputs
+      2. Overrides those outputs with the current training batch
+      3. Calls graph.execute() to run the DAG with gradients enabled
+      4. Returns the tensor at (output_node_id, output_port)
+    """
+
+    def __init__(self, graph: Graph, output_node_id: str, output_port: str = "tensor_in"):
+        super().__init__()
+        self.graph = graph
+        self.output_node_id = output_node_id
+        self.output_port = output_port
+
+        # Prime all layer nodes so their internal nn.Modules exist.
+        # Running the graph once (under no_grad) triggers the lazy _get_layer() calls.
+        with torch.no_grad():
+            try:
+                graph.execute()
+            except Exception:
+                pass
+
+        # Collect layer modules into a ModuleDict so self.parameters() sees them
+        self._layer_modules = nn.ModuleDict()
+        for key, mod in _collect_layer_modules(graph).items():
+            safe_key = key.replace("-", "_")
+            self._layer_modules[safe_key] = mod
+
+    # ------------------------------------------------------------------ forward
+
+    def forward(self, batch: Any) -> torch.Tensor | None:
+        """Run the graph with `batch` injected at BatchInput nodes.
+
+        `batch` can be:
+          - a dict with 'data' and 'label' keys (multimodal collate format)
+          - a (x, y) tuple
+          - a single tensor
+        """
+        override = self._batch_to_port_values(batch)
+
+        # Refresh the layer module collection in case new nodes were added
+        for key, mod in _collect_layer_modules(self.graph).items():
+            safe_key = key.replace("-", "_")
+            if safe_key not in self._layer_modules:
+                self._layer_modules[safe_key] = mod
+
+        outputs = self._execute_with_overrides(override)
+
+        node_out = outputs.get(self.output_node_id, {})
+        # The target is the tensor at `output_port` — but if the caller points at
+        # a node's INPUT port, walk the connection back to the upstream node's output.
+        if self.output_port in node_out:
+            return node_out[self.output_port]
+        # Walk back through the connection
+        for c in self.graph.connections:
+            if c.to_node_id == self.output_node_id and c.to_port == self.output_port:
+                src = outputs.get(c.from_node_id, {})
+                return src.get(c.from_port)
+        return None
+
+    # ------------------------------------------------------------------ helpers
+
+    def _batch_to_port_values(self, batch: Any) -> dict[tuple[str, str], Any]:
+        """Map `batch` onto {(batch_input_node_id, port_name): tensor}."""
+        overrides: dict[tuple[str, str], Any] = {}
+
+        # Find all BatchInput nodes in the graph
+        batch_inputs = [nid for nid, n in self.graph.nodes.items()
+                        if n.type_name == "batch_input"]
+        if not batch_inputs:
+            return overrides
+
+        # Parse the batch into a dict of {port_name: tensor}
+        port_values: dict[str, Any] = {}
+        if isinstance(batch, dict) and "data" in batch:
+            for port, val in batch["data"].items():
+                port_values[port] = val
+            port_values["label"] = batch.get("label")
+        elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
+            port_values["x"] = batch[0]
+            port_values["label"] = batch[1]
+        else:
+            port_values["x"] = batch
+
+        # Apply to every BatchInput node
+        for nid in batch_inputs:
+            for port_name, val in port_values.items():
+                overrides[(nid, port_name)] = val
+
+        return overrides
+
+    def _execute_with_overrides(
+        self, overrides: dict[tuple[str, str], Any]
+    ) -> dict[str, dict[str, Any]]:
+        """Like graph.execute(), but with pre-set values for specific (node_id, port)
+        pairs. Skips calling execute() on nodes whose outputs are entirely overridden."""
+        order = self.graph.topological_order()
+        stored: dict[str, dict[str, Any]] = {}
+        conn_map: dict[tuple[str, str], tuple[str, str]] = {
+            (c.to_node_id, c.to_port): (c.from_node_id, c.from_port)
+            for c in self.graph.connections
+        }
+
+        # Pre-populate stored with any override values so downstream lookups see them
+        for (nid, port), val in overrides.items():
+            stored.setdefault(nid, {})[port] = val
+
+        for node_id in order:
+            node = self.graph.nodes[node_id]
+
+            # If this is a fully-overridden BatchInput, skip its execute() —
+            # stored[node_id] already holds the injected values.
+            if node.type_name == "batch_input" and node_id in stored:
+                continue
+
+            inputs: dict[str, Any] = {}
+            for port_name, port in node.inputs.items():
+                key = (node_id, port_name)
+                if key in conn_map:
+                    from_id, from_port = conn_map[key]
+                    if from_id in stored and from_port in stored[from_id]:
+                        raw = stored[from_id][from_port]
+                        inputs[port_name] = port.port_type.coerce(raw) if raw is not None else None
+                    else:
+                        inputs[port_name] = port.default_value
+                else:
+                    inputs[port_name] = port.default_value
+
+            try:
+                outputs = node.execute(inputs)
+            except Exception:
+                outputs = {}
+            # Merge rather than overwrite so override values are preserved
+            stored.setdefault(node_id, {}).update(outputs or {})
+
+        return stored
+
+    # ------------------------------------------------------------------ hard freeze
+
+    def freeze_inactive_encoders(self, present_modalities: list[str]) -> None:
+        """Hard-freeze (set requires_grad=False) all layer nodes upstream of an
+        INACTIVE modality port on any MultimodalModelNode. Layer nodes upstream of
+        active ports are unfrozen. Used to isolate gradient flow per batch when
+        a dataset only contains some modalities.
+        """
+        from nodes.pytorch.multimodal_model import MODALITY_PORTS
+
+        mm_nodes = [n for n in self.graph.nodes.values()
+                    if n.type_name == "pt_multimodal_model"]
+        if not mm_nodes:
+            return
+
+        conn_map = {(c.to_node_id, c.to_port): (c.from_node_id, c.from_port)
+                    for c in self.graph.connections}
+
+        def walk_upstream_layers(start_node_id: str, start_port: str) -> list[str]:
+            """Return all layer node IDs upstream of (start_node_id, start_port)."""
+            found: list[str] = []
+            visited: set[str] = set()
+            stack = [(start_node_id, start_port)]
+            while stack:
+                nid, port = stack.pop()
+                key = (nid, port)
+                if key not in conn_map:
+                    continue
+                from_id, _ = conn_map[key]
+                if from_id in visited:
+                    continue
+                visited.add(from_id)
+                node = self.graph.nodes.get(from_id)
+                if node is None:
+                    continue
+                if isinstance(getattr(node, "_layer", None), nn.Module):
+                    found.append(from_id)
+                # Continue walking upstream via standard tensor_in if present
+                if "tensor_in" in node.inputs:
+                    stack.append((from_id, "tensor_in"))
+            return found
+
+        for mm in mm_nodes:
+            for modality in MODALITY_PORTS:
+                if modality not in mm.inputs:
+                    continue
+                active = modality in present_modalities
+                for node_id in walk_upstream_layers(mm.id, modality):
+                    layer = getattr(self.graph.nodes[node_id], "_layer", None)
+                    if isinstance(layer, nn.Module):
+                        for p in layer.parameters():
+                            p.requires_grad = active
+
+    # ------------------------------------------------------------------ train/eval
+
+    def train(self, mode: bool = True):
+        """Propagate training mode to all contained layer modules."""
+        super().train(mode)
+        for mod in self._layer_modules.values():
+            mod.train(mode)
+        return self
+
+    def eval(self):
+        return self.train(False)

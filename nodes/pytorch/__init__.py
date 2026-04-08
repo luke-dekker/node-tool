@@ -11,7 +11,6 @@ from nodes.pytorch.conv2d import Conv2dNode
 from nodes.pytorch.maxpool2d import MaxPool2dNode
 from nodes.pytorch.avgpool2d import AvgPool2dNode
 from nodes.pytorch.batchnorm2d import BatchNorm2dNode
-from nodes.pytorch.sequential import SequentialNode
 
 # Losses
 from nodes.pytorch.mse_loss import MSELossNode
@@ -106,6 +105,11 @@ from nodes.pytorch.residual_block import ResidualBlockNode
 from nodes.pytorch.concat_branches import ConcatBranchesNode
 from nodes.pytorch.add_branches import AddBranchesNode
 from nodes.pytorch.custom_module import CustomModuleNode
+from nodes.pytorch.multimodal_model import MultimodalModelNode
+from nodes.pytorch.folder_multimodal_dataset import FolderMultimodalDatasetNode
+from nodes.pytorch.multi_dataset import MultiDatasetNode
+from nodes.pytorch.multimodal_training_config import MultimodalTrainingConfigNode
+from nodes.pytorch.batch_input import BatchInputNode
 
 # Persistence / Save & Load
 from nodes.pytorch.save_weights import SaveWeightsNode

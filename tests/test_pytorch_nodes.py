@@ -21,19 +21,6 @@ def test_linear_node_tensor_out():
     assert result["tensor_out"].shape == (1, 2)
 
 
-def test_sequential_node():
-    from nodes.pytorch import SequentialNode
-    import torch.nn as nn
-    lin = nn.Linear(4, 8)
-    relu = nn.ReLU()
-    result = SequentialNode().execute({
-        "layer_1": lin, "layer_2": relu, "layer_3": None, "layer_4": None,
-        "layer_5": None, "layer_6": None, "layer_7": None, "layer_8": None,
-    })
-    assert isinstance(result["model"], nn.Sequential)
-    assert len(result["model"]) == 2
-
-
 def test_rand_tensor_node():
     from nodes.pytorch import RandTensorNode
     import torch

@@ -535,7 +535,9 @@ class NodeApp(
         so that tensor_out values on layer nodes reflect updated weights."""
         self._sync_inputs_from_widgets()
         try:
-            outputs, _ = self.graph.execute()
+            import torch
+            with torch.no_grad():
+                outputs, _ = self.graph.execute()
             self._last_outputs = outputs
         except Exception:
             pass
@@ -548,7 +550,9 @@ class NodeApp(
         t0 = time.perf_counter()
 
         try:
-            outputs, terminal_lines = self.graph.execute()
+            import torch
+            with torch.no_grad():
+                outputs, terminal_lines = self.graph.execute()
         except Exception as exc:
             self._log(f"[FATAL] {exc}")
             return

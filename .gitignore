@@ -11,6 +11,7 @@ build/
 *.json
 !package.json
 data/
+demo_data/
 sessions/
 *.log
 .vscode/

@@ -36,7 +36,8 @@ class BatchNorm2dNode(BaseNode):
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         layer = self._get_layer(int(inputs.get("num_features") or 16))
-        layer.eval()
+        if not torch.is_grad_enabled():
+            layer.eval()
         return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):

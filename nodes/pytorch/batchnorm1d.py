@@ -36,7 +36,12 @@ class BatchNorm1dNode(BaseNode):
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         layer = self._get_layer(int(inputs.get("num_features") or 64))
-        layer.eval()  # stable for single-sample forward pass on canvas
+        # Don't force eval mode — GraphAsModule.forward() calls self.train()/eval()
+        # as appropriate; live preview runs inside torch.no_grad() so stats won't
+        # drift meaningfully even in train mode, but using eval() here would break
+        # batchnorm during actual training.
+        if not torch.is_grad_enabled():
+            layer.eval()
         return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):
