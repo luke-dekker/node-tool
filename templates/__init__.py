@@ -19,6 +19,7 @@ TemplateBuilder = Callable[[Graph], dict[str, tuple[int, int]]]
 from templates.mnist_mlp           import build as build_mnist_mlp
 from templates.mnist_cnn           import build as build_mnist_cnn
 from templates.mnist_vae           import build as build_mnist_vae
+from templates.transfer_learning   import build as build_transfer_learning
 from templates.csv_quick_look      import build as build_csv_quick_look
 from templates.csv_cleaning        import build as build_csv_cleaning
 from templates.csv_join_aggregate  import build as build_csv_join
@@ -39,6 +40,10 @@ TEMPLATES: list[tuple[str, str, TemplateBuilder]] = [
     ("MNIST VAE (Image Generator)",
      "Variational autoencoder on MNIST. Trains a generator over the latent space.",
      build_mnist_vae),
+
+    ("Transfer Learning (ResNet18)",
+     "Pretrained ResNet18, frozen backbone, new classification head on CIFAR-10.",
+     build_transfer_learning),
 
     ("CSV Quick Look",
      "Load a CSV and show shape, info, describe, head. The 'what's in this file' workflow.",

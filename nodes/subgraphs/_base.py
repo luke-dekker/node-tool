@@ -111,15 +111,97 @@ class SubgraphNode(BaseNode):
         return result
 
     def export(self, iv, ov):
-        """Subgraphs don't currently flatten on export — they emit a TODO stub.
-        Roadmap: in script-mode export, recursively inline the inner graph;
-        in class-mode export, generate a nested helper class.
+        """Recursively inline the inner graph into the parent export.
+
+        Strategy: walk the inner graph in topological order, call each inner
+        node's export(), and concatenate the resulting lines. Inner variable
+        names get a per-instance prefix so they can't collide with parent
+        names. Boundary ports are rebound to the caller-supplied variable
+        names from the parent's iv/ov.
+
+        The result is a flat sequence of statements that, when emitted into
+        the parent's def main() (or class.forward), produces exactly the same
+        computation as a non-subgraphed equivalent.
         """
         sf = self._subgraph_file
-        name = sf.name if sf else "Subgraph"
-        lines = [
-            f"# TODO: subgraph {name!r} export — recursive inlining not yet supported",
-        ]
-        for ext_name, var in ov.items():
-            lines.append(f"{var} = None  # subgraph output: {ext_name}")
-        return [], lines
+        if sf is None:
+            return [], [f"# {self.label}: no subgraph file bound"]
+
+        try:
+            inner_graph = sf.build_inner_graph()
+        except Exception as exc:
+            return [], [f"# {self.label}: failed to build inner graph: {exc}"]
+
+        # Per-instance prefix so multiple subgraph drops don't collide
+        prefix = f"_sg{self.id[:6]}_"
+
+        # Build connection lookup for the inner graph
+        inner_conn: dict[tuple[str, str], tuple[str, str]] = {}
+        for c in inner_graph.connections:
+            inner_conn[(c.to_node_id, c.to_port)] = (c.from_node_id, c.from_port)
+
+        # Boundary mappings keyed by (inner_node_id, inner_port)
+        boundary_in: dict[tuple[str, str], str | None] = {}
+        for ext in sf.external_inputs:
+            boundary_in[(ext.inner_node, ext.inner_port)] = iv.get(ext.name)
+        boundary_out: dict[tuple[str, str], str] = {}
+        for ext in sf.external_outputs:
+            ext_var = ov.get(ext.name)
+            if ext_var:
+                boundary_out[(ext.inner_node, ext.inner_port)] = ext_var
+
+        # Per-inner-node output variable map (inner_id, port) → emitted name
+        var_map: dict[tuple[str, str], str] = {}
+        from collections import defaultdict
+        port_counters: dict[str, int] = defaultdict(int)
+
+        def assign_inner_out_vars(inner_node) -> dict[str, str]:
+            out_vars: dict[str, str] = {}
+            base = prefix + (inner_node.type_name.split("_", 1)[-1]
+                             if "_" in inner_node.type_name else inner_node.type_name)
+            for port_name in inner_node.outputs:
+                if port_name == "__terminal__":
+                    continue
+                key = (inner_node.id, port_name)
+                # Boundary output: use the parent-supplied variable name verbatim
+                if key in boundary_out:
+                    out_vars[port_name] = boundary_out[key]
+                    var_map[key] = boundary_out[key]
+                    continue
+                # Otherwise generate a fresh prefixed name
+                vname = f"{base}_{port_counters[base]}"
+                port_counters[base] += 1
+                out_vars[port_name] = vname
+                var_map[key] = vname
+            return out_vars
+
+        all_imports: list[str] = []
+        all_lines: list[str] = [f"# >>> subgraph: {sf.name}"]
+        for inner_id in inner_graph.topological_order():
+            inner_node = inner_graph.nodes[inner_id]
+
+            # Build in_vars for the inner node
+            in_vars: dict[str, str | None] = {}
+            for port_name in inner_node.inputs:
+                key = (inner_id, port_name)
+                if key in boundary_in:
+                    in_vars[port_name] = boundary_in[key]
+                elif key in inner_conn:
+                    upstream = inner_conn[key]
+                    in_vars[port_name] = var_map.get(upstream)
+                else:
+                    in_vars[port_name] = None
+
+            out_vars = assign_inner_out_vars(inner_node)
+
+            try:
+                imports, lines = inner_node.export(in_vars, out_vars)
+            except Exception as exc:
+                imports, lines = [], [f"# [{inner_node.label}] inner export error: {exc}"]
+
+            all_imports.extend(imports)
+            all_lines.append(f"# {inner_node.label}")
+            all_lines.extend(lines)
+
+        all_lines.append(f"# <<< subgraph: {sf.name}")
+        return all_imports, all_lines

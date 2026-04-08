@@ -3,12 +3,12 @@
   "kind": "subgraph",
   "manifest": {
     "name": "TinyEncoder",
-    "description": "Flatten -> Linear(784,32)+ReLU",
+    "description": "Flatten -> Linear(784,32)+ReLU. Example subgraph.",
     "external_inputs": [
       {
         "name": "encoder_in",
         "type": "TENSOR",
-        "inner_node": "flat-uuid",
+        "inner_node": "f5dd65f6-43bf-4938-b3e0-7cacc9df8bf8",
         "inner_port": "tensor_in"
       }
     ],
@@ -16,14 +16,14 @@
       {
         "name": "encoder_out",
         "type": "TENSOR",
-        "inner_node": "lin-uuid",
+        "inner_node": "6884aa42-0d97-4b80-a1f5-c82c78310a43",
         "inner_port": "tensor_out"
       }
     ]
   },
   "nodes": [
     {
-      "id": "flat-uuid",
+      "id": "f5dd65f6-43bf-4938-b3e0-7cacc9df8bf8",
       "type_name": "pt_flatten",
       "pos": [
         0,
@@ -34,7 +34,7 @@
       }
     },
     {
-      "id": "lin-uuid",
+      "id": "6884aa42-0d97-4b80-a1f5-c82c78310a43",
       "type_name": "pt_linear",
       "pos": [
         200,
@@ -50,9 +50,9 @@
   ],
   "connections": [
     {
-      "from_node": "flat-uuid",
+      "from_node": "f5dd65f6-43bf-4938-b3e0-7cacc9df8bf8",
       "from_port": "tensor_out",
-      "to_node": "lin-uuid",
+      "to_node": "6884aa42-0d97-4b80-a1f5-c82c78310a43",
       "to_port": "tensor_in"
     }
   ]

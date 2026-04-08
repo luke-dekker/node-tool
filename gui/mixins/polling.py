@@ -17,6 +17,36 @@ class PollingMixin:
                 if dpg.does_item_exist("custom_hint_text"):
                     dpg.hide_item("custom_hint_text")
 
+    def _poll_subgraph_reload(self) -> None:
+        """Check subgraphs/ for new/changed/removed .subgraph.json files.
+
+        Each event mutates NODE_REGISTRY and refreshes the palette in place so
+        edits made to a subgraph file in another window show up live without
+        restarting the app. Existing canvas instances of a changed subgraph are
+        not refreshed automatically — re-spawn them to pick up new ports.
+        """
+        from nodes.subgraphs._reloader import SubgraphReloader
+        events = self._subgraph_reloader.poll()
+        for kind, type_name, msg, _cls in events:
+            self._log(msg)
+            SubgraphReloader.apply_event((kind, type_name, msg, _cls))
+            if kind == "added":
+                self._add_palette_button(type_name)
+            elif kind == "changed":
+                # Re-create the button so the label updates if it was renamed
+                self._remove_palette_button(type_name)
+                self._add_palette_button(type_name)
+            elif kind == "removed":
+                self._remove_palette_button(type_name)
+
+    def _remove_palette_button(self, type_name: str) -> None:
+        tag = f"palette_btn_{type_name}"
+        try:
+            if dpg.does_item_exist(tag):
+                dpg.delete_item(tag)
+        except Exception:
+            pass
+
     def _add_palette_button(self, type_name: str) -> None:
         """Add a button for type_name to the correct palette category."""
         from nodes import NODE_REGISTRY

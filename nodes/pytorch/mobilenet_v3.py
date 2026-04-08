@@ -10,6 +10,11 @@ class MobileNetV3Node(BaseNode):
     subcategory = "Pretrained"
     description = "torchvision MobileNetV3-Small — lightweight backbone for edge/robotics deployment."
 
+    def __init__(self):
+        self._layer = None
+        self._layer_cfg: tuple | None = None
+        super().__init__()
+
     def _setup_ports(self):
         self.add_input("pretrained",  PortType.BOOL, default=True)
         self.add_input("num_classes", PortType.INT,  default=10)
@@ -20,13 +25,18 @@ class MobileNetV3Node(BaseNode):
         try:
             import torchvision.models as M
             import torch.nn as nn
-            weights = M.MobileNet_V3_Small_Weights.DEFAULT if bool(inputs.get("pretrained", True)) else None
-            model = M.mobilenet_v3_small(weights=weights)
+            pretrained = bool(inputs.get("pretrained", True))
             nc = int(inputs.get("num_classes") or 10)
-            if nc > 0:
-                model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, nc)
-            params = sum(p.numel() for p in model.parameters())
-            return {"model": model, "info": f"MobileNetV3-Small  params={params:,}  out={nc}"}
+            cfg = (pretrained, nc)
+            if self._layer is None or self._layer_cfg != cfg:
+                weights = M.MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
+                model = M.mobilenet_v3_small(weights=weights)
+                if nc > 0:
+                    model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, nc)
+                self._layer = model
+                self._layer_cfg = cfg
+            params = sum(p.numel() for p in self._layer.parameters())
+            return {"model": self._layer, "info": f"MobileNetV3-Small  params={params:,}  out={nc}"}
         except Exception:
             import traceback
             return {"model": None, "info": traceback.format_exc().split("\n")[-2]}

@@ -120,6 +120,7 @@ from nodes.pytorch.export_onnx import ExportONNXNode
 from nodes.pytorch.save_full_model import SaveFullModelNode
 from nodes.pytorch.pretrained_block import PretrainedBlockNode
 from nodes.pytorch.load_model import LoadModelNode
+from nodes.pytorch.apply_module import ApplyModuleNode
 from nodes.pytorch.class_module_import import ClassModuleImportNode
 from nodes.pytorch.model_info_persist import ModelInfoPersistNode
 

@@ -228,8 +228,13 @@ class FileOpsMixin:
             self._log(f"[Pack] External inputs:  {[p.name for p in ext_in]}")
             self._log(f"[Pack] External outputs: {[p.name for p in ext_out]}")
 
-            # Hot-reload subgraph registry so the new node appears in the palette
-            self._reload_subgraphs()
+            # Force the reloader to scan now (bypass its 1s throttle) so the new
+            # subgraph node appears in the palette immediately
+            try:
+                self._subgraph_reloader._last_check = 0.0
+                self._poll_subgraph_reload()
+            except Exception:
+                self._reload_subgraphs()  # fall back to legacy registry refresh
         except Exception as e:
             import traceback
             self._log(f"[Pack] failed: {traceback.format_exc()}")
