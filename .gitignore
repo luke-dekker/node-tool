@@ -10,6 +10,7 @@ build/
 *.onnx
 *.json
 !package.json
+!subgraphs/*.subgraph.json
 /data/
 /demo_data/
 sessions/

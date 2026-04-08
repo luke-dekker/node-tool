@@ -139,6 +139,155 @@ class FileOpsMixin:
             if dpg.does_item_exist("code_status"):
                 dpg.set_value("code_status", f"  Copy failed: {e}")
 
+    def _pack_as_subgraph(self) -> None:
+        """Pack the currently selected nodes as a reusable subgraph file.
+
+        Walks the selection's boundary connections to determine which inner
+        ports are exposed externally, then writes a .subgraph.json to the
+        project's subgraphs/ directory. After saving, the subgraph appears
+        in the palette under the Subgraphs category on next app start (or
+        immediately if you call _reload_subgraphs from the menu).
+        """
+        import tkinter as tk
+        from tkinter import simpledialog
+        try:
+            # Resolve selected node IDs (DPG returns integer ids; map to node uuids)
+            selected_dpg = []
+            try:
+                selected_dpg = list(dpg.get_selected_nodes("NodeEditor"))
+            except Exception:
+                pass
+            selected_node_ids: set[str] = set()
+            for tag in selected_dpg:
+                node_id = self.dpg_node_to_node_id.get(tag)
+                if node_id:
+                    selected_node_ids.add(node_id)
+            if not selected_node_ids:
+                self._log("[Pack] No nodes selected — select nodes in the editor first.")
+                return
+
+            # Ask for a name (also defines the file stem)
+            root = tk.Tk(); root.withdraw()
+            name = simpledialog.askstring(
+                "Pack as Subgraph",
+                f"Subgraph name ({len(selected_node_ids)} nodes selected):",
+                initialvalue="MyBlock",
+                parent=root,
+            )
+            root.destroy()
+            if not name:
+                return
+
+            # Detect boundary ports
+            from core.subgraph import SubgraphFile, SUBGRAPHS_DIR, detect_boundary_ports
+            ext_in, ext_out = detect_boundary_ports(self.graph, selected_node_ids)
+
+            # Serialize the selected nodes + their internal connections
+            nodes_json = []
+            for node_id in selected_node_ids:
+                node = self.graph.nodes.get(node_id)
+                if node is None:
+                    continue
+                pos = [100, 100]
+                try:
+                    tag = self.node_id_to_dpg.get(node_id)
+                    if tag is not None:
+                        pos = list(dpg.get_item_pos(tag))
+                except Exception:
+                    pass
+                nodes_json.append({
+                    "id": node.id,
+                    "type_name": node.type_name,
+                    "pos": pos,
+                    "inputs": {
+                        k: (p.default_value if isinstance(p.default_value, (int, float, bool, str, type(None))) else None)
+                        for k, p in node.inputs.items()
+                    },
+                })
+            conns_json = []
+            for c in self.graph.connections:
+                if c.from_node_id in selected_node_ids and c.to_node_id in selected_node_ids:
+                    conns_json.append({
+                        "from_node": c.from_node_id, "from_port": c.from_port,
+                        "to_node":   c.to_node_id,   "to_port":   c.to_port,
+                    })
+
+            sf = SubgraphFile(
+                name=name,
+                description=f"Packed from {len(selected_node_ids)} nodes",
+                external_inputs=ext_in,
+                external_outputs=ext_out,
+                nodes=nodes_json,
+                connections=conns_json,
+            )
+            # File stem: lowercase, underscores
+            stem = "".join(c if c.isalnum() else "_" for c in name.lower()).strip("_")
+            out_path = SUBGRAPHS_DIR / f"{stem}.subgraph.json"
+            sf.save(out_path)
+            self._log(f"[Pack] Saved subgraph to {out_path}")
+            self._log(f"[Pack] External inputs:  {[p.name for p in ext_in]}")
+            self._log(f"[Pack] External outputs: {[p.name for p in ext_out]}")
+
+            # Hot-reload subgraph registry so the new node appears in the palette
+            self._reload_subgraphs()
+        except Exception as e:
+            import traceback
+            self._log(f"[Pack] failed: {traceback.format_exc()}")
+
+    def _reload_subgraphs(self) -> None:
+        """Re-scan subgraphs/ and re-register dynamic SubgraphNode classes.
+
+        Note: this updates NODE_REGISTRY but doesn't refresh the palette UI in
+        place (palette is built once at startup). For v1 the user sees the new
+        subgraph after restarting the app or via the right-click context menu.
+        """
+        try:
+            from nodes import subgraphs as sg_mod, NODE_REGISTRY
+            new_types = sg_mod.reload_subgraphs()
+            # Re-register
+            for t in new_types:
+                cls = sg_mod._GENERATED.get(t)
+                if cls is not None:
+                    NODE_REGISTRY[t] = cls
+            self._log(f"[Pack] Subgraphs registered: {new_types}")
+        except Exception as e:
+            self._log(f"[Pack] reload failed: {e}")
+
+    def _export_class(self) -> None:
+        """Export graph as a reusable nn.Module class to a .py file."""
+        import tkinter as tk
+        from tkinter import filedialog, simpledialog
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            class_name = simpledialog.askstring(
+                "Export As Class",
+                "Class name:",
+                initialvalue="GraphModel",
+                parent=root,
+            )
+            if not class_name:
+                root.destroy()
+                return
+            path = filedialog.asksaveasfilename(
+                title="Export Class",
+                defaultextension=".py",
+                initialfile=f"{class_name.lower()}.py",
+                filetypes=[("Python files", "*.py"), ("All files", "*.*")],
+            )
+            root.destroy()
+            if not path:
+                return
+            from core.exporter import GraphExporter
+            script = GraphExporter().export(self.graph, mode="class", class_name=class_name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            self._log(f"Class exported to {path}")
+            self._log(f"Use it: from {class_name.lower()} import {class_name}; m = {class_name}()")
+        except Exception as e:
+            import traceback
+            self._log(f"Class export failed: {traceback.format_exc()}")
+
     def _export_script(self) -> None:
         """Ctrl+E — export graph to a runnable Python script."""
         import tkinter as tk

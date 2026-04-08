@@ -67,12 +67,19 @@ _discover(hf_nodes)
 _discover(ai)
 _discover(code)
 
+# Subgraphs are auto-generated dynamic classes — discover them last so the
+# inner-graph nodes they reference are already in NODE_REGISTRY.
+from nodes import subgraphs
+_discover(subgraphs)
+
 # Grouped by category for the palette
 CATEGORY_ORDER = [
     # ML workflow
     "Datasets", "Layers", "Models", "Training", "AI", "Analyze",
     # General compute
     "Python", "NumPy", "Pandas", "Sklearn", "SciPy",
+    # Reusable building blocks
+    "Subgraphs",
     # Output
     "IO",
 ]

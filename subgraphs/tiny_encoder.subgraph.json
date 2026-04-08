@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "kind": "subgraph",
+  "manifest": {
+    "name": "TinyEncoder",
+    "description": "Flatten -> Linear(784,32)+ReLU",
+    "external_inputs": [
+      {
+        "name": "encoder_in",
+        "type": "TENSOR",
+        "inner_node": "flat-uuid",
+        "inner_port": "tensor_in"
+      }
+    ],
+    "external_outputs": [
+      {
+        "name": "encoder_out",
+        "type": "TENSOR",
+        "inner_node": "lin-uuid",
+        "inner_port": "tensor_out"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "flat-uuid",
+      "type_name": "pt_flatten",
+      "pos": [
+        0,
+        0
+      ],
+      "inputs": {
+        "start_dim": 1
+      }
+    },
+    {
+      "id": "lin-uuid",
+      "type_name": "pt_linear",
+      "pos": [
+        200,
+        0
+      ],
+      "inputs": {
+        "in_features": 784,
+        "out_features": 32,
+        "activation": "relu",
+        "bias": true
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "flat-uuid",
+      "from_port": "tensor_out",
+      "to_node": "lin-uuid",
+      "to_port": "tensor_in"
+    }
+  ]
+}

@@ -87,6 +87,11 @@ class LayoutMixin:
                 dpg.add_separator()
                 dpg.add_menu_item(label="Export Script...", shortcut="Ctrl+E",
                                   callback=lambda: self._export_script())
+                dpg.add_menu_item(label="Export As Class...",
+                                  callback=lambda: self._export_class())
+                dpg.add_separator()
+                dpg.add_menu_item(label="Pack Selection as Subgraph...",
+                                  callback=lambda: self._pack_as_subgraph())
             with dpg.menu(label="Edit"):
                 dpg.add_menu_item(label="Undo",  shortcut="Ctrl+Z",
                                   callback=lambda: setattr(self, "_undo_requested", True))

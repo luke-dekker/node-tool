@@ -21,9 +21,16 @@ Output structure:
         main()
 """
 from __future__ import annotations
+import re
 from collections import defaultdict
 from core.graph import Graph
 from core.node import BaseNode
+
+# Detects "var = nn.Something(" or "var = M.something(" — the start of a module
+# constructor block. Used by class-mode export to split init lines from forward
+# lines without forcing every node to expose a separate export_module() method.
+_MODULE_CTOR_RE = re.compile(r"^\s*(\w+)\s*=\s*(nn|M|torchvision\.models)\.\w+\(")
+_CLASS_DEF_RE  = re.compile(r"^\s*class\s+(\w+)\s*\(.*\)\s*:\s*$")
 
 
 _PREFIX_STRIP = ("pt_", "np_", "pd_", "sk_", "sp_", "viz_")
@@ -56,7 +63,20 @@ class GraphExporter:
 
     INDENT = "    "
 
-    def export(self, graph: Graph) -> str:
+    def export(self, graph: Graph, mode: str = "script", class_name: str = "GraphModel") -> str:
+        """Export the graph as Python.
+
+        mode='script' (default) emits a procedural `def main(): ...` script — same
+        behavior as before. mode='class' emits an `nn.Module` subclass with the
+        layer constructors in __init__ and the forward chain in forward(). The
+        class form is the right artifact when you want to drop the model into
+        another graph as a single reusable building block.
+        """
+        if mode == "class":
+            return self._export_class(graph, class_name)
+        return self._export_script(graph)
+
+    def _export_script(self, graph: Graph) -> str:
         order = graph.topological_order()
         if not order:
             return self._empty_script()
@@ -233,4 +253,272 @@ class GraphExporter:
             "    pass\n\n"
             'if __name__ == "__main__":\n'
             "    main()\n"
+        )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Class export
+    # ────────────────────────────────────────────────────────────────────────
+
+    def _export_class(self, graph: Graph, class_name: str) -> str:
+        """Emit graph as an nn.Module subclass.
+
+        Strategy: walk nodes in topo order, get each node's per-line export
+        output, then split lines into "constructor" (goes in __init__) vs
+        "forward" (goes in forward()) using the heuristic that any line of the
+        form `var = nn.X(...)` (and its multi-line continuation) is a
+        constructor. Layer var names get a `self.` prefix in forward refs.
+
+        BatchInputNode is special-cased: its outputs become the forward(self, x)
+        argument. Single-input only for v1; multi-input batches collapse to `x`.
+        """
+        order = graph.topological_order()
+        if not order:
+            return self._empty_class(class_name)
+
+        # Connection / variable bookkeeping (mirrors _export_script)
+        conn_map: dict[tuple[str, str], tuple[str, str]] = {}
+        used_outputs: set[tuple[str, str]] = set()
+        nodes_with_outgoing: set[str] = set()
+        for c in graph.connections:
+            conn_map[(c.to_node_id, c.to_port)] = (c.from_node_id, c.from_port)
+            used_outputs.add((c.from_node_id, c.from_port))
+            nodes_with_outgoing.add(c.from_node_id)
+
+        var_map: dict[tuple[str, str], str] = {}
+        port_counters: dict[str, int] = defaultdict(int)
+
+        def assign_out_vars(node: BaseNode) -> dict[str, str]:
+            out_vars: dict[str, str] = {}
+            prefix = _short(node.type_name)
+            is_leaf = node.id not in nodes_with_outgoing
+            for port_name in node.outputs:
+                if port_name == "__terminal__":
+                    continue
+                if not is_leaf and (node.id, port_name) not in used_outputs:
+                    continue
+                if len(node.outputs) <= 1:
+                    vname = f"{prefix}_{port_counters[prefix]}"
+                else:
+                    key = f"{prefix}_{port_name}"
+                    vname = f"{prefix}_{port_name}_{port_counters[key]}"
+                    port_counters[key] += 1
+                port_counters[prefix] += 1
+                out_vars[port_name] = vname
+                var_map[(node.id, port_name)] = vname
+            return out_vars
+
+        # Walk nodes; collect init / forward lines + identify forward args
+        all_imports: list[str] = []
+        init_lines: list[str] = []
+        forward_lines: list[str] = []
+        layer_vars: set[str] = set()       # vars to prefix with `self.`
+        rename_to_x: set[str] = set()      # batch_input output vars → forward arg
+        leaf_outputs: list[str] = []        # final tensor vars (return values)
+
+        for node_id in order:
+            node = graph.nodes[node_id]
+
+            in_vars: dict[str, str | None] = {}
+            for port_name in node.inputs:
+                key = (node_id, port_name)
+                if key in conn_map:
+                    in_vars[port_name] = var_map.get(conn_map[key])
+                else:
+                    in_vars[port_name] = None
+
+            out_vars = assign_out_vars(node)
+
+            # BatchInputNode is the model's forward arg, not a code block
+            if node.type_name == "batch_input":
+                for port_name, vname in out_vars.items():
+                    rename_to_x.add(vname)
+                continue
+
+            try:
+                imports, lines = node.export(in_vars, out_vars)
+            except Exception as exc:
+                imports, lines = [], [f"# [{node.label}] export error: {exc}"]
+
+            # Skip stub-fallthrough nodes — emit a TODO comment instead of None
+            if (len(lines) == 1
+                    and lines[0].startswith("# [")
+                    and "export not supported" in lines[0]):
+                forward_lines.append(f"# TODO: implement export() for {node.label}")
+                continue
+
+            all_imports.extend(imports)
+
+            init_block, fwd_block, found_layer_vars = self._split_init_forward(lines)
+            init_lines.extend(init_block)
+            forward_lines.extend(fwd_block)
+            layer_vars.update(found_layer_vars)
+
+            # Track leaf-node tensor outputs as candidates for forward return
+            if node_id not in nodes_with_outgoing:
+                for port_name in ("tensor_out", "tensor", "output", "model", "result"):
+                    if port_name in out_vars:
+                        leaf_outputs.append(out_vars[port_name])
+                        break
+
+        # Apply self. prefix to layer var refs in forward, init self.assignments
+        init_lines = self._prefix_self(init_lines, layer_vars, in_init=True)
+        forward_lines = self._prefix_self(forward_lines, layer_vars, in_init=False)
+        # Rename batch input vars to `x`
+        for old in rename_to_x:
+            forward_lines = [self._rename_var(l, old, "x") for l in forward_lines]
+            init_lines    = [self._rename_var(l, old, "x") for l in init_lines]
+
+        return self._render_class(graph, class_name, all_imports,
+                                  init_lines, forward_lines, leaf_outputs)
+
+    def _split_init_forward(self, lines: list[str]) -> tuple[list[str], list[str], set[str]]:
+        """Classify each line as init (constructor) or forward.
+
+        Detects single- and multi-line constructors of the form
+        `var = nn.X(...)` / `var = M.x(...)`. Returns (init, forward, var_names).
+        """
+        init: list[str] = []
+        forward: list[str] = []
+        layer_vars: set[str] = set()
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            m = _MODULE_CTOR_RE.match(line)
+            if m:
+                var = m.group(1)
+                # Walk forward until paren depth balances (multi-line ctor)
+                depth = line.count("(") - line.count(")")
+                block = [line]
+                j = i + 1
+                while depth > 0 and j < len(lines):
+                    block.append(lines[j])
+                    depth += lines[j].count("(") - lines[j].count(")")
+                    j += 1
+                init.extend(block)
+                layer_vars.add(var)
+                i = j
+                continue
+            # Class definition (Autoencoder/VAE inline class)
+            cls_m = _CLASS_DEF_RE.match(line)
+            if cls_m:
+                # Capture the class def + all subsequent indented lines into init
+                init.append(line)
+                j = i + 1
+                while j < len(lines) and (lines[j].startswith("    ") or lines[j].startswith("\t") or not lines[j].strip()):
+                    init.append(lines[j])
+                    j += 1
+                i = j
+                continue
+            forward.append(line)
+            i += 1
+        return init, forward, layer_vars
+
+    def _prefix_self(self, lines: list[str], layer_vars: set[str], in_init: bool) -> list[str]:
+        """Prefix layer var refs with `self.`. In init, only the LHS of an
+        assignment becomes `self.var`; in forward, every reference does."""
+        out: list[str] = []
+        for line in lines:
+            if in_init:
+                # Match leading var = ... and rewrite the LHS only
+                m = re.match(r"^(\s*)(\w+)(\s*=)", line)
+                if m and m.group(2) in layer_vars:
+                    line = f"{m.group(1)}self.{m.group(2)}{m.group(3)}{line[m.end():]}"
+            else:
+                for var in layer_vars:
+                    line = self._rename_var(line, var, f"self.{var}")
+            out.append(line)
+        return out
+
+    @staticmethod
+    def _rename_var(line: str, old: str, new: str) -> str:
+        """Replace whole-word occurrences of `old` with `new`."""
+        return re.sub(rf"\b{re.escape(old)}\b", new, line)
+
+    def _render_class(
+        self,
+        graph: Graph,
+        class_name: str,
+        all_imports: list[str],
+        init_lines: list[str],
+        forward_lines: list[str],
+        leaf_outputs: list[str],
+    ) -> str:
+        n_nodes = len(graph.nodes)
+        n_conns = len(graph.connections)
+
+        head = [
+            f'"""Generated by Node Tool — {class_name} module from graph.',
+            "",
+            f"Graph: {n_nodes} node(s), {n_conns} connection(s).",
+            "",
+            "Drop this file next to your code and:",
+            f"    from {{this_file}} import {class_name}",
+            f"    model = {class_name}()",
+            '"""',
+            "from __future__ import annotations",
+            "",
+        ]
+
+        seen: set[str] = set()
+        deduped: list[str] = []
+        # Always include nn for the class subclass declaration
+        for imp in ["import torch", "import torch.nn as nn", *all_imports]:
+            imp = imp.strip()
+            if imp and imp not in seen:
+                seen.add(imp)
+                deduped.append(imp)
+        stdlib = sorted(i for i in deduped if _is_stdlib(i))
+        third  = sorted(i for i in deduped if not _is_stdlib(i))
+
+        import_block: list[str] = []
+        if stdlib:
+            import_block.extend(stdlib)
+        if stdlib and third:
+            import_block.append("")
+        if third:
+            import_block.extend(third)
+        import_block.append("")
+
+        # __init__
+        init_body = [f"{self.INDENT * 2}{l}" if l else "" for l in init_lines]
+        if not any(l.strip() for l in init_body):
+            init_body = [f"{self.INDENT * 2}pass"]
+
+        # forward
+        fwd_body = [f"{self.INDENT * 2}{l}" if l else "" for l in forward_lines]
+
+        # Return statement
+        if not leaf_outputs:
+            ret = f"{self.INDENT * 2}return None  # no leaf-tensor outputs found"
+        elif len(leaf_outputs) == 1:
+            ret = f"{self.INDENT * 2}return {leaf_outputs[0]}"
+        else:
+            ret = f"{self.INDENT * 2}return ({', '.join(leaf_outputs)})"
+
+        body = [
+            f"class {class_name}(nn.Module):",
+            f"{self.INDENT}def __init__(self) -> None:",
+            f"{self.INDENT * 2}super().__init__()",
+            *init_body,
+            "",
+            f"{self.INDENT}def forward(self, x):",
+            *fwd_body,
+            ret,
+            "",
+        ]
+
+        return "\n".join(head + import_block + body)
+
+    def _empty_class(self, class_name: str) -> str:
+        return (
+            f'"""Generated by Node Tool — {class_name} (empty graph)."""\n'
+            "from __future__ import annotations\n"
+            "import torch\n"
+            "import torch.nn as nn\n\n"
+            f"class {class_name}(nn.Module):\n"
+            "    def __init__(self) -> None:\n"
+            "        super().__init__()\n\n"
+            "    def forward(self, x):\n"
+            "        return x\n"
         )
