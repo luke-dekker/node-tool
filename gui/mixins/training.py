@@ -2,6 +2,30 @@
 from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
+from gui.theme import OK_GREEN, WARN_AMBER, ERR_RED, TEXT_DIM, ACCENT
+
+_STATUS_COLORS = {
+    "Idle":     TEXT_DIM,
+    "Running":  OK_GREEN,
+    "Paused":   WARN_AMBER,
+    "Stopped":  TEXT_DIM,
+    "Done":     ACCENT,
+    "Error":    ERR_RED,
+}
+
+
+def _set_train_status(label: str) -> None:
+    """Update the training status text + colored dot in the Training panel."""
+    color = list(_STATUS_COLORS.get(label, TEXT_DIM))
+    try:
+        if dpg.does_item_exist("train_status_text"):
+            dpg.set_value("train_status_text", label)
+            dpg.configure_item("train_status_text", color=color)
+        if dpg.does_item_exist("train_status_dot"):
+            dpg.configure_item("train_status_dot", color=color)
+    except Exception:
+        pass
+
 
 class TrainingMixin:
     """Methods for collecting model layers, starting/stopping training, and saving the model."""
@@ -80,10 +104,7 @@ class TrainingMixin:
                   f"({n_params:,} params)")
         self._training_ctrl.on_epoch_end = self.refresh_graph_silent
         self._training_ctrl.start(full_config)
-        try:
-            dpg.set_value("train_status_text", "Status: Running")
-        except Exception:
-            pass
+        _set_train_status("Running")
 
     def _train_check_wiring(self) -> None:
         """Run the graph and report training wiring status."""
@@ -137,23 +158,14 @@ class TrainingMixin:
     def _train_pause_resume(self) -> None:
         if self._training_ctrl.status == "running":
             self._training_ctrl.pause()
-            try:
-                dpg.set_value("train_status_text", "Status: Paused")
-            except Exception:
-                pass
+            _set_train_status("Paused")
         elif self._training_ctrl.status == "paused":
             self._training_ctrl.resume()
-            try:
-                dpg.set_value("train_status_text", "Status: Running")
-            except Exception:
-                pass
+            _set_train_status("Running")
 
     def _train_stop(self) -> None:
         self._training_ctrl.stop()
-        try:
-            dpg.set_value("train_status_text", "Status: Stopped")
-        except Exception:
-            pass
+        _set_train_status("Stopped")
 
     def _save_model(self) -> None:
         model = self._training_ctrl.last_model

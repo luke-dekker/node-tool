@@ -27,3 +27,11 @@ class TensorStackNode(BaseNode):
             return {"tensor": torch.stack(ts, dim=int(inputs.get("dim") or 0))}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        ts = [iv.get(f"t{i}") for i in range(1, 5) if iv.get(f"t{i}")]
+        if len(ts) < 2:
+            return ["import torch"], [f"{ov['tensor']} = None  # need >=2 input tensors"]
+        return ["import torch"], [
+            f"{ov['tensor']} = torch.stack([{', '.join(ts)}], dim={self._val(iv, 'dim')})"
+        ]

@@ -84,6 +84,38 @@ class FileOpsMixin:
             import traceback
             self._log(f"Load failed: {traceback.format_exc()}")
 
+    def _load_template(self, builder, label: str = "") -> None:
+        """Clear the editor and populate it from a template builder function.
+
+        `builder(graph)` should add nodes/connections to `graph` (an empty Graph)
+        and return a dict {node_id: (x, y)} for layout. Visual nodes and links
+        are then created in DPG to mirror the just-built graph.
+        """
+        try:
+            self._clear_editor()
+            positions = builder(self.graph) or {}
+
+            # Create DPG nodes
+            for node_id, node in self.graph.nodes.items():
+                pos = positions.get(node_id, (100, 100))
+                self.add_node_to_editor(node, tuple(pos))
+
+            # Create visual links for every connection
+            for conn in self.graph.connections:
+                from_attr = f"attr_out_{conn.from_node_id}_{conn.from_port}"
+                to_attr = f"attr_in_{conn.to_node_id}_{conn.to_port}"
+                if dpg.does_item_exist(from_attr) and dpg.does_item_exist(to_attr):
+                    lt = dpg.add_node_link(from_attr, to_attr, parent="NodeEditor")
+                    self.dpg_link_to_conn[lt] = (
+                        conn.from_node_id, conn.from_port,
+                        conn.to_node_id, conn.to_port,
+                    )
+            self._save_path = None  # template is unsaved by definition
+            self._log(f"Template loaded: {label or 'unnamed'}")
+        except Exception as e:
+            import traceback
+            self._log(f"Template load failed: {traceback.format_exc()}")
+
     def _refresh_code_panel(self) -> None:
         """Regenerate the export script and show it in the Code tab."""
         try:
@@ -95,6 +127,17 @@ class FileOpsMixin:
                 dpg.set_value("code_text", f"# Code generation error: {e}")
             except Exception:
                 pass
+
+    def _copy_code_panel(self) -> None:
+        """Copy the current code panel content to the clipboard."""
+        try:
+            text = dpg.get_value("code_text") or ""
+            dpg.set_clipboard_text(text)
+            if dpg.does_item_exist("code_status"):
+                dpg.set_value("code_status", "  Copied to clipboard")
+        except Exception as e:
+            if dpg.does_item_exist("code_status"):
+                dpg.set_value("code_status", f"  Copy failed: {e}")
 
     def _export_script(self) -> None:
         """Ctrl+E — export graph to a runnable Python script."""

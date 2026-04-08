@@ -72,4 +72,4 @@ class Conv2dNode(BaseNode):
         layer = (f"nn.Conv2d({self._val(iv,'in_ch')}, {self._val(iv,'out_ch')}, "
                  f"{self._val(iv,'kernel')}, stride={self._val(iv,'stride')}, "
                  f"padding={self._val(iv,'padding')})")
-        return ["import torch", "import torch.nn as nn"], _layer_fwd(ov, iv, lv, layer, act)
+        return _layer_fwd(ov, iv, lv, layer, act)

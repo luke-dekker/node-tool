@@ -127,3 +127,43 @@ class LoadModelNode(BaseNode):
             return {"tensor_out": out, "info": info}
         except Exception as exc:
             return {"tensor_out": None, "info": f"Forward failed: {exc}"}
+
+    def export(self, iv, ov):
+        path   = self._val(iv, "path")
+        device = self._val(iv, "device")
+        freeze = bool(self.inputs["freeze"].default_value)
+        trainable_layers = int(self.inputs["trainable_layers"].default_value or 0)
+        save_path = (self.inputs["save_path"].default_value or "").strip()
+        tin    = iv.get("tensor_in")
+        m_var  = f"_loaded_{self.id[:6]}"
+        out_var  = ov.get("tensor_out", "_lm_out")
+        info_var = ov.get("info",       "_lm_info")
+        lines = [
+            f"{m_var} = torch.load({path}, map_location={device}, weights_only=False)",
+            f"{m_var}.to({device})",
+        ]
+        if freeze:
+            lines.append(f"for _p in {m_var}.parameters(): _p.requires_grad = False")
+        else:
+            lines.append(f"for _p in {m_var}.parameters(): _p.requires_grad = True")
+        if trainable_layers > 0:
+            lines += [
+                f"for _child in list({m_var}.children())[-{trainable_layers}:]:",
+                f"    for _p in _child.parameters(): _p.requires_grad = True",
+            ]
+        lines += [
+            f"_total     = sum(p.numel() for p in {m_var}.parameters())",
+            f"_trainable = sum(p.numel() for p in {m_var}.parameters() if p.requires_grad)",
+            f"{info_var} = f'{{{m_var}.__class__.__name__}} | {{_total:,}} params | "
+            f"trainable: {{_trainable:,}} | frozen: {{_total - _trainable:,}}'",
+        ]
+        if save_path:
+            lines += [
+                f"torch.save({m_var}, {save_path!r})",
+                f"{info_var} += '\\nSaved -> ' + {save_path!r}",
+            ]
+        if tin:
+            lines.append(f"{out_var} = {m_var}({tin}.to({device}))")
+        else:
+            lines.append(f"{out_var} = None  # no tensor_in connected")
+        return ["import torch"], lines

@@ -27,3 +27,12 @@ class UnpackSequenceNode(BaseNode):
             return {"tensor": tensor, "lengths": lengths}
         except Exception:
             return {"tensor": None, "lengths": None}
+
+    def export(self, iv, ov):
+        packed = iv.get("packed") or "None  # TODO: connect a packed sequence"
+        t_var = ov.get("tensor",  "_tensor")
+        l_var = ov.get("lengths", "_lengths")
+        return ["from torch.nn.utils.rnn import pad_packed_sequence"], [
+            f"{t_var}, {l_var} = pad_packed_sequence("
+            f"{packed}, batch_first={self._val(iv, 'batch_first')})",
+        ]

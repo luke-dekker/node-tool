@@ -24,3 +24,11 @@ class TensorPermuteNode(BaseNode):
             return {"tensor": t.permute(dims)}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None"
+        dims_str = str(self.inputs["dims"].default_value or "0,1,2")
+        dims_args = ", ".join(s.strip() for s in dims_str.split(","))
+        return ["import torch"], [
+            f"{ov['tensor']} = {t}.permute({dims_args})"
+        ]

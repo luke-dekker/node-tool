@@ -31,3 +31,16 @@ class TensorSplitNode(BaseNode):
             }
         except Exception:
             return {"chunk_0": None, "chunk_1": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None"
+        var = f"_split_{self.id[:6]}"
+        lines = [
+            f"{var} = torch.split({t}, {self._val(iv, 'split_size')}, "
+            f"dim={self._val(iv, 'dim')})",
+        ]
+        if "chunk_0" in ov:
+            lines.append(f"{ov['chunk_0']} = {var}[0] if len({var}) > 0 else None")
+        if "chunk_1" in ov:
+            lines.append(f"{ov['chunk_1']} = {var}[1] if len({var}) > 1 else None")
+        return ["import torch"], lines

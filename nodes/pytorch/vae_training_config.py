@@ -40,3 +40,59 @@ class VAETrainingConfigNode(BaseNode):
             }}
         except Exception:
             return {"config": None}
+
+    def export(self, iv, ov):
+        # Emit a real VAE training loop. Mirrors the runtime behavior of the GUI's
+        # training panel for VAE configs: forward returns (recon, mu, log_var),
+        # loss = recon_loss + beta * KL.
+        model = iv.get("model")     or "None  # TODO: connect a VAE model"
+        opt   = iv.get("optimizer") or "None  # TODO: connect an optimizer"
+        dl    = iv.get("dataloader") or "None  # TODO: connect a dataloader"
+        val_dl = iv.get("val_dataloader")
+        sched  = iv.get("scheduler")
+        epochs = self._val(iv, "epochs")
+        beta   = self._val(iv, "beta")
+        recon_type = str(self.inputs["recon_loss_type"].default_value or "mse").lower()
+        device = self._val(iv, "device")
+        cfg_var = ov.get("config", "_vae_config")
+
+        recon_call = ("F.binary_cross_entropy(_recon, _x.view(_recon.shape), reduction='mean')"
+                      if recon_type == "bce"
+                      else "F.mse_loss(_recon, _x.view(_recon.shape))")
+
+        lines = [
+            f"# VAE training config",
+            f"{cfg_var} = {{'vae': True, 'epochs': {epochs}, 'beta': {beta}}}",
+            f"_model = {model}.to({device})",
+            f"_opt   = {opt}",
+            f"for _epoch in range({epochs}):",
+            f"    _model.train()",
+            f"    _running = 0.0",
+            f"    for _batch in {dl}:",
+            f"        _x = _batch[0] if isinstance(_batch, (list, tuple)) else _batch",
+            f"        _x = _x.to({device})",
+            f"        _opt.zero_grad()",
+            f"        _recon, _mu, _lv = _model(_x)",
+            f"        _recon_loss = {recon_call}",
+            f"        _kl = -0.5 * torch.mean(1 + _lv - _mu.pow(2) - _lv.exp())",
+            f"        _loss = _recon_loss + {beta} * _kl",
+            f"        _loss.backward()",
+            f"        _opt.step()",
+            f"        _running += _loss.item()",
+            f"    print(f'epoch {{_epoch+1}}/{epochs}  loss={{_running / max(1, len({dl})):.6f}}')",
+        ]
+        if val_dl:
+            lines += [
+                f"    _model.eval()",
+                f"    with torch.no_grad():",
+                f"        _val_loss = 0.0",
+                f"        for _batch in {val_dl}:",
+                f"            _x = _batch[0] if isinstance(_batch, (list, tuple)) else _batch",
+                f"            _x = _x.to({device})",
+                f"            _r, _mu, _lv = _model(_x)",
+                f"            _val_loss += ({recon_call}).item()",
+                f"        print(f'  val={{_val_loss / max(1, len({val_dl})):.6f}}')",
+            ]
+        if sched:
+            lines.append(f"    {sched}.step()")
+        return ["import torch", "import torch.nn.functional as F"], lines

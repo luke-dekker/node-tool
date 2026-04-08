@@ -10,8 +10,8 @@ build/
 *.onnx
 *.json
 !package.json
-data/
-demo_data/
+/data/
+/demo_data/
 sessions/
 *.log
 .vscode/

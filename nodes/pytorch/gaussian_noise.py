@@ -29,3 +29,13 @@ class GaussianNoiseNode(BaseNode):
             return {"tensor": noisy}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None  # TODO: connect input tensor"
+        out = ov.get("tensor", "_noisy")
+        std = self._val(iv, "std")
+        clip = bool(self.inputs["clip"].default_value)
+        lines = [f"{out} = {t} + torch.randn_like({t}) * {std}"]
+        if clip:
+            lines.append(f"{out} = {out}.clamp(0.0, 1.0)")
+        return ["import torch"], lines

@@ -66,4 +66,4 @@ class LinearNode(BaseNode):
         act = self.inputs["activation"].default_value if "activation" in self.inputs else ""
         layer = (f"nn.Linear({self._val(iv,'in_features')}, {self._val(iv,'out_features')}, "
                  f"bias={self._val(iv,'bias')})")
-        return ["import torch", "import torch.nn as nn"], _layer_fwd(ov, iv, lv, layer, act)
+        return _layer_fwd(ov, iv, lv, layer, act)

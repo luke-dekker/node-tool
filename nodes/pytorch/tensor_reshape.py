@@ -24,3 +24,11 @@ class TensorReshapeNode(BaseNode):
             return {"tensor": t.reshape(shape)}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None"
+        shape_str = str(self.inputs["shape"].default_value or "-1")
+        shape_tuple = ", ".join(s.strip() for s in shape_str.split(","))
+        return ["import torch"], [
+            f"{ov['tensor']} = {t}.reshape({shape_tuple})"
+        ]

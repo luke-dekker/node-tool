@@ -25,3 +25,9 @@ class TensorTransposeNode(BaseNode):
                                           int(inputs.get("dim1") or 1))}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None"
+        return ["import torch"], [
+            f"{ov['tensor']} = {t}.transpose({self._val(iv, 'dim0')}, {self._val(iv, 'dim1')})"
+        ]

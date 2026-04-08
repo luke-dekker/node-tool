@@ -23,3 +23,9 @@ class TensorUnsqueezeNode(BaseNode):
             return {"tensor": t.unsqueeze(int(inputs.get("dim") or 0))}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None"
+        return ["import torch"], [
+            f"{ov['tensor']} = {t}.unsqueeze({self._val(iv, 'dim')})"
+        ]

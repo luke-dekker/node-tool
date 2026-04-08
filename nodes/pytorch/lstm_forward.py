@@ -34,3 +34,19 @@ class LSTMForwardNode(BaseNode):
             return {"output": out, "hidden": hn, "cell": cn}
         except Exception:
             return {"output": None, "hidden": None, "cell": None}
+
+    def export(self, iv, ov):
+        module = iv.get("module") or "None  # TODO: connect an LSTM module"
+        x  = iv.get("x")  or "None  # TODO: connect input tensor"
+        h0 = iv.get("h0")
+        c0 = iv.get("c0")
+        out_var = ov.get("output", "_out")
+        hid_var = ov.get("hidden", "_hidden")
+        cell_var = ov.get("cell",  "_cell")
+        if h0 and c0:
+            call = f"{module}({x}, ({h0}, {c0}))"
+        else:
+            call = f"{module}({x})"
+        return ["import torch", "import torch.nn as nn"], [
+            f"{out_var}, ({hid_var}, {cell_var}) = {call}",
+        ]

@@ -28,3 +28,14 @@ class RNNForwardNode(BaseNode):
             return {"output": out, "hidden": hidden}
         except Exception:
             return {"output": None, "hidden": None}
+
+    def export(self, iv, ov):
+        module = iv.get("module") or "None  # TODO: connect an RNN/GRU module"
+        x  = iv.get("x")  or "None  # TODO: connect input tensor"
+        h0 = iv.get("h0")
+        out_var = ov.get("output", "_out")
+        hid_var = ov.get("hidden", "_hidden")
+        call = f"{module}({x})" if not h0 else f"{module}({x}, {h0})"
+        return ["import torch", "import torch.nn as nn"], [
+            f"{out_var}, {hid_var} = {call}",
+        ]

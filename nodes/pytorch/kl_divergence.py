@@ -27,3 +27,13 @@ class KLDivergenceNode(BaseNode):
             return {"kl_loss": kl, "info": f"KL={kl.item():.6f}"}
         except Exception:
             return {"kl_loss": None, "info": "error"}
+
+    def export(self, iv, ov):
+        mu = iv.get("mu") or "None  # TODO: connect mu tensor"
+        lv = iv.get("log_var") or "None  # TODO: connect log_var tensor"
+        kl_var = ov.get("kl_loss", "_kl")
+        info_var = ov.get("info",  "_kl_info")
+        return ["import torch"], [
+            f"{kl_var} = -0.5 * torch.mean(1 + {lv} - {mu}.pow(2) - {lv}.exp())",
+            f"{info_var} = f'KL={{{kl_var}.item():.6f}}'",
+        ]

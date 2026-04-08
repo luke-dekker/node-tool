@@ -40,5 +40,5 @@ class FlattenNode(BaseNode):
 
     def export(self, iv, ov):
         lv = f"_flat_{self.id[:6]}"
-        return ["import torch", "import torch.nn as nn"], _layer_fwd(
+        return _layer_fwd(
             ov, iv, lv, f"nn.Flatten(start_dim={self._val(iv,'start_dim')})")

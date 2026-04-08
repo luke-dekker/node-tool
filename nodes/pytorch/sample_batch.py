@@ -26,3 +26,13 @@ class SampleBatchNode(BaseNode):
             return {"x": x, "y": y}
         except Exception:
             return {"x": None, "y": None}
+
+    def export(self, iv, ov):
+        dl = iv.get("dataloader") or "None  # TODO: connect a dataloader"
+        x_var = ov.get("x", "_sample_x")
+        y_var = ov.get("y", "_sample_y")
+        return ["import torch"], [
+            f"_batch = next(iter({dl}))",
+            f"{x_var} = _batch[0] if isinstance(_batch, (list, tuple)) else _batch",
+            f"{y_var} = _batch[1] if isinstance(_batch, (list, tuple)) and len(_batch) > 1 else None",
+        ]

@@ -28,3 +28,17 @@ class ModelInfoNode(BaseNode):
             return {"model": model, "info": info}
         except Exception:
             return {"model": None, "info": "error"}
+
+    def export(self, iv, ov):
+        in_model = iv.get("model") or "None  # TODO: connect a model"
+        m_var = ov.get("model", "_model")
+        i_var = ov.get("info",  "_model_info")
+        return [], [
+            f"{m_var} = {in_model}",
+            f"_total     = sum(p.numel() for p in {m_var}.parameters())",
+            f"_trainable = sum(p.numel() for p in {m_var}.parameters() if p.requires_grad)",
+            f"_layers    = sum(1 for _ in {m_var}.modules()) - 1",
+            f"{i_var} = (f'{{{m_var}.__class__.__name__}}  total={{_total:,}}  '",
+            f"          f'trainable={{_trainable:,}}  layers={{_layers}}')",
+            f"print({i_var})",
+        ]

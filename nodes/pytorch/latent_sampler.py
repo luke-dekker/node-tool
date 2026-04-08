@@ -34,3 +34,17 @@ class LatentSamplerNode(BaseNode):
         except Exception:
             import traceback
             return {"samples": None, "info": traceback.format_exc().split("\n")[-2]}
+
+    def export(self, iv, ov):
+        decoder = iv.get("decoder") or "None  # TODO: connect a decoder module"
+        latent_dim = self._val(iv, "latent_dim")
+        n = self._val(iv, "n_samples")
+        device = self._val(iv, "device")
+        s_var = ov.get("samples", "_samples")
+        i_var = ov.get("info",    "_samples_info")
+        return ["import torch"], [
+            f"_z = torch.randn({n}, {latent_dim}).to({device})",
+            f"with torch.no_grad():",
+            f"    {s_var} = {decoder}(_z)",
+            f"{i_var} = f'Sampled {n} points from N(0,I) in R^{latent_dim}'",
+        ]

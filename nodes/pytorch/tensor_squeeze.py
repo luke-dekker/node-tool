@@ -24,3 +24,10 @@ class TensorSqueezeNode(BaseNode):
             return {"tensor": t.squeeze(dim) if dim >= 0 else t.squeeze()}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None"
+        dim_default = self.inputs["dim"].default_value
+        if dim_default is None or int(dim_default) < 0:
+            return ["import torch"], [f"{ov['tensor']} = {t}.squeeze()"]
+        return ["import torch"], [f"{ov['tensor']} = {t}.squeeze({dim_default})"]

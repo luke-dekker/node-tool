@@ -44,5 +44,5 @@ class MaxPool2dNode(BaseNode):
 
     def export(self, iv, ov):
         lv = f"_mxp_{self.id[:6]}"
-        return ["import torch", "import torch.nn as nn"], _layer_fwd(
+        return _layer_fwd(
             ov, iv, lv, f"nn.MaxPool2d({self._val(iv,'kernel')}, stride={self._val(iv,'stride')})")

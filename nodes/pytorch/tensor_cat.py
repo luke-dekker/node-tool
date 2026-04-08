@@ -27,3 +27,12 @@ class TensorCatNode(BaseNode):
             return {"tensor": torch.cat(ts, dim=int(inputs.get("dim") or 0))}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        # Only emit the tensors actually connected upstream
+        ts = [iv.get(f"t{i}") for i in range(1, 5) if iv.get(f"t{i}")]
+        if not ts:
+            return ["import torch"], [f"{ov['tensor']} = None  # no input tensors connected"]
+        return ["import torch"], [
+            f"{ov['tensor']} = torch.cat([{', '.join(ts)}], dim={self._val(iv, 'dim')})"
+        ]

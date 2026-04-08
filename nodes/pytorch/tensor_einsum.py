@@ -27,3 +27,10 @@ class TensorEinsumNode(BaseNode):
             return {"tensor": torch.einsum(eq, t1, t2)}
         except Exception:
             return {"tensor": None}
+
+    def export(self, iv, ov):
+        t1 = iv.get("t1") or "None"
+        t2 = iv.get("t2") or "None"
+        return ["import torch"], [
+            f"{ov['tensor']} = torch.einsum({self._val(iv, 'equation')}, {t1}, {t2})"
+        ]

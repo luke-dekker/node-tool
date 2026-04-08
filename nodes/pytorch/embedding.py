@@ -49,5 +49,5 @@ class EmbeddingNode(BaseNode):
 
     def export(self, iv, ov):
         lv = f"_emb_{self.id[:6]}"
-        return ["import torch", "import torch.nn as nn"], _layer_fwd(
+        return _layer_fwd(
             ov, iv, lv, f"nn.Embedding({self._val(iv,'num_embeddings')}, {self._val(iv,'embedding_dim')})")

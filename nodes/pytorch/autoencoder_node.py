@@ -63,3 +63,48 @@ class AutoencoderNode(BaseNode):
             import traceback
             return {"model": None, "encoder": None, "decoder": None,
                     "latent_dim": 0, "info": traceback.format_exc().split("\n")[-2]}
+
+    def export(self, iv, ov):
+        # NOTE: this node packs an entire encoder+decoder into a single nn.Module.
+        # That's the one place in the codebase where graph-IS-the-model is violated.
+        # Faithful export emits the same internal Sequentials so behavior matches the
+        # runtime exactly. A future refactor could split this into per-layer nodes.
+        sizes_str = str(self.inputs["layer_sizes"].default_value or "784,256,64,16")
+        act_name = str(self.inputs["activation"].default_value or "relu").lower()
+        act_cls = {"relu": "nn.ReLU", "tanh": "nn.Tanh",
+                   "sigmoid": "nn.Sigmoid", "leaky_relu": "nn.LeakyReLU"}.get(act_name, "nn.ReLU")
+        m_var = ov.get("model",   "_ae")
+        e_var = ov.get("encoder", "_ae_encoder")
+        d_var = ov.get("decoder", "_ae_decoder")
+        l_var = ov.get("latent_dim", "_ae_latent_dim")
+        i_var = ov.get("info",    "_ae_info")
+
+        return ["import torch", "import torch.nn as nn"], [
+            f"_sizes = [{sizes_str}]",
+            f"_enc_layers = []",
+            f"for _i in range(len(_sizes) - 1):",
+            f"    _enc_layers.append(nn.Linear(_sizes[_i], _sizes[_i+1]))",
+            f"    if _i < len(_sizes) - 2:",
+            f"        _enc_layers.append({act_cls}())",
+            f"{e_var} = nn.Sequential(*_enc_layers)",
+            f"_rev = list(reversed(_sizes))",
+            f"_dec_layers = []",
+            f"for _i in range(len(_rev) - 1):",
+            f"    _dec_layers.append(nn.Linear(_rev[_i], _rev[_i+1]))",
+            f"    if _i < len(_rev) - 2:",
+            f"        _dec_layers.append({act_cls}())",
+            f"{d_var} = nn.Sequential(*_dec_layers)",
+            f"",
+            f"class _AE_{self.id[:6]}(nn.Module):",
+            f"    def __init__(self, enc, dec):",
+            f"        super().__init__()",
+            f"        self.encoder = enc",
+            f"        self.decoder = dec",
+            f"    def forward(self, x):",
+            f"        return self.decoder(self.encoder(x))",
+            f"",
+            f"{m_var} = _AE_{self.id[:6]}({e_var}, {d_var})",
+            f"{l_var} = _sizes[-1]",
+            f"{i_var} = f'AE {{_sizes}}  latent={{_sizes[-1]}}  "
+            f"params={{sum(p.numel() for p in {m_var}.parameters()):,}}'",
+        ]

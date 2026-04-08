@@ -16,7 +16,8 @@ from core.node import PortType, BaseNode
 from nodes import NODE_REGISTRY, get_nodes_by_category, CATEGORY_ORDER
 from gui.constants import VIEWPORT_W, VIEWPORT_H, PALETTE_W, INSPECTOR_W, TERMINAL_H, NODE_INPUT_W
 from gui.theme import (
-    create_global_theme, create_node_theme, CATEGORY_COLORS, TEXT, TEXT_DIM,
+    create_global_theme, create_node_theme, create_fonts,
+    CATEGORY_COLORS, TEXT, TEXT_DIM,
     ACCENT, ACCENT2, BG_DARK, BG_MID, BG_LIGHT,
     FLOAT_PIN, INT_PIN, BOOL_PIN, STRING_PIN, ANY_PIN,
     TENSOR_PIN, MODULE_PIN, DATALOADER_PIN, OPTIMIZER_PIN, LOSS_FN_PIN,
@@ -798,12 +799,26 @@ class NodeApp(
             height=VIEWPORT_H,
         )
 
+        # Load fonts (Segoe UI / Consolas) and bind default globally
+        self._fonts = create_fonts()
+        if self._fonts.get("default"):
+            dpg.bind_font(self._fonts["default"])
+
         # Apply global theme
         global_theme = create_global_theme()
         dpg.bind_theme(global_theme)
 
         # Build UI
         self._build_layout()
+
+        # Bind mono font to terminal text areas (set after layout build)
+        if self._fonts.get("mono"):
+            for tag in ("terminal_text", "code_text"):
+                try:
+                    if dpg.does_item_exist(tag):
+                        dpg.bind_item_font(tag, self._fonts["mono"])
+                except Exception:
+                    pass
         self._setup_handlers()
 
         # Populate demo graph

@@ -28,3 +28,14 @@ class PackSequenceNode(BaseNode):
                                enforce_sorted=False)}
         except Exception:
             return {"packed": None}
+
+    def export(self, iv, ov):
+        t = iv.get("tensor") or "None  # TODO: connect padded tensor"
+        l = iv.get("lengths") or "None  # TODO: connect lengths tensor"
+        return ["from torch.nn.utils.rnn import pack_padded_sequence"], [
+            f"{ov['packed']} = pack_padded_sequence(",
+            f"    {t}, {l}.cpu(),",
+            f"    batch_first={self._val(iv, 'batch_first')},",
+            f"    enforce_sorted=False,",
+            f")",
+        ]

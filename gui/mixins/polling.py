@@ -73,8 +73,9 @@ class PollingMixin:
         except Exception:
             pass
         try:
+            # Code tab has a button row above the text area, leave room for it
             dpg.set_item_height("code_scroll", content_h)
-            dpg.set_item_height("code_text", content_h - 10)
+            dpg.set_item_height("code_text", content_h - 38)
             dpg.set_item_width("code_text", content_w)
         except Exception:
             pass
@@ -164,12 +165,12 @@ class PollingMixin:
                     dpg.fit_axis_data("loss_x_axis")
                     dpg.fit_axis_data("loss_y_axis")
                     dpg.set_value("train_epoch_text",
-                        f"Epoch: {self._training_ctrl.current_epoch}/{self._training_ctrl.total_epochs}")
-                    val_str = f"  val={val_losses[-1]:.6f}" if val_losses else ""
+                        f"Epoch  {self._training_ctrl.current_epoch} / {self._training_ctrl.total_epochs}")
+                    val_str = f"   val {val_losses[-1]:.4f}" if val_losses else ""
                     dpg.set_value("train_loss_text",
-                        f"Best loss: {self._training_ctrl.best_loss:.6f}{val_str}")
+                        f"Best loss  {self._training_ctrl.best_loss:.4f}{val_str}")
                     if self._training_ctrl.status in ("done", "error"):
-                        dpg.set_value("train_status_text",
-                            f"Status: {self._training_ctrl.status.capitalize()}")
+                        from gui.mixins.training import _set_train_status
+                        _set_train_status(self._training_ctrl.status.capitalize())
                 except Exception:
                     pass

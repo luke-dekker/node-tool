@@ -28,3 +28,15 @@ class VAELossNode(BaseNode):
             return {"loss": loss, "info": f"loss={loss.item():.6f}  recon={recon.item():.6f}  kl={kl.item():.6f}  beta={beta}"}
         except Exception:
             return {"loss": None, "info": "error"}
+
+    def export(self, iv, ov):
+        recon = iv.get("recon_loss") or "None  # TODO: connect recon loss"
+        kl    = iv.get("kl_loss")    or "None  # TODO: connect KL loss"
+        beta  = self._val(iv, "beta")
+        loss  = ov.get("loss", "_vae_loss")
+        info  = ov.get("info", "_vae_loss_info")
+        return [], [
+            f"{loss} = {recon} + {beta} * {kl}",
+            f"{info} = f'loss={{{loss}.item():.6f}}  recon={{{recon}.item():.6f}}  "
+            f"kl={{{kl}.item():.6f}}  beta={beta}'",
+        ]

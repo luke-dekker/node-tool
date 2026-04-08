@@ -37,3 +37,20 @@ class LSTMLayerNode(BaseNode):
             return {"module": module}
         except Exception:
             return {"module": None}
+
+    def export(self, iv, ov):
+        lv = f"_lstm_{self.id[:6]}"
+        lines = [
+            f"{lv} = nn.LSTM(",
+            f"    input_size={self._val(iv, 'input_size')},",
+            f"    hidden_size={self._val(iv, 'hidden_size')},",
+            f"    num_layers={self._val(iv, 'num_layers')},",
+            f"    dropout={self._val(iv, 'dropout')},",
+            f"    bidirectional={self._val(iv, 'bidirectional')},",
+            f"    batch_first={self._val(iv, 'batch_first')},",
+            f")",
+            f"{ov['module']} = {lv}",
+        ]
+        if self.inputs["freeze"].default_value:
+            lines.append(f"for _p in {lv}.parameters(): _p.requires_grad = False")
+        return ["import torch", "import torch.nn as nn"], lines

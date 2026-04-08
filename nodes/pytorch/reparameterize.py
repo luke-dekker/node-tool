@@ -27,3 +27,13 @@ class ReparameterizeNode(BaseNode):
             return {"z": mu + eps * std}
         except Exception:
             return {"z": None}
+
+    def export(self, iv, ov):
+        mu = iv.get("mu") or "None  # TODO: connect mu tensor"
+        lv = iv.get("log_var") or "None  # TODO: connect log_var tensor"
+        z = ov.get("z", "_z")
+        return ["import torch"], [
+            f"_std = torch.exp(0.5 * {lv})",
+            f"_eps = torch.randn_like(_std)",
+            f"{z} = {mu} + _eps * _std",
+        ]

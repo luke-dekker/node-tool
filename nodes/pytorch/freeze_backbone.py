@@ -29,3 +29,18 @@ class FreezeBackboneNode(BaseNode):
             return {"model": model, "info": f"frozen={frozen}/{total} param groups"}
         except Exception:
             return {"model": None, "info": "error"}
+
+    def export(self, iv, ov):
+        in_model = iv.get("model") or "None  # TODO: connect a model"
+        mv = ov.get("model", "_frozen_model")
+        iv_var = ov.get("info",  "_frozen_model_info")
+        freeze = bool(self.inputs["freeze_all"].default_value)
+        lines = [
+            f"{mv} = {in_model}",
+            f"for _p in {mv}.parameters():",
+            f"    _p.requires_grad = {not freeze}",
+            f"_n_frozen = sum(1 for _p in {mv}.parameters() if not _p.requires_grad)",
+            f"_n_total  = sum(1 for _p in {mv}.parameters())",
+            f"{iv_var} = f'frozen={{_n_frozen}}/{{_n_total}} param groups'",
+        ]
+        return ["import torch"], lines
