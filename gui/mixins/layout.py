@@ -75,10 +75,13 @@ class LayoutMixin:
                     try:
                         from templates import TEMPLATES
                         for label, description, builder in TEMPLATES:
-                            # Bind builder via default arg to avoid late-binding closure bug
+                            # Pass (builder, label) via user_data — same pattern
+                            # the palette buttons use. Default-arg closures get
+                            # overridden by DPG's positional user_data=None.
                             dpg.add_menu_item(
                                 label=label,
-                                callback=lambda s, a, u=(builder, label): self._load_template(u[0], u[1]),
+                                callback=lambda s, a, u: self._load_template(u[0], u[1]),
+                                user_data=(builder, label),
                             )
                             with dpg.tooltip(dpg.last_item()):
                                 dpg.add_text(description, wrap=320)

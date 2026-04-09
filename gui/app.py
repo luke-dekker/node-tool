@@ -803,7 +803,10 @@ class NodeApp(
             height=VIEWPORT_H,
         )
 
-        # Load fonts (Segoe UI / Consolas) and bind default globally
+        # Load fonts (Segoe UI / Consolas). create_fonts() handles DPI awareness
+        # and bakes glyphs at the right physical pixel size for crisp 1:1
+        # texel-to-pixel rendering on high-DPI displays. Do NOT call
+        # set_global_font_scale here — the baked size already accounts for DPI.
         self._fonts = create_fonts()
         if self._fonts.get("default"):
             dpg.bind_font(self._fonts["default"])

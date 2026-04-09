@@ -81,13 +81,49 @@ CATEGORY_COLORS = {
 }
 
 
-def create_fonts() -> dict[str, int]:
-    """Load Segoe UI (regular + bold) and Consolas as DPG fonts.
+def _detect_dpi_scale() -> float:
+    """Detect the system DPI scale on Windows (1.0 = 100%, 1.25 = 125%, ...).
 
-    Returns a dict with keys: 'default', 'bold', 'mono', 'small'.
-    Caller should bind 'default' globally and use the others where needed.
+    Returns 1.0 on non-Windows or if detection fails. Used to bake font atlases
+    at the right pixel density so glyphs are 1:1 texel-to-pixel after Windows
+    applies its DPI scaling — eliminates the fuzzy/upscaled text problem.
+    """
+    try:
+        import ctypes
+        # Mark the process as DPI aware so Windows stops upscaling our window
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_AWARE
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+        # Query system DPI (96 = 100%, 120 = 125%, 144 = 150%, 192 = 200%)
+        try:
+            dpi = ctypes.windll.user32.GetDpiForSystem()
+        except Exception:
+            hdc = ctypes.windll.user32.GetDC(0)
+            dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
+            ctypes.windll.user32.ReleaseDC(0, hdc)
+        return max(1.0, dpi / 96.0)
+    except Exception:
+        return 1.0
+
+
+def create_fonts() -> dict[str, int]:
+    """Load Segoe UI (regular + bold) and Consolas as DPG fonts at native DPI.
+
+    Bakes fonts at the actual pixel size after factoring in the system DPI
+    scale, so glyphs render 1:1 texel-to-pixel — crisp on any display. The
+    visible point sizes (regular 18, mono 15, small 13) match a comfortable
+    desktop reading size. No global font scale needed; the caller should NOT
+    set one or the math will be off.
+
+    On a 125% DPI display: 18 * 1.25 = 22.5 → 22 pixel atlas, displayed at
+    22 physical pixels = 18 logical points. Crisp.
     """
     import os
+    scale = _detect_dpi_scale()
     fonts_dir = "C:/Windows/Fonts"
     paths = {
         "regular": os.path.join(fonts_dir, "segoeui.ttf"),
@@ -95,22 +131,29 @@ def create_fonts() -> dict[str, int]:
         "mono":    os.path.join(fonts_dir, "consola.ttf"),
     }
 
+    # Visible sizes (in logical points) → baked sizes (in physical pixels)
+    sizes = {
+        "default": int(round(18 * scale)),
+        "small":   int(round(13 * scale)),
+        "bold":    int(round(18 * scale)),
+        "mono":    int(round(15 * scale)),
+    }
+
     out: dict[str, int] = {}
     with dpg.font_registry():
-        # Slightly larger sizes — DPG renders TTF crisply at native px.
         if os.path.exists(paths["regular"]):
-            with dpg.font(paths["regular"], 16) as f:
+            with dpg.font(paths["regular"], sizes["default"]) as f:
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
             out["default"] = f
-            with dpg.font(paths["regular"], 13) as f_small:
+            with dpg.font(paths["regular"], sizes["small"]) as f_small:
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
             out["small"] = f_small
         if os.path.exists(paths["bold"]):
-            with dpg.font(paths["bold"], 16) as f_bold:
+            with dpg.font(paths["bold"], sizes["bold"]) as f_bold:
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
             out["bold"] = f_bold
         if os.path.exists(paths["mono"]):
-            with dpg.font(paths["mono"], 14) as f_mono:
+            with dpg.font(paths["mono"], sizes["mono"]) as f_mono:
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
             out["mono"] = f_mono
     return out
@@ -192,7 +235,9 @@ def create_global_theme() -> int:
             dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize,  1.0)
             dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize,   0.0)
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,     12.0, 10.0)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,      9.0, 6.0)
+            # FramePadding y must be tall enough for descenders (g/j/p/q/y)
+            # at the current font size, otherwise letter bottoms get clipped.
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,      9.0, 8.0)
             dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,       8.0, 7.0)
             dpg.add_theme_style(dpg.mvStyleVar_ItemInnerSpacing,  6.0, 5.0)
             dpg.add_theme_style(dpg.mvStyleVar_IndentSpacing,     14.0)
