@@ -8,6 +8,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "CSV -> Sklearn Regression"
+DESCRIPTION = "End-to-end tabular ML. Load -> clean -> split -> scale -> fit -> predict -> R2."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pandas.pd_from_csv             import PdFromCsvNode

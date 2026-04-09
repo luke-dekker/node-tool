@@ -9,6 +9,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "MNIST Classifier (MLP)"
+DESCRIPTION = "Hello-world MLP on MNIST. Flatten -> Linear+ReLU -> Linear -> CrossEntropy."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.mnist_dataset    import MNISTDatasetNode

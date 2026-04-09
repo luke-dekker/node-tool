@@ -219,13 +219,21 @@ class NodeApp(
         # Training controller
         self._training_ctrl = TrainingController()
 
-        # Hot reload — both nodes/custom/ (Python files) and subgraphs/ (JSON)
+        # Hot reload — three watchers:
+        #   - HotReloader for nodes/custom/*.py (decorator-based custom nodes)
+        #   - SubgraphReloader for subgraphs/*.subgraph.json
+        #   - TemplatesReloader for templates/*.py
+        # All follow the same pattern: poll, return events, apply_event mutates
+        # the registry, GUI polling mixin refreshes the menu in place.
         from core.custom import HotReloader
         from nodes.subgraphs._reloader import SubgraphReloader
+        from templates._reloader import TemplatesReloader
         self._hot_reloader = HotReloader()
         self._subgraph_reloader = SubgraphReloader()
-        # Pre-populate so the initial pass doesn't re-fire on the existing files
+        self._templates_reloader = TemplatesReloader()
+        # Pre-populate so the initial pass doesn't re-fire on existing files
         self._subgraph_reloader.poll()
+        self._templates_reloader.poll()
         self._palette_cat_items: dict[str, int] = {}  # category -> collapsing_header DPG ID
         self._term_last_size: tuple[int, int] = (0, 0)  # track terminal window size for resize
         self._layout_last: tuple = (0, 0, 0)           # (vw, vh, term_h) - triggers reanchor
@@ -849,6 +857,7 @@ class NodeApp(
             self._poll_training()         # drain training events, update plot
             self._poll_hot_reload()       # check nodes/custom/ for changes
             self._poll_subgraph_reload()  # check subgraphs/ for changes
+            self._poll_template_reload()  # check templates/ for changes
             self._poll_terminal_resize()  # resize output/code widgets with window
             self._poll_layout()           # reanchor panels to viewport edges
             _code_counter += 1

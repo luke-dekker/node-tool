@@ -1,4 +1,10 @@
-"""Tests for autoencoder/VAE nodes and freeze functionality."""
+"""Tests for autoencoder/VAE building blocks and freeze functionality.
+
+VAENode and AutoencoderNode were hard-deleted in favor of building VAEs and
+AEs from per-layer node chains in templates. This file tests the per-layer
+primitives (Reparameterize, KL, VAELoss, LatentSampler, GaussianNoise) plus
+the freeze controls and the new LossComputeNode.
+"""
 import pytest
 import torch
 
@@ -60,81 +66,6 @@ def test_freeze_named_layers_none_guard():
     assert result["model"] is None
 
 
-# ── Autoencoder ───────────────────────────────────────────────────────────────
-
-def test_autoencoder_creates_model():
-    from nodes.pytorch.autoencoder import AutoencoderNode
-    result = AutoencoderNode().execute({"layer_sizes": "64,32,16", "activation": "relu"})
-    assert result["model"] is not None
-    assert result["latent_dim"] == 16
-    assert result["encoder"] is not None
-    assert result["decoder"] is not None
-    assert "params=" in result["info"]
-
-def test_autoencoder_forward():
-    from nodes.pytorch.autoencoder import AutoencoderNode
-    result = AutoencoderNode().execute({"layer_sizes": "64,32,16", "activation": "relu"})
-    model = result["model"]
-    x = torch.randn(4, 64)
-    out = model(x)
-    assert out.shape == (4, 64)  # reconstruction same shape as input
-
-def test_autoencoder_different_activations():
-    from nodes.pytorch.autoencoder import AutoencoderNode
-    for act in ["relu", "tanh", "sigmoid"]:
-        result = AutoencoderNode().execute({"layer_sizes": "32,16,8", "activation": act})
-        assert result["model"] is not None
-
-def test_autoencoder_none_guard():
-    from nodes.pytorch.autoencoder import AutoencoderNode
-    result = AutoencoderNode().execute({"layer_sizes": "not,valid", "activation": "relu"})
-    assert result["model"] is None
-
-
-# ── VAE ───────────────────────────────────────────────────────────────────────
-
-def test_vae_creates_model():
-    from nodes.pytorch.autoencoder import VAENode
-    result = VAENode().execute({"layer_sizes": "64,32", "latent_dim": 8, "activation": "relu"})
-    assert result["model"] is not None
-    assert "params=" in result["info"]
-
-def test_vae_forward_returns_triple():
-    from nodes.pytorch.autoencoder import VAENode
-    result = VAENode().execute({"layer_sizes": "64,32", "latent_dim": 8, "activation": "relu"})
-    model = result["model"]
-    x = torch.randn(4, 64)
-    out = model(x)
-    assert isinstance(out, tuple) and len(out) == 3
-    recon, mu, log_var = out
-    assert recon.shape == (4, 64)
-    assert mu.shape == (4, 8)
-    assert log_var.shape == (4, 8)
-
-def test_vae_encode_decode():
-    from nodes.pytorch.autoencoder import VAENode
-    result = VAENode().execute({"layer_sizes": "64,32", "latent_dim": 8, "activation": "relu"})
-    model = result["model"]
-    x = torch.randn(2, 64)
-    mu, log_var = model.encode(x)
-    assert mu.shape == (2, 8)
-    z = torch.randn(2, 8)
-    recon = model.decode(z)
-    assert recon.shape == (2, 64)
-
-def test_vae_sample():
-    from nodes.pytorch.autoencoder import VAENode
-    result = VAENode().execute({"layer_sizes": "64,32", "latent_dim": 8, "activation": "relu"})
-    model = result["model"]
-    samples = model.sample(5)
-    assert samples.shape == (5, 64)
-
-def test_vae_none_guard():
-    from nodes.pytorch.autoencoder import VAENode
-    result = VAENode().execute({"layer_sizes": "bad", "latent_dim": 8, "activation": "relu"})
-    assert result["model"] is None
-
-
 # ── Reparameterize ────────────────────────────────────────────────────────────
 
 def test_reparameterize():
@@ -178,7 +109,7 @@ def test_kl_none_guard():
     assert result["kl_loss"] is None
 
 
-# ── VAE Loss ──────────────────────────────────────────────────────────────────
+# ── VAE Loss combiner ────────────────────────────────────────────────────────
 
 def test_vae_loss_combines():
     from nodes.pytorch.autoencoder import VAELossNode
@@ -200,32 +131,19 @@ def test_vae_loss_none_guard():
     assert result["loss"] is None
 
 
-# ── VAE Training Config ───────────────────────────────────────────────────────
-
-def test_vae_training_config():
-    from nodes.pytorch.autoencoder import VAETrainingConfigNode
-    result = VAETrainingConfigNode().execute({
-        "model": None, "optimizer": None, "dataloader": None,
-        "val_dataloader": None, "scheduler": None,
-        "epochs": 10, "beta": 2.0, "recon_loss_type": "mse", "device": "cpu"
-    })
-    cfg = result["config"]
-    assert cfg is not None
-    assert cfg["vae"] is True
-    assert cfg["beta"] == 2.0
-    assert cfg["epochs"] == 10
-
-
 # ── Latent Sampler & Gaussian Noise ──────────────────────────────────────────
 
 def test_latent_sampler():
-    from nodes.pytorch.autoencoder import VAENode, LatentSamplerNode
-    model = VAENode().execute({"layer_sizes": "32,16", "latent_dim": 4, "activation": "relu"})["model"]
+    """Use a simple Sequential as the decoder — not the deleted VAENode."""
+    import torch.nn as nn
+    from nodes.pytorch.autoencoder import LatentSamplerNode
+    decoder = nn.Sequential(nn.Linear(4, 16), nn.ReLU(), nn.Linear(16, 32))
     result = LatentSamplerNode().execute({
-        "decoder": model.decoder, "latent_dim": 4, "n_samples": 6, "device": "cpu"
+        "decoder": decoder, "latent_dim": 4, "n_samples": 6, "device": "cpu"
     })
     assert result["samples"] is not None
     assert result["samples"].shape[0] == 6
+    assert result["samples"].shape[1] == 32
 
 def test_latent_sampler_none_guard():
     from nodes.pytorch.autoencoder import LatentSamplerNode
@@ -248,17 +166,77 @@ def test_gaussian_noise_none_guard():
     assert result["tensor"] is None
 
 
+# ── LossComputeNode (the new generic in-graph loss node) ─────────────────────
+
+def test_loss_compute_mse():
+    from nodes.pytorch.loss_compute import LossComputeNode
+    pred   = torch.zeros(4, 8)
+    target = torch.ones(4, 8)
+    result = LossComputeNode().execute({
+        "pred": pred, "target": target, "loss_type": "mse", "weight": 1.0,
+    })
+    # MSE between zeros and ones is 1.0
+    assert abs(result["loss"].item() - 1.0) < 1e-5
+
+def test_loss_compute_weight():
+    from nodes.pytorch.loss_compute import LossComputeNode
+    pred   = torch.zeros(4, 8)
+    target = torch.ones(4, 8)
+    result = LossComputeNode().execute({
+        "pred": pred, "target": target, "loss_type": "mse", "weight": 0.5,
+    })
+    # 0.5 * 1.0 = 0.5
+    assert abs(result["loss"].item() - 0.5) < 1e-5
+
+def test_loss_compute_cross_entropy():
+    from nodes.pytorch.loss_compute import LossComputeNode
+    # 4 samples, 10 classes — uniform logits should give loss ≈ ln(10) ≈ 2.30
+    pred   = torch.zeros(4, 10)
+    target = torch.tensor([0, 1, 2, 3], dtype=torch.long)
+    result = LossComputeNode().execute({
+        "pred": pred, "target": target, "loss_type": "cross_entropy", "weight": 1.0,
+    })
+    import math
+    assert abs(result["loss"].item() - math.log(10)) < 1e-3
+
+def test_loss_compute_bce():
+    from nodes.pytorch.loss_compute import LossComputeNode
+    pred   = torch.full((4, 8), 0.5)
+    target = torch.full((4, 8), 0.5)
+    result = LossComputeNode().execute({
+        "pred": pred, "target": target, "loss_type": "bce", "weight": 1.0,
+    })
+    # BCE(0.5, 0.5) = -log(0.5) = ln(2)
+    import math
+    assert abs(result["loss"].item() - math.log(2)) < 1e-3
+
+def test_loss_compute_none_guard():
+    from nodes.pytorch.loss_compute import LossComputeNode
+    result = LossComputeNode().execute({
+        "pred": None, "target": None, "loss_type": "mse", "weight": 1.0,
+    })
+    assert result["loss"] is None
+
+def test_loss_compute_in_registry():
+    from nodes import NODE_REGISTRY
+    assert "pt_loss_compute" in NODE_REGISTRY
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
-def test_registry_has_autoencoder_nodes():
+def test_registry_has_per_layer_blocks():
+    """The per-layer building blocks should still be registered after the
+    monolithic VAENode/AutoencoderNode/VAETrainingConfigNode hard-delete."""
     from nodes import NODE_REGISTRY
-    expected = ["pt_autoencoder", "pt_vae", "pt_reparameterize", "pt_kl_divergence",
-                "pt_vae_loss", "pt_vae_training_config", "pt_latent_sampler",
-                "pt_gaussian_noise", "pt_freeze_named_layers"]
+    expected = ["pt_reparameterize", "pt_kl_divergence", "pt_vae_loss",
+                "pt_latent_sampler", "pt_gaussian_noise",
+                "pt_freeze_named_layers", "pt_loss_compute"]
     for tn in expected:
         assert tn in NODE_REGISTRY, f"Missing: {tn}"
 
-def test_generative_subcategory():
+def test_registry_does_not_have_deleted_nodes():
+    """VAENode, AutoencoderNode, and VAETrainingConfigNode were hard-deleted —
+    confirm they don't accidentally come back via some forgotten import path."""
     from nodes import NODE_REGISTRY
-    for tn in ["pt_autoencoder", "pt_vae", "pt_reparameterize"]:
-        assert NODE_REGISTRY[tn].subcategory == "Autoencoder", f"{tn} wrong subcategory"
+    for tn in ("pt_vae", "pt_autoencoder", "pt_vae_training_config"):
+        assert tn not in NODE_REGISTRY, f"Should be deleted: {tn}"

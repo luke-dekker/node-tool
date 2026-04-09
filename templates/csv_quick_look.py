@@ -8,6 +8,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "CSV Quick Look"
+DESCRIPTION = "Load a CSV and show shape, info, describe, head. The 'what's in this file' workflow."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pandas.pd_from_csv    import PdFromCsvNode

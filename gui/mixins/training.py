@@ -90,6 +90,7 @@ class TrainingMixin:
             "model":          model,
             "optimizer":      optimizer,
             "loss_fn":        config["loss_fn"],
+            "loss_is_output": config.get("loss_is_output", False),
             "dataloader":     config["dataloader"],
             "val_dataloader": config.get("val_dataloader"),
             "scheduler":      scheduler,

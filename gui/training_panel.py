@@ -119,19 +119,17 @@ class TrainingController:
             device_str = config.get("device", "cpu")
             device = torch.device(device_str if torch.cuda.is_available() or device_str == "cpu" else "cpu")
 
-            _is_vae_check = config.get("vae", False)
+            loss_is_output = config.get("loss_is_output", False)
             if model is None or optimizer is None or dataloader is None:
                 self._evt_q.put(("error", "Training config has None values - wire all inputs."))
                 return
-            if not _is_vae_check and loss_fn is None:
+            # In loss_is_output mode the graph computes the loss internally,
+            # so loss_fn isn't needed. Otherwise it must be set.
+            if not loss_is_output and loss_fn is None:
                 self._evt_q.put(("error", "Training config has None values - wire all inputs."))
                 return
 
             model = model.to(device)
-
-            is_vae = config.get("vae", False)
-            beta   = float(config.get("beta", 1.0))
-            recon_loss_type = config.get("recon_loss_type", "mse")
 
             is_multimodal   = config.get("multimodal", False)
             freeze_strategy = config.get("freeze_strategy", "hard")
@@ -197,9 +195,18 @@ class TrainingController:
 
                         optimizer.zero_grad()
                         out = model(dev_batch)
-                        if out is None or labels is None or not hasattr(labels, "shape"):
+                        if out is None:
                             continue
-                        loss = loss_fn(out, labels)
+                        # loss_is_output: the graph's leaf already IS the scalar loss
+                        # (computed via LossComputeNode + math nodes inside the graph).
+                        # No external loss_fn needed. This is the path for VAE,
+                        # multi-task learning, custom losses.
+                        if loss_is_output:
+                            loss = out
+                        else:
+                            if labels is None or not hasattr(labels, "shape"):
+                                continue
+                            loss = loss_fn(out, labels)
                         loss.backward()
                         optimizer.step()
                         epoch_loss += loss.item()
@@ -215,16 +222,9 @@ class TrainingController:
                         y = x  # autoencoder-style fallback
 
                     optimizer.zero_grad()
-                    if is_vae:
-                        # VAE: model returns (recon, mu, log_var)
-                        recon, mu, log_var = model(x)
-                        if recon_loss_type == "bce":
-                            import torch.nn.functional as F
-                            recon_loss = F.binary_cross_entropy(recon, x, reduction="mean")
-                        else:
-                            recon_loss = ((recon - x) ** 2).mean()
-                        kl = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
-                        loss = recon_loss + beta * kl
+                    if loss_is_output:
+                        # Same loss-is-the-graph-output mode for the non-graph_module path
+                        loss = model(x)
                     else:
                         out = model(x)
                         loss = loss_fn(out, y)
@@ -260,24 +260,22 @@ class TrainingController:
                                 else:
                                     dev_b = batch.to(device) if hasattr(batch, "to") else batch
                                 out_v = model(dev_b)
-                                if out_v is None or labels_v is None or not hasattr(labels_v, "shape"):
+                                if out_v is None:
                                     continue
-                                val_epoch_loss += loss_fn(out_v, labels_v).item()
+                                if loss_is_output:
+                                    val_epoch_loss += out_v.item()
+                                else:
+                                    if labels_v is None or not hasattr(labels_v, "shape"):
+                                        continue
+                                    val_epoch_loss += loss_fn(out_v, labels_v).item()
                                 val_batches += 1
                                 continue
                             if isinstance(batch, (list, tuple)):
                                 x, y = batch[0].to(device), batch[1].to(device)
                             else:
                                 x = batch.to(device); y = x
-                            if is_vae:
-                                recon, mu, log_var = model(x)
-                                if recon_loss_type == "bce":
-                                    import torch.nn.functional as F
-                                    r_loss = F.binary_cross_entropy(recon, x, reduction="mean")
-                                else:
-                                    r_loss = ((recon - x) ** 2).mean()
-                                kl = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
-                                val_epoch_loss += (r_loss + beta * kl).item()
+                            if loss_is_output:
+                                val_epoch_loss += model(x).item()
                             else:
                                 val_epoch_loss += loss_fn(model(x), y).item()
                             val_batches += 1

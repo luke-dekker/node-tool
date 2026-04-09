@@ -8,6 +8,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "K-Means + PCA Visualization"
+DESCRIPTION = "Unsupervised pipeline. Standardize -> KMeans -> PCA to 2D for inspection."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pandas.pd_from_csv          import PdFromCsvNode

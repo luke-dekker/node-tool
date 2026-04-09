@@ -13,6 +13,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "Transfer Learning (ResNet18)"
+DESCRIPTION = "Pretrained ResNet18, frozen backbone, new classification head on CIFAR-10."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.cifar10_dataset       import CIFAR10DatasetNode

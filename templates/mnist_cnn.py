@@ -7,6 +7,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "MNIST Classifier (CNN)"
+DESCRIPTION = "Convolutional pipeline on MNIST. Conv -> Pool -> Conv -> Pool -> Linear."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.mnist_dataset    import MNISTDatasetNode

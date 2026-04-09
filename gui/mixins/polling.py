@@ -17,6 +17,27 @@ class PollingMixin:
                 if dpg.does_item_exist("custom_hint_text"):
                     dpg.hide_item("custom_hint_text")
 
+    def _poll_template_reload(self) -> None:
+        """Check templates/ for new/changed/removed .py files.
+
+        On any event we apply it to the templates registry and then rebuild
+        the File -> Templates submenu in place. Edit a template file in
+        another window and it shows up within ~1 second.
+        """
+        from templates._reloader import TemplatesReloader
+        events = self._templates_reloader.poll()
+        if not events:
+            return
+        for event in events:
+            kind, stem, msg, _entry = event
+            self._log(msg)
+            TemplatesReloader.apply_event(event)
+        # One menu rebuild per poll batch is enough
+        try:
+            self._refresh_templates_menu()
+        except Exception as exc:
+            self._log(f"[Templates] menu refresh error: {exc}")
+
     def _poll_subgraph_reload(self) -> None:
         """Check subgraphs/ for new/changed/removed .subgraph.json files.
 

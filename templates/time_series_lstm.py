@@ -15,6 +15,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "Time Series Forecasting (LSTM)"
+DESCRIPTION = "Synthetic sine wave forecasting with LSTM. No external data needed."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.numpy_dataset    import NumpyDatasetNode

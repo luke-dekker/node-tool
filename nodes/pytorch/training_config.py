@@ -63,9 +63,13 @@ class TrainingConfigNode(BaseNode):
     )
 
     def _setup_ports(self):
-        # tensor_in receives predictions from the last layer
+        # tensor_in receives predictions from the last layer.
+        # If loss_is_output=True, tensor_in receives the SCALAR loss tensor
+        # computed inside the graph, and the loss/loss_fn config below is
+        # ignored — the training loop just calls loss = model(batch); loss.backward().
         self.add_input("tensor_in",      PortType.TENSOR,     default=None,
-                       description="Wire from the last layer's tensor_out")
+                       description="Wire from the last layer's tensor_out — "
+                                   "or from a scalar loss when loss_is_output=True")
         self.add_input("dataloader",     PortType.DATALOADER, default=None)
         self.add_input("val_dataloader", PortType.DATALOADER, default=None,
                        description="Optional validation dataloader")
@@ -73,6 +77,15 @@ class TrainingConfigNode(BaseNode):
         self.add_input("epochs",         PortType.INT,        default=10)
         self.add_input("device",         PortType.STRING,     default="cpu",
                        description="cpu | cuda | cuda:0")
+        # Loss-as-output mode: when True, the graph itself computes a scalar
+        # loss tensor (via LossComputeNode + math nodes) and feeds it into
+        # tensor_in. The training loop runs `loss = model(batch); loss.backward()`
+        # and ignores the `loss` string below. This is the path for VAE training,
+        # multi-task learning, custom losses — anything where you want the loss
+        # to be a real first-class operation in the graph.
+        self.add_input("loss_is_output", PortType.BOOL,       default=False,
+                       description="If True, tensor_in is a scalar loss already; "
+                                   "skip the loss_fn step in the training loop")
         # Optimizer
         self.add_input("optimizer",      PortType.STRING,     default="adam",
                        description=_OPT_HELP,
@@ -81,7 +94,7 @@ class TrainingConfigNode(BaseNode):
         self.add_input("weight_decay",   PortType.FLOAT,      default=0.0)
         self.add_input("momentum",       PortType.FLOAT,      default=0.9,
                        description="SGD only")
-        # Loss
+        # Loss (only used when loss_is_output=False)
         self.add_input("loss",           PortType.STRING,     default="crossentropy",
                        description=_LOSS_HELP,
                        choices=["crossentropy", "mse", "bce", "bcewithlogits", "l1"])
@@ -104,6 +117,7 @@ class TrainingConfigNode(BaseNode):
             loss_fn = _build_loss(inputs.get("loss") or "crossentropy")
             return {"config": {
                 "loss_fn":        loss_fn,
+                "loss_is_output": bool(inputs.get("loss_is_output", False)),
                 "dataloader":     inputs.get("dataloader"),
                 "val_dataloader": inputs.get("val_dataloader"),
                 "epochs":         int(inputs.get("epochs")       or 10),

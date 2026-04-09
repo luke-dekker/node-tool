@@ -328,6 +328,203 @@ class FileOpsMixin:
             import traceback
             self._log(f"[Pack] failed: {traceback.format_exc()}")
 
+    def _expand_subgraph_inline(self) -> None:
+        """Expand the selected SubgraphNode(s) inline: replace each with its inner nodes.
+
+        The inverse of _pack_as_subgraph. For each selected subgraph node:
+        - Inner nodes are added to the parent graph with fresh UUIDs.
+        - Internal connections are re-created.
+        - External boundary connections are rewired to the corresponding inner ports.
+        - The original subgraph node is removed.
+        DPG calls that require an active context are wrapped in try/except so
+        the graph-mutation logic can run headlessly in tests.
+        """
+        import uuid as _uuid_mod
+
+        # Gather selected DPG node tags
+        selected_dpg: list = []
+        try:
+            selected_dpg = list(dpg.get_selected_nodes("NodeEditor"))
+        except Exception:
+            pass
+
+        # Resolve to graph node objects, filter to subgraph nodes
+        subgraph_items: list[tuple[str, object]] = []  # (node_id, node)
+        for tag in selected_dpg:
+            node_id = self.dpg_node_to_node_id.get(tag)
+            if node_id is None:
+                continue
+            node = self.graph.nodes.get(node_id)
+            if node is not None and getattr(node, "type_name", "").startswith("subgraph_"):
+                subgraph_items.append((node_id, node))
+
+        if not subgraph_items:
+            self._log("[Expand] No subgraph node selected — select a SubgraphNode first.")
+            return
+
+        expanded = 0
+        for subgraph_id, sg_node in subgraph_items:
+            try:
+                self._expand_single_subgraph(subgraph_id, sg_node, _uuid_mod)
+                expanded += 1
+            except Exception:
+                import traceback
+                self._log(f"[Expand] Failed expanding {subgraph_id}: {traceback.format_exc()}")
+
+        self._log(f"[Expand] Expanded {expanded} subgraph(s) inline.")
+
+    def _expand_single_subgraph(self, subgraph_id: str, sg_node, _uuid_mod) -> None:
+        """Core expansion logic for one subgraph node (separated for testability)."""
+        # Get the SubgraphFile from the class attribute
+        sf = type(sg_node)._subgraph_file
+
+        # Get canvas position of the subgraph node (best-effort)
+        base_pos = [100.0, 100.0]
+        try:
+            dpg_tag = self.node_id_to_dpg.get(subgraph_id)
+            if dpg_tag is not None:
+                base_pos = list(dpg.get_item_pos(dpg_tag))
+        except Exception:
+            pass
+
+        # Build the inner graph
+        inner_graph = sf.build_inner_graph()
+
+        # Build a mapping old inner node id -> new uuid
+        id_map: dict[str, str] = {}
+        for old_id in inner_graph.nodes:
+            id_map[old_id] = str(_uuid_mod.uuid4())
+
+        # Add inner nodes to parent graph with fresh IDs
+        for old_id, inner_node in inner_graph.nodes.items():
+            new_id = id_map[old_id]
+            inner_node.id = new_id
+            self.graph.add_node(inner_node)
+
+            # Compute position: saved pos in subgraph + subgraph's canvas pos
+            saved_pos = sf.positions.get(old_id, None)
+            if saved_pos is not None:
+                pos = (float(base_pos[0]) + float(saved_pos[0]),
+                       float(base_pos[1]) + float(saved_pos[1]))
+            else:
+                # Fallback grid: spread nodes 200px apart
+                idx = list(inner_graph.nodes.keys()).index(old_id)
+                pos = (float(base_pos[0]) + idx * 200, float(base_pos[1]))
+
+            try:
+                self.add_node_to_editor(inner_node, pos)
+            except Exception:
+                pass  # headless / no DPG context
+
+        # Add internal connections
+        for c in inner_graph.connections:
+            new_from = id_map.get(c.from_node_id, c.from_node_id)
+            new_to = id_map.get(c.to_node_id, c.to_node_id)
+            self.graph.add_connection(new_from, c.from_port, new_to, c.to_port)
+            try:
+                from_attr = f"attr_out_{new_from}_{c.from_port}"
+                to_attr = f"attr_in_{new_to}_{c.to_port}"
+                lt = dpg.add_node_link(from_attr, to_attr, parent="NodeEditor")
+                self.dpg_link_to_conn[lt] = (new_from, c.from_port, new_to, c.to_port)
+            except Exception:
+                pass
+
+        # Build lookup dicts for external ports
+        ext_in_by_name = {ep.name: ep for ep in sf.external_inputs}
+        ext_out_by_name = {ep.name: ep for ep in sf.external_outputs}
+
+        # Rewire parent-graph connections that touch the subgraph node.
+        # Snapshot connections to avoid mutation-during-iteration issues.
+        parent_conns = list(self.graph.connections)
+
+        for c in parent_conns:
+            if c.to_node_id == subgraph_id:
+                # Incoming connection into the subgraph — rewire to inner input port
+                ep = ext_in_by_name.get(c.to_port)
+                if ep is None:
+                    continue
+                new_inner_id = id_map.get(ep.inner_node)
+                if new_inner_id is None:
+                    continue
+                self._remove_connection_and_link(c.from_node_id, c.from_port,
+                                                 c.to_node_id, c.to_port)
+                self.graph.add_connection(c.from_node_id, c.from_port,
+                                          new_inner_id, ep.inner_port)
+                try:
+                    from_attr = f"attr_out_{c.from_node_id}_{c.from_port}"
+                    to_attr = f"attr_in_{new_inner_id}_{ep.inner_port}"
+                    lt = dpg.add_node_link(from_attr, to_attr, parent="NodeEditor")
+                    self.dpg_link_to_conn[lt] = (c.from_node_id, c.from_port,
+                                                  new_inner_id, ep.inner_port)
+                except Exception:
+                    pass
+
+            elif c.from_node_id == subgraph_id:
+                # Outgoing connection from the subgraph — rewire from inner output port
+                ep = ext_out_by_name.get(c.from_port)
+                if ep is None:
+                    continue
+                new_inner_id = id_map.get(ep.inner_node)
+                if new_inner_id is None:
+                    continue
+                self._remove_connection_and_link(c.from_node_id, c.from_port,
+                                                 c.to_node_id, c.to_port)
+                self.graph.add_connection(new_inner_id, ep.inner_port,
+                                          c.to_node_id, c.to_port)
+                try:
+                    from_attr = f"attr_out_{new_inner_id}_{ep.inner_port}"
+                    to_attr = f"attr_in_{c.to_node_id}_{c.to_port}"
+                    lt = dpg.add_node_link(from_attr, to_attr, parent="NodeEditor")
+                    self.dpg_link_to_conn[lt] = (new_inner_id, ep.inner_port,
+                                                  c.to_node_id, c.to_port)
+                except Exception:
+                    pass
+
+        # Delete the original subgraph node from tracking dicts and graph
+        subgraph_dpg_tag = self.node_id_to_dpg.get(subgraph_id)
+
+        # Remove any remaining DPG links touching the subgraph node
+        for lt in [lt for lt, conn in list(self.dpg_link_to_conn.items())
+                   if conn[0] == subgraph_id or conn[2] == subgraph_id]:
+            self.dpg_link_to_conn.pop(lt, None)
+            try:
+                if dpg.does_item_exist(lt):
+                    dpg.delete_item(lt)
+            except Exception:
+                pass
+
+        # Clean up tracking dicts
+        for k in [k for k in list(self.input_widgets) if k[0] == subgraph_id]:
+            self.input_widgets.pop(k, None)
+        for k in [k for k in list(self.output_displays) if k[0] == subgraph_id]:
+            self.output_displays.pop(k, None)
+        self.node_id_to_dpg.pop(subgraph_id, None)
+        if subgraph_dpg_tag is not None:
+            self.dpg_node_to_node_id.pop(subgraph_dpg_tag, None)
+        self._node_base_pos.pop(subgraph_id, None)
+
+        self.graph.remove_node(subgraph_id)
+
+        if subgraph_dpg_tag is not None:
+            try:
+                if dpg.does_item_exist(subgraph_dpg_tag):
+                    dpg.delete_item(subgraph_dpg_tag)
+            except Exception:
+                pass
+
+    def _remove_connection_and_link(self, from_node_id, from_port, to_node_id, to_port) -> None:
+        """Remove a graph connection and its corresponding DPG link (if any)."""
+        self.graph.remove_connection(from_node_id, from_port, to_node_id, to_port)
+        for lt, conn in list(self.dpg_link_to_conn.items()):
+            if conn == (from_node_id, from_port, to_node_id, to_port):
+                self.dpg_link_to_conn.pop(lt, None)
+                try:
+                    if dpg.does_item_exist(lt):
+                        dpg.delete_item(lt)
+                except Exception:
+                    pass
+                break
+
     def _reload_subgraphs(self) -> None:
         """Re-scan subgraphs/ and re-register dynamic SubgraphNode classes.
 

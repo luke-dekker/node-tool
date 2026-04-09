@@ -135,15 +135,18 @@ from nodes.pytorch.text_dataset import TextDatasetNode
 from nodes.pytorch.model_info import ModelInfoNode
 from nodes.pytorch.freeze_named_layers import FreezeNamedLayersNode
 
-# Autoencoder
-from nodes.pytorch.autoencoder_node import AutoencoderNode
-from nodes.pytorch.vae import VAENode
+# Autoencoder building blocks (per-layer composition — no monolithic VAE/AE node)
+# VAENode and AutoencoderNode were deleted in favor of building VAEs and AEs
+# from explicit Linear/Activation/Reparameterize chains in templates. The
+# pieces below are the per-layer primitives that the templates compose.
 from nodes.pytorch.reparameterize import ReparameterizeNode
 from nodes.pytorch.kl_divergence import KLDivergenceNode
 from nodes.pytorch.vae_loss import VAELossNode
-from nodes.pytorch.vae_training_config import VAETrainingConfigNode
 from nodes.pytorch.latent_sampler import LatentSamplerNode
 from nodes.pytorch.gaussian_noise import GaussianNoiseNode
+
+# Generic loss-as-output node — used with TrainingConfig.loss_is_output=True
+from nodes.pytorch.loss_compute import LossComputeNode
 
 # Visualization
 from nodes.pytorch.viz_tensor import PlotTensorNode

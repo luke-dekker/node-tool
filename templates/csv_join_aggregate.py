@@ -8,6 +8,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "Two-Table Join + Aggregate"
+DESCRIPTION = "Load two CSVs -> merge -> filter -> groupby -> describe."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pandas.pd_from_csv     import PdFromCsvNode

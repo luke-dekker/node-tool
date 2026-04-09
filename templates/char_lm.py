@@ -29,6 +29,13 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "Char-Level LSTM Language Model"
+DESCRIPTION = (
+    "Karpathy minRNN setup. TextDataset -> Embedding -> LSTM -> Linear -> "
+    "ReshapeForLoss -> CrossEntropy. Built-in fallback corpus so it trains "
+    "out of the box without external data."
+)
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.text_dataset      import TextDatasetNode

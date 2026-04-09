@@ -1,78 +1,134 @@
-"""Prebuilt graph templates.
+"""Prebuilt graph templates with hot-reload support.
 
-Each template is a `build(graph)` function that:
-  - instantiates the nodes it needs
-  - sets sensible default values
-  - adds nodes and connections to the given Graph
-  - returns a dict mapping node.id -> (x, y) for canvas layout
+Each template lives in its own .py file under templates/ and provides:
 
-The GUI's File -> Templates menu is populated from the TEMPLATES list below.
-Adding a new template is two lines: write a builder file, append the entry here.
+    LABEL       = "Display Name"          # required
+    DESCRIPTION = "..."                   # optional, used as menu tooltip
+    def build(graph: Graph) -> dict[str, tuple[int, int]]: ...
+
+Templates are discovered automatically at app startup by scanning this
+directory. Add a new template by dropping a new .py file in templates/.
+The file watcher in templates/_reloader.py picks up additions and
+modifications without restarting the app.
+
+The TEMPLATES dict below is built once at import time from the file system.
+Use `get_templates()` to access the current state — it returns a fresh list
+every call so callers always see the latest registry.
 """
 from __future__ import annotations
+import importlib
+import importlib.util
+from pathlib import Path
 from typing import Callable
 from core.graph import Graph
 
-# Type alias for clarity
 TemplateBuilder = Callable[[Graph], dict[str, tuple[int, int]]]
 
-from templates.mnist_mlp           import build as build_mnist_mlp
-from templates.mnist_cnn           import build as build_mnist_cnn
-from templates.mnist_vae           import build as build_mnist_vae
-from templates.transfer_learning   import build as build_transfer_learning
-from templates.char_lm             import build as build_char_lm
-from templates.csv_quick_look      import build as build_csv_quick_look
-from templates.csv_cleaning        import build as build_csv_cleaning
-from templates.csv_join_aggregate  import build as build_csv_join
-from templates.csv_sklearn         import build as build_csv_sklearn
-from templates.kmeans_pca          import build as build_kmeans_pca
-from templates.time_series_lstm    import build as build_time_series_lstm
-
 # (label, description, builder)
-TEMPLATES: list[tuple[str, str, TemplateBuilder]] = [
-    ("MNIST Classifier (MLP)",
-     "Hello-world MLP on MNIST. Flatten -> Linear+ReLU -> Linear -> CrossEntropy.",
-     build_mnist_mlp),
+TemplateEntry = tuple[str, str, TemplateBuilder]
 
-    ("MNIST Classifier (CNN)",
-     "Convolutional pipeline on MNIST. Conv -> Pool -> Conv -> Pool -> Linear.",
-     build_mnist_cnn),
 
-    ("MNIST VAE (Image Generator)",
-     "Variational autoencoder on MNIST. Trains a generator over the latent space.",
-     build_mnist_vae),
+TEMPLATES_DIR = Path(__file__).parent
 
-    ("Transfer Learning (ResNet18)",
-     "Pretrained ResNet18, frozen backbone, new classification head on CIFAR-10.",
-     build_transfer_learning),
+# Module-level state populated at import + maintained by the reloader.
+# Keyed by file stem so the reloader can update individual entries.
+_REGISTRY: dict[str, TemplateEntry] = {}
 
-    ("Char-Level LSTM Language Model",
-     "Karpathy minRNN setup. TextDataset -> Embedding -> LSTM -> Linear -> "
-     "ReshapeForLoss -> CrossEntropy. Built-in fallback corpus so it trains "
-     "out of the box without external data.",
-     build_char_lm),
 
-    ("CSV Quick Look",
-     "Load a CSV and show shape, info, describe, head. The 'what's in this file' workflow.",
-     build_csv_quick_look),
+def _is_template_file(path: Path) -> bool:
+    """Filter for files that look like template modules."""
+    if path.suffix != ".py":
+        return False
+    if path.name.startswith("_"):
+        return False
+    if path.name == "__init__.py":
+        return False
+    return True
 
-    ("CSV Cleaning Pipeline",
-     "Real ETL: load -> drop NA -> fill NA -> normalize -> sort -> select cols.",
-     build_csv_cleaning),
 
-    ("Two-Table Join + Aggregate",
-     "Load two CSVs -> merge -> filter -> groupby -> describe.",
-     build_csv_join),
+def _load_template_file(path: Path) -> TemplateEntry | None:
+    """Import a template .py file and extract its (label, description, build).
 
-    ("CSV -> Sklearn Regression",
-     "End-to-end tabular ML. Load -> clean -> split -> scale -> fit -> predict -> R2.",
-     build_csv_sklearn),
+    Returns None if the file doesn't have a build() function (which means it
+    isn't a template even if it ended up in templates/). Re-importing an
+    already-imported module uses importlib.reload so live edits take effect.
+    """
+    mod_name = f"templates.{path.stem}"
+    try:
+        if mod_name in __import__("sys").modules:
+            module = importlib.reload(__import__("sys").modules[mod_name])
+        else:
+            spec = importlib.util.spec_from_file_location(mod_name, path)
+            if spec is None or spec.loader is None:
+                return None
+            module = importlib.util.module_from_spec(spec)
+            __import__("sys").modules[mod_name] = module
+            spec.loader.exec_module(module)
+    except Exception as exc:
+        print(f"[templates] failed to import {path.name}: {exc}")
+        return None
 
-    ("K-Means + PCA Visualization",
-     "Unsupervised pipeline. Standardize -> KMeans -> PCA to 2D for inspection.",
-     build_kmeans_pca),
+    builder = getattr(module, "build", None)
+    if not callable(builder):
+        return None
+    label = getattr(module, "LABEL", path.stem.replace("_", " ").title())
+    description = getattr(module, "DESCRIPTION", "")
+    return (label, description, builder)
 
-    ("Time Series Forecasting (LSTM)",
-     "Synthetic sine wave forecasting with LSTM. No external data needed.",
-     build_time_series_lstm),
-]
+
+def _discover() -> None:
+    """Scan TEMPLATES_DIR and rebuild _REGISTRY from scratch."""
+    _REGISTRY.clear()
+    for path in sorted(TEMPLATES_DIR.glob("*.py")):
+        if not _is_template_file(path):
+            continue
+        entry = _load_template_file(path)
+        if entry is not None:
+            _REGISTRY[path.stem] = entry
+
+
+def get_templates() -> list[TemplateEntry]:
+    """Return the current registry as a list, sorted by label.
+
+    Returns a fresh copy each call so callers always see the latest set —
+    the reloader can mutate _REGISTRY between calls.
+    """
+    return sorted(_REGISTRY.values(), key=lambda t: t[0].lower())
+
+
+def reload_template(stem: str) -> TemplateEntry | None:
+    """Re-import a single template by its file stem and update the registry.
+    Used by TemplatesReloader.apply_event."""
+    path = TEMPLATES_DIR / f"{stem}.py"
+    if not path.exists():
+        _REGISTRY.pop(stem, None)
+        return None
+    entry = _load_template_file(path)
+    if entry is not None:
+        _REGISTRY[stem] = entry
+    return entry
+
+
+def remove_template(stem: str) -> None:
+    """Drop a template from the registry — used when a file is deleted."""
+    _REGISTRY.pop(stem, None)
+
+
+# Initial discovery at import time
+_discover()
+
+
+# Backward-compat shim: anyone reading TEMPLATES as a constant gets the
+# current state. (The GUI now calls get_templates() in the menu builder so
+# it sees live updates after the reloader runs.)
+class _TemplatesProxy:
+    """Sequence-like proxy that always reflects the current registry."""
+    def __iter__(self):
+        return iter(get_templates())
+    def __len__(self):
+        return len(_REGISTRY)
+    def __getitem__(self, i):
+        return get_templates()[i]
+
+
+TEMPLATES = _TemplatesProxy()

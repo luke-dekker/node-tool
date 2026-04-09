@@ -24,6 +24,46 @@ def _section_header(label: str, header_theme: int, subtitle: str | None = None) 
 class LayoutMixin:
     """Builds the initial DearPyGui layout: palette, editor, inspector, training, terminal."""
 
+    def _populate_templates_menu(self) -> None:
+        """Populate the File -> Templates submenu from the current registry.
+
+        Called once during layout build, and again by the templates hot reloader
+        whenever a template file changes. Iterates the live registry (NOT a
+        cached snapshot) so newly added templates appear after a file edit.
+        """
+        try:
+            from templates import get_templates
+            for label, description, builder in get_templates():
+                # Pass (builder, label) via user_data — DPG passes user_data=None
+                # as the third positional arg by default, which would override a
+                # default-arg closure. user_data= is the canonical pattern.
+                dpg.add_menu_item(
+                    label=label,
+                    parent="templates_menu",
+                    callback=lambda s, a, u: self._load_template(u[0], u[1]),
+                    user_data=(builder, label),
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(description, wrap=320)
+        except Exception as exc:
+            dpg.add_menu_item(label=f"(load failed: {exc})", enabled=False,
+                              parent="templates_menu")
+
+    def _refresh_templates_menu(self) -> None:
+        """Rebuild the templates submenu in place — called on hot-reload events."""
+        try:
+            if not dpg.does_item_exist("templates_menu"):
+                return
+            # Delete all current children of the templates submenu
+            for child in dpg.get_item_children("templates_menu", 1) or []:
+                try:
+                    dpg.delete_item(child)
+                except Exception:
+                    pass
+            self._populate_templates_menu()
+        except Exception as exc:
+            self._log(f"[Templates] menu refresh failed: {exc}")
+
     def _build_layout(self) -> None:
         """Create all DPG windows and the node editor."""
         with dpg.texture_registry(tag="__tex_registry__"):
@@ -71,22 +111,12 @@ class LayoutMixin:
                 dpg.add_menu_item(label="Save Graph As...",
                                   callback=lambda: self._save_graph_as())
                 dpg.add_separator()
-                with dpg.menu(label="Templates"):
-                    try:
-                        from templates import TEMPLATES
-                        for label, description, builder in TEMPLATES:
-                            # Pass (builder, label) via user_data — same pattern
-                            # the palette buttons use. Default-arg closures get
-                            # overridden by DPG's positional user_data=None.
-                            dpg.add_menu_item(
-                                label=label,
-                                callback=lambda s, a, u: self._load_template(u[0], u[1]),
-                                user_data=(builder, label),
-                            )
-                            with dpg.tooltip(dpg.last_item()):
-                                dpg.add_text(description, wrap=320)
-                    except Exception as exc:
-                        dpg.add_menu_item(label=f"(load failed: {exc})", enabled=False)
+                # Templates submenu — populated dynamically from the templates
+                # registry. Tagged so the hot reloader can rebuild it in place
+                # when files change. The actual menu items live as children of
+                # this menu and are rebuilt by _populate_templates_menu().
+                with dpg.menu(label="Templates", tag="templates_menu"):
+                    self._populate_templates_menu()
                 dpg.add_separator()
                 dpg.add_menu_item(label="Export Script...", shortcut="Ctrl+E",
                                   callback=lambda: self._export_script())
@@ -95,6 +125,8 @@ class LayoutMixin:
                 dpg.add_separator()
                 dpg.add_menu_item(label="Pack Selection as Subgraph...",
                                   callback=lambda: self._pack_as_subgraph())
+                dpg.add_menu_item(label="Expand Selected Subgraph Inline",
+                                  callback=lambda: self._expand_subgraph_inline())
             with dpg.menu(label="Edit"):
                 dpg.add_menu_item(label="Undo",  shortcut="Ctrl+Z",
                                   callback=lambda: setattr(self, "_undo_requested", True))

@@ -9,6 +9,9 @@ from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
+LABEL = "CSV Cleaning Pipeline"
+DESCRIPTION = "Real ETL: load -> drop NA -> fill NA -> normalize -> sort -> select cols."
+
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pandas.pd_from_csv     import PdFromCsvNode
