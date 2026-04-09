@@ -4,6 +4,13 @@ The bridge between sequence models (LSTM, GRU, Transformer encoder) and
 classification losses (CrossEntropyLoss, BCEWithLogitsLoss) when you want a
 loss per timestep.
 
+Why this exists alongside TensorReshapeNode: TensorReshape is a generic
+single-tensor shape mutation (you tell it the new shape). ReshapeForLoss
+has SEMANTIC meaning — it knows the (B, T, V) → (B*T, V) and (B, T) →
+(B*T,) contract for sequence loss prep, takes both logits and labels in
+one node, and labels the outputs accordingly. For everything else (general
+reshapes, broadcasting prep, etc.) use TensorReshape.
+
 Sequence model outputs are typically:
     logits: (B, T, V)        — B batches, T timesteps, V vocabulary size
     labels: (B, T)           — same B and T, integer class indices per timestep

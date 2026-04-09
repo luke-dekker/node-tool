@@ -1,4 +1,11 @@
-"""Tensor Reshape node."""
+"""Tensor Reshape node — generic single-tensor shape mutation.
+
+For sequence-loss prep specifically (flattening (B, T, V) logits and (B, T)
+labels for token-level CrossEntropy), use ReshapeForLossNode instead — it
+knows the contract and takes logits + labels in one node with two outputs.
+This node is for everything else: general broadcasting prep, view changes,
+collapsing/expanding axes for math.
+"""
 from __future__ import annotations
 from core.node import BaseNode, PortType
 
@@ -8,7 +15,7 @@ class TensorReshapeNode(BaseNode):
     label       = "Reshape"
     category    = "Analyze"
     subcategory = "Tensors"
-    description = "tensor.reshape(shape). Enter shape as comma-separated ints, e.g. '32,-1' or '2,3,4'. Use -1 for inferred dim."
+    description = "tensor.reshape(shape). Enter shape as comma-separated ints, e.g. '32,-1' or '2,3,4'. Use -1 for inferred dim. For sequence loss prep, see Reshape For Loss."
 
     def _setup_ports(self):
         self.add_input("tensor", PortType.TENSOR, default=None)

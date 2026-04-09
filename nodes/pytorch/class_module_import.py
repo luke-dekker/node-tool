@@ -37,22 +37,21 @@ class ClassModuleImportNode(BaseNode):
         super().__init__()
 
     def _setup_ports(self) -> None:
+        # Pure model factory: imports + instantiates a class as a MODULE.
+        # To run a tensor through it, wire the `model` output into an
+        # ApplyModuleNode (which handles forward + shape introspection).
         self.add_input("path",        PortType.STRING, default="my_model.py",
                        description="Path to a .py file containing the class")
         self.add_input("class_name",  PortType.STRING, default="GraphModel",
                        description="Name of the class inside the file")
         self.add_input("init_args",   PortType.STRING, default="{}",
                        description="JSON object of constructor kwargs, e.g. '{\"hidden\": 128}'")
-        self.add_input("tensor_in",   PortType.TENSOR, default=None,
-                       description="Optional — if connected, runs a forward pass for shape inference")
         self.add_input("device",      PortType.STRING, default="cpu")
 
         self.add_output("model",        PortType.MODULE,
-                        description="The instantiated module — wire to Adam, TrainingConfig, etc.")
-        self.add_output("tensor_out",   PortType.TENSOR)
+                        description="The instantiated module — wire to ApplyModule for forward, "
+                                    "into Adam, into TrainingConfig, etc.")
         self.add_output("info",         PortType.STRING)
-        self.add_output("input_shape",  PortType.STRING)
-        self.add_output("output_shape", PortType.STRING)
         self.add_output("param_count",  PortType.INT)
 
     def get_layers(self) -> list:
@@ -99,15 +98,11 @@ class ClassModuleImportNode(BaseNode):
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         import json
-        empty = {
-            "model": None, "tensor_out": None,
-            "info": "", "input_shape": "", "output_shape": "", "param_count": 0,
-        }
+        empty = {"model": None, "info": "", "param_count": 0}
         path       = (inputs.get("path") or "").strip()
         class_name = (inputs.get("class_name") or "").strip()
         init_args  = (inputs.get("init_args") or "{}").strip() or "{}"
         device     = (inputs.get("device") or "cpu").strip() or "cpu"
-        tensor     = inputs.get("tensor_in")
         if not path or not class_name:
             return {**empty, "info": "Set path and class_name"}
 
@@ -136,42 +131,18 @@ class ClassModuleImportNode(BaseNode):
 
         params = sum(p.numel() for p in self._cached_module.parameters())
         info = f"{class_name} | {params:,} params | from {os.path.basename(path)}"
-
-        out = {
-            **empty,
-            "model": self._cached_module,
-            "info": info,
-            "param_count": params,
-        }
-        if tensor is None:
-            return out
-
-        try:
-            tensor = tensor.to(device)
-            y = self._cached_module(tensor)
-            out["tensor_out"]   = y
-            out["input_shape"]  = f"({', '.join(str(d) for d in tensor.shape)})"
-            out["output_shape"] = f"({', '.join(str(d) for d in y.shape)})"
-            return out
-        except Exception as exc:
-            out["info"] = f"{info}\nForward failed: {exc}"
-            return out
+        return {"model": self._cached_module, "info": info, "param_count": params}
 
     def export(self, iv, ov):
         path       = self._val(iv, "path")
         class_name = self._val(iv, "class_name")
         init_args  = self._val(iv, "init_args")
         device     = self._val(iv, "device")
-        tin        = iv.get("tensor_in")
-        m_var      = ov.get("model",        "_imported")
-        out_var    = ov.get("tensor_out",   "_imp_out")
-        info_var   = ov.get("info",         "_imp_info")
-        in_shape   = ov.get("input_shape",  "_imp_in_shape")
-        out_shape  = ov.get("output_shape", "_imp_out_shape")
-        p_var      = ov.get("param_count",  "_imp_params")
+        m_var      = ov.get("model",       "_imported")
+        info_var   = ov.get("info",        "_imp_info")
+        p_var      = ov.get("param_count", "_imp_params")
 
-        # Resolve module name from the path (strip .py)
-        lines = [
+        return ["import json", "import importlib.util"], [
             f"import importlib.util as _ilu",
             f"_spec = _ilu.spec_from_file_location('_imported_mod', {path})",
             f"_mod  = _ilu.module_from_spec(_spec)",
@@ -182,16 +153,3 @@ class ClassModuleImportNode(BaseNode):
             f"{p_var} = sum(p.numel() for p in {m_var}.parameters())",
             f"{info_var} = f'{{{class_name}}} | {{{p_var}:,}} params'",
         ]
-        if tin:
-            lines += [
-                f"{in_shape}  = f'({{\", \".join(str(d) for d in {tin}.shape)}})'",
-                f"{out_var}    = {m_var}({tin}.to({device}))",
-                f"{out_shape} = f'({{\", \".join(str(d) for d in {out_var}.shape)}})'",
-            ]
-        else:
-            lines += [
-                f"{out_var}   = None  # no tensor_in connected",
-                f"{in_shape}  = ''",
-                f"{out_shape} = ''",
-            ]
-        return ["import json", "import importlib.util"], lines

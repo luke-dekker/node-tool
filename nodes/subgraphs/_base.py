@@ -10,6 +10,15 @@ Parameter discovery: SubgraphNode.execute() collects the inner graph's layer
 modules into an nn.ModuleList stored as self._layer. GraphAsModule already
 checks every node for a `_layer` attribute, so the parent training loop sees
 all inner parameters with no recursive walk needed.
+
+Nested subgraphs are supported automatically. Discovery at startup just
+loads .subgraph.json files into class objects with `_subgraph_file` as a
+class attribute — no inner instantiation. The inner graph isn't built until
+the first execute() call (`_ensure_inner_graph` is lazy). By that time ALL
+subgraph types are in NODE_REGISTRY regardless of discovery order, so an
+outer subgraph that references an inner one Just Works. Parameter discovery
+recurses naturally through the `_layer` ModuleList chain — each level wraps
+the level below in its own ModuleList.
 """
 from __future__ import annotations
 from typing import Any, ClassVar

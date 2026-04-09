@@ -44,14 +44,6 @@ def _parse_module_spec(spec: str):
         return None
 
 
-def _shape_str(t) -> str:
-    """Return a tensor shape as a tidy '(B, 3, 224, 224)' style string."""
-    try:
-        return f"({', '.join(str(d) for d in t.shape)})"
-    except Exception:
-        return ""
-
-
 class LoadModelNode(BaseNode):
     """Load a saved model into the tensor-flow path. Supports training and freeze."""
     type_name   = "pt_load_model"
@@ -71,7 +63,12 @@ class LoadModelNode(BaseNode):
         super().__init__()
 
     def _setup_ports(self) -> None:
-        self.add_input("tensor_in",        PortType.TENSOR, default=None)
+        # LoadModelNode is a pure MODEL FACTORY: load → optional surgery →
+        # optional freeze → emit a MODULE on the `model` port. To run a tensor
+        # through the loaded model, wire its `model` output into an
+        # ApplyModuleNode (which handles the forward pass + shape introspection).
+        # This separation matches the rest of the codebase: model-producing
+        # nodes don't also do forward passes.
         self.add_input("path",             PortType.STRING, default="model.pt",
                        description="Path to load from")
         self.add_input("device",           PortType.STRING, default="cpu")
@@ -79,7 +76,7 @@ class LoadModelNode(BaseNode):
                        description="Freeze all parameters (feature extractor mode)")
         self.add_input("trainable_layers", PortType.INT,    default=0,
                        description="Unfreeze this many layers from the end (0 = respect freeze)")
-        # NEW: surgery options
+        # Surgery options
         self.add_input("remove_last_n",    PortType.INT,    default=0,
                        description="Remove the last N top-level children (decapitate). "
                                    "Works best on Sequential-shaped models.")
@@ -92,17 +89,12 @@ class LoadModelNode(BaseNode):
         self.add_input("save_mode",        PortType.STRING, default="overwrite",
                        choices=["overwrite", "increment"],
                        description="overwrite: replace same file  |  increment: model_1.pt, model_2.pt ...")
-        # Outputs
-        self.add_output("tensor_out",      PortType.TENSOR)
+        # Outputs — pure factory: model + introspection metadata, no tensor flow
         self.add_output("model",           PortType.MODULE,
-                        description="The loaded (and possibly modified) module — wire into Adam etc.")
+                        description="The loaded (and possibly modified) module — "
+                                    "wire into ApplyModule for forward, into Adam, etc.")
         self.add_output("info",            PortType.STRING,
                         description="Model class, param count, frozen/trainable summary")
-        # NEW: introspection ports
-        self.add_output("input_shape",     PortType.STRING,
-                        description="Shape of last tensor_in seen (after first forward pass)")
-        self.add_output("output_shape",    PortType.STRING,
-                        description="Shape of last tensor_out (after first forward pass)")
         self.add_output("param_count",     PortType.INT,
                         description="Total parameter count")
         self.add_output("trainable_count", PortType.INT,
@@ -202,11 +194,9 @@ class LoadModelNode(BaseNode):
         replace_head     = (inputs.get("replace_head") or "").strip()
         save_path        = (inputs.get("save_path") or "").strip()
         save_mode        = (inputs.get("save_mode") or "overwrite").strip()
-        tensor           = inputs.get("tensor_in")
 
         empty = {
-            "tensor_out": None, "model": None, "info": "",
-            "input_shape": "", "output_shape": "",
+            "model": None, "info": "",
             "param_count": 0, "trainable_count": 0, "layer_names": "",
         }
 
@@ -249,32 +239,13 @@ class LoadModelNode(BaseNode):
             except Exception as exc:
                 info += f"\nSave failed: {exc}"
 
-        out_dict = {
-            **empty,
-            "model": self._model,
-            "info": info,
-            "param_count": total,
+        return {
+            "model":           self._model,
+            "info":            info,
+            "param_count":     total,
             "trainable_count": trainable,
-            "layer_names": layer_names,
+            "layer_names":     layer_names,
         }
-
-        if tensor is None:
-            return out_dict
-
-        try:
-            tensor = tensor.to(device)
-            if freeze and trainable_layers == 0:
-                with torch.no_grad():
-                    out = self._model(tensor)
-            else:
-                out = self._model(tensor)
-            out_dict["tensor_out"]   = out
-            out_dict["input_shape"]  = _shape_str(tensor)
-            out_dict["output_shape"] = _shape_str(out)
-            return out_dict
-        except Exception as exc:
-            out_dict["info"] = f"{info}\nForward failed: {exc}"
-            return out_dict
 
     def export(self, iv, ov):
         path   = self._val(iv, "path")
@@ -284,13 +255,8 @@ class LoadModelNode(BaseNode):
         remove_last_n    = int(self.inputs["remove_last_n"].default_value or 0)
         replace_head     = (self.inputs["replace_head"].default_value or "").strip()
         save_path = (self.inputs["save_path"].default_value or "").strip()
-        tin    = iv.get("tensor_in")
-        m_var  = f"_loaded_{self.safe_id}"
-        out_var      = ov.get("tensor_out",      "_lm_out")
         model_var    = ov.get("model",           "_lm_model")
         info_var     = ov.get("info",            "_lm_info")
-        in_shape_var = ov.get("input_shape",     "_lm_in_shape")
-        out_shape_var= ov.get("output_shape",    "_lm_out_shape")
         param_var    = ov.get("param_count",     "_lm_params")
         train_var    = ov.get("trainable_count", "_lm_trainable")
         names_var    = ov.get("layer_names",     "_lm_names")
@@ -341,17 +307,5 @@ class LoadModelNode(BaseNode):
             lines += [
                 f"torch.save({model_var}, {save_path!r})",
                 f"{info_var} += '\\nSaved -> ' + {save_path!r}",
-            ]
-        if tin:
-            lines += [
-                f"{in_shape_var}  = f'({{\", \".join(str(d) for d in {tin}.shape)}})'",
-                f"{out_var}       = {model_var}({tin}.to({device}))",
-                f"{out_shape_var} = f'({{\", \".join(str(d) for d in {out_var}.shape)}})'",
-            ]
-        else:
-            lines += [
-                f"{out_var}       = None  # no tensor_in connected",
-                f"{in_shape_var}  = ''",
-                f"{out_shape_var} = ''",
             ]
         return ["import torch", "import torch.nn as nn"], lines
