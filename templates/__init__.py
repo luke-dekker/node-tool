@@ -20,6 +20,7 @@ from templates.mnist_mlp           import build as build_mnist_mlp
 from templates.mnist_cnn           import build as build_mnist_cnn
 from templates.mnist_vae           import build as build_mnist_vae
 from templates.transfer_learning   import build as build_transfer_learning
+from templates.char_lm             import build as build_char_lm
 from templates.csv_quick_look      import build as build_csv_quick_look
 from templates.csv_cleaning        import build as build_csv_cleaning
 from templates.csv_join_aggregate  import build as build_csv_join
@@ -44,6 +45,12 @@ TEMPLATES: list[tuple[str, str, TemplateBuilder]] = [
     ("Transfer Learning (ResNet18)",
      "Pretrained ResNet18, frozen backbone, new classification head on CIFAR-10.",
      build_transfer_learning),
+
+    ("Char-Level LSTM Language Model",
+     "Karpathy minRNN setup. TextDataset -> Embedding -> LSTM -> Linear -> "
+     "ReshapeForLoss -> CrossEntropy. Built-in fallback corpus so it trains "
+     "out of the box without external data.",
+     build_char_lm),
 
     ("CSV Quick Look",
      "Load a CSV and show shape, info, describe, head. The 'what's in this file' workflow.",
