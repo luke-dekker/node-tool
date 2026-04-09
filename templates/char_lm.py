@@ -47,10 +47,11 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     SEQ_LEN    = 64
     EMBED_DIM  = 64
     HIDDEN     = 128
-    VOCAB      = 100   # The TextDataset reports actual vocab — Embedding/Linear
-                       # need to be at least this big. The fallback corpus has
-                       # vocab≈29; pick something safely larger so changing the
-                       # input file doesn't immediately break the template.
+    # Embedding.num_embeddings and Linear.out_features are WIRED to the
+    # TextDataset's vocab_size output below — the layer nodes rebuild on the
+    # first execute with the actual vocab from the loaded text. The defaults
+    # below only matter as placeholders before the first run.
+    VOCAB_PLACEHOLDER = 256
 
     ds = TextDatasetNode()
     ds.inputs["seq_len"].default_value    = SEQ_LEN
@@ -61,7 +62,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     graph.add_node(batch); positions[batch.id] = pos(col=1, row=1)
 
     emb = EmbeddingNode()
-    emb.inputs["num_embeddings"].default_value = VOCAB
+    emb.inputs["num_embeddings"].default_value = VOCAB_PLACEHOLDER
     emb.inputs["embedding_dim"].default_value  = EMBED_DIM
     graph.add_node(emb); positions[emb.id] = pos(col=2, row=1)
 
@@ -77,7 +78,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
 
     head = LinearNode()
     head.inputs["in_features"].default_value  = HIDDEN
-    head.inputs["out_features"].default_value = VOCAB
+    head.inputs["out_features"].default_value = VOCAB_PLACEHOLDER
     head.inputs["activation"].default_value   = "none"
     graph.add_node(head); positions[head.id] = pos(col=4, row=1)
 
@@ -94,6 +95,10 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     # Wire it
     graph.add_connection(ds.id,         "dataloader", batch.id,      "dataloader")
     graph.add_connection(ds.id,         "dataloader", cfg.id,        "dataloader")
+    # Vocab size flows from the dataset into Embedding and Linear so the layer
+    # sizes match the actual vocab of the loaded text — no hardcoding needed
+    graph.add_connection(ds.id,         "vocab_size", emb.id,        "num_embeddings")
+    graph.add_connection(ds.id,         "vocab_size", head.id,       "out_features")
     graph.add_connection(batch.id,      "x",          emb.id,        "tensor_in")
     graph.add_connection(emb.id,        "tensor_out", lstm_fwd.id,   "x")
     graph.add_connection(lstm_layer.id, "module",     lstm_fwd.id,   "module")

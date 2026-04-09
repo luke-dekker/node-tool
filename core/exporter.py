@@ -76,24 +76,38 @@ class GraphExporter:
             return self._export_class(graph, class_name)
         return self._export_script(graph)
 
-    def _export_script(self, graph: Graph) -> str:
-        order = graph.topological_order()
-        if not order:
-            return self._empty_script()
+    def _walk_graph(self, graph: Graph) -> dict:
+        """Single source of truth for walking a graph and producing per-node
+        export output. Both script and class modes consume this; differences
+        between the two live in their respective renderers.
 
-        # Build connection lookups
+        Returns a dict with:
+            order:               list of node_ids in topological order
+            blocks:              list of (node, out_vars, lines) for each
+                                 successfully exported node
+            imports:             flat list (NOT deduped) of imports collected
+                                 from all nodes
+            var_map:             {(node_id, port_name): var_name} for every
+                                 emitted output variable
+            conn_map:            {(to_node_id, to_port): (from_node_id, from_port)}
+            nodes_with_outgoing: set of node ids that have at least one
+                                 outgoing connection (used to identify leaves)
+            missing_export:      list of "label (type_name)" for nodes whose
+                                 export() fell back to the default stub
+        """
+        order = graph.topological_order()
+
         conn_map: dict[tuple[str, str], tuple[str, str]] = {}
-        used_outputs: set[tuple[str, str]] = set()  # outputs with >=1 downstream consumer
+        used_outputs: set[tuple[str, str]] = set()
         nodes_with_outgoing: set[str] = set()
         for c in graph.connections:
             conn_map[(c.to_node_id, c.to_port)] = (c.from_node_id, c.from_port)
             used_outputs.add((c.from_node_id, c.from_port))
             nodes_with_outgoing.add(c.from_node_id)
 
-        # Variable assignment — only emit vars for outputs that something consumes,
-        # so a 7-port BatchInput with one downstream image link doesn't dump 7 unused
-        # tensor unpack lines. Exception: a "leaf" node (no outgoing connections at
-        # all) still needs vars — its outputs ARE the result the user cares about.
+        # Variable assignment — only emit vars for outputs that something
+        # consumes, with a leaf-node exception so the final tensor in a chain
+        # still gets a proper name.
         var_map: dict[tuple[str, str], str] = {}
         port_counters: dict[str, int] = defaultdict(int)
 
@@ -117,22 +131,18 @@ class GraphExporter:
                 var_map[(node.id, port_name)] = vname
             return out_vars
 
-        # Walk topo order, collect imports + per-category code blocks
         all_imports: list[str] = []
-        by_category: dict[str, list[str]] = defaultdict(list)
-        category_order: list[str] = []  # preserves first-seen order
-        missing_export: list[str] = []  # nodes whose export() falls back to default
+        blocks: list[tuple[BaseNode, dict[str, str], list[str]]] = []
+        missing_export: list[str] = []
 
         for node_id in order:
             node = graph.nodes[node_id]
 
-            # Build in_vars: port_name -> upstream variable name (or None for unconnected)
             in_vars: dict[str, str | None] = {}
             for port_name in node.inputs:
                 key = (node_id, port_name)
                 if key in conn_map:
-                    from_node_id, from_port = conn_map[key]
-                    in_vars[port_name] = var_map.get((from_node_id, from_port))
+                    in_vars[port_name] = var_map.get(conn_map[key])
                 else:
                     in_vars[port_name] = None
 
@@ -143,28 +153,49 @@ class GraphExporter:
             except Exception as exc:
                 imports, lines = [], [f"# [{node.label}] export error: {exc}"]
 
-            # Detect default-stub fallthrough so we can list it in the TODO header
+            # Detect default-stub fallthrough
             if (len(lines) == 1
                     and lines[0].startswith("# [")
                     and "export not supported" in lines[0]):
                 missing_export.append(f"{node.label} ({node.type_name})")
-                # Emit a clean placeholder so downstream var refs at least exist
                 stub_lines = [f"# TODO: implement export() for {node.label}"]
                 for port_name, vname in out_vars.items():
                     stub_lines.append(f"{vname} = None  # output port: {port_name}")
                 lines = stub_lines
 
             all_imports.extend(imports)
+            blocks.append((node, out_vars, lines))
 
+        return {
+            "order":               order,
+            "blocks":              blocks,
+            "imports":             all_imports,
+            "var_map":             var_map,
+            "conn_map":            conn_map,
+            "nodes_with_outgoing": nodes_with_outgoing,
+            "missing_export":      missing_export,
+        }
+
+    def _export_script(self, graph: Graph) -> str:
+        if not graph.nodes:
+            return self._empty_script()
+
+        walk = self._walk_graph(graph)
+
+        # Group blocks by node category, preserving first-seen order
+        by_category: dict[str, list[str]] = defaultdict(list)
+        category_order: list[str] = []
+        for node, _out_vars, lines in walk["blocks"]:
             cat = node.category or "Misc"
             if cat not in by_category:
                 category_order.append(cat)
             by_category[cat].append(f"# {node.label}")
             by_category[cat].extend(lines)
-            by_category[cat].append("")  # blank line between nodes
+            by_category[cat].append("")
 
-        # ── Render ──────────────────────────────────────────────────────────
-        return self._render(graph, all_imports, category_order, by_category, missing_export)
+        return self._render(
+            graph, walk["imports"], category_order, by_category, walk["missing_export"]
+        )
 
     # ────────────────────────────────────────────────────────────────────────
     # Rendering
@@ -262,52 +293,21 @@ class GraphExporter:
     def _export_class(self, graph: Graph, class_name: str) -> str:
         """Emit graph as an nn.Module subclass.
 
-        Strategy: walk nodes in topo order, get each node's per-line export
-        output, then split lines into "constructor" (goes in __init__) vs
-        "forward" (goes in forward()) using the heuristic that any line of the
-        form `var = nn.X(...)` (and its multi-line continuation) is a
-        constructor. Layer var names get a `self.` prefix in forward refs.
+        Uses the shared _walk_graph() helper for the topological walk and
+        per-node export call. The class-specific work is:
 
-        BatchInputNode is special-cased: its outputs become the forward(self, x)
-        argument. Single-input only for v1; multi-input batches collapse to `x`.
+          - BatchInputNode → forward(self, x) arg (its lines are dropped, its
+            output vars are renamed to 'x' in downstream lines)
+          - Each node's lines split into __init__ (constructors) vs forward()
+            via _split_init_forward() heuristic
+          - Layer vars (matched by `var = nn.X(...)`) get a `self.` prefix
+          - Leaf-node tensor outputs become the forward() return value
         """
-        order = graph.topological_order()
-        if not order:
+        if not graph.nodes:
             return self._empty_class(class_name)
 
-        # Connection / variable bookkeeping (mirrors _export_script)
-        conn_map: dict[tuple[str, str], tuple[str, str]] = {}
-        used_outputs: set[tuple[str, str]] = set()
-        nodes_with_outgoing: set[str] = set()
-        for c in graph.connections:
-            conn_map[(c.to_node_id, c.to_port)] = (c.from_node_id, c.from_port)
-            used_outputs.add((c.from_node_id, c.from_port))
-            nodes_with_outgoing.add(c.from_node_id)
+        walk = self._walk_graph(graph)
 
-        var_map: dict[tuple[str, str], str] = {}
-        port_counters: dict[str, int] = defaultdict(int)
-
-        def assign_out_vars(node: BaseNode) -> dict[str, str]:
-            out_vars: dict[str, str] = {}
-            prefix = _short(node.type_name)
-            is_leaf = node.id not in nodes_with_outgoing
-            for port_name in node.outputs:
-                if port_name == "__terminal__":
-                    continue
-                if not is_leaf and (node.id, port_name) not in used_outputs:
-                    continue
-                if len(node.outputs) <= 1:
-                    vname = f"{prefix}_{port_counters[prefix]}"
-                else:
-                    key = f"{prefix}_{port_name}"
-                    vname = f"{prefix}_{port_name}_{port_counters[key]}"
-                    port_counters[key] += 1
-                port_counters[prefix] += 1
-                out_vars[port_name] = vname
-                var_map[(node.id, port_name)] = vname
-            return out_vars
-
-        # Walk nodes; collect init / forward lines + identify forward args
         all_imports: list[str] = []
         init_lines: list[str] = []
         forward_lines: list[str] = []
@@ -315,50 +315,37 @@ class GraphExporter:
         rename_to_x: set[str] = set()      # batch_input output vars → forward arg
         leaf_outputs: list[str] = []        # final tensor vars (return values)
 
-        for node_id in order:
-            node = graph.nodes[node_id]
+        nodes_with_outgoing = walk["nodes_with_outgoing"]
 
-            in_vars: dict[str, str | None] = {}
-            for port_name in node.inputs:
-                key = (node_id, port_name)
-                if key in conn_map:
-                    in_vars[port_name] = var_map.get(conn_map[key])
-                else:
-                    in_vars[port_name] = None
-
-            out_vars = assign_out_vars(node)
-
-            # BatchInputNode is the model's forward arg, not a code block
+        for node, out_vars, lines in walk["blocks"]:
+            # BatchInputNode is the model's forward arg, not a code block.
+            # Skip its lines but record its output var names so downstream
+            # references get renamed to `x`.
             if node.type_name == "batch_input":
-                for port_name, vname in out_vars.items():
+                for vname in out_vars.values():
                     rename_to_x.add(vname)
                 continue
 
-            try:
-                imports, lines = node.export(in_vars, out_vars)
-            except Exception as exc:
-                imports, lines = [], [f"# [{node.label}] export error: {exc}"]
-
-            # Skip stub-fallthrough nodes — emit a TODO comment instead of None
-            if (len(lines) == 1
-                    and lines[0].startswith("# [")
-                    and "export not supported" in lines[0]):
-                forward_lines.append(f"# TODO: implement export() for {node.label}")
+            # Skip stub-fallthrough lines — _walk_graph already replaced them
+            # with a TODO comment + None assignments. In class mode we want a
+            # cleaner single TODO comment in forward and no init pollution.
+            if lines and lines[0].startswith("# TODO: implement export()"):
+                forward_lines.append(lines[0])
                 continue
-
-            all_imports.extend(imports)
 
             init_block, fwd_block, found_layer_vars = self._split_init_forward(lines)
             init_lines.extend(init_block)
             forward_lines.extend(fwd_block)
             layer_vars.update(found_layer_vars)
 
-            # Track leaf-node tensor outputs as candidates for forward return
-            if node_id not in nodes_with_outgoing:
+            # Track leaf-node tensor outputs as candidates for the return statement
+            if node.id not in nodes_with_outgoing:
                 for port_name in ("tensor_out", "tensor", "output", "model", "result"):
                     if port_name in out_vars:
                         leaf_outputs.append(out_vars[port_name])
                         break
+
+        all_imports = walk["imports"]
 
         # Apply self. prefix to layer var refs in forward, init self.assignments
         init_lines = self._prefix_self(init_lines, layer_vars, in_init=True)

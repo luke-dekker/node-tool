@@ -95,7 +95,7 @@ class AutoencoderNode(BaseNode):
             f"        _dec_layers.append({act_cls}())",
             f"{d_var} = nn.Sequential(*_dec_layers)",
             f"",
-            f"class _AE_{self.id[:6]}(nn.Module):",
+            f"class _AE_{self.safe_id}(nn.Module):",
             f"    def __init__(self, enc, dec):",
             f"        super().__init__()",
             f"        self.encoder = enc",
@@ -103,7 +103,7 @@ class AutoencoderNode(BaseNode):
             f"    def forward(self, x):",
             f"        return self.decoder(self.encoder(x))",
             f"",
-            f"{m_var} = _AE_{self.id[:6]}({e_var}, {d_var})",
+            f"{m_var} = _AE_{self.safe_id}({e_var}, {d_var})",
             f"{l_var} = _sizes[-1]",
             f"{i_var} = f'AE {{_sizes}}  latent={{_sizes[-1]}}  "
             f"params={{sum(p.numel() for p in {m_var}.parameters()):,}}'",

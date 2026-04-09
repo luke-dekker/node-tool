@@ -67,7 +67,7 @@ class Conv2dNode(BaseNode):
         return {"tensor_out": _forward(layer, act, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):
-        lv  = f"_conv_{self.id[:6]}"
+        lv  = f"_conv_{self.safe_id}"
         act = self.inputs["activation"].default_value if "activation" in self.inputs else ""
         layer = (f"nn.Conv2d({self._val(iv,'in_ch')}, {self._val(iv,'out_ch')}, "
                  f"{self._val(iv,'kernel')}, stride={self._val(iv,'stride')}, "

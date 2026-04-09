@@ -50,6 +50,6 @@ class ActivationNode(BaseNode):
         tin  = iv.get("tensor_in") or "_x"
         tout = ov.get("tensor_out", "_out")
         return ["import torch.nn as nn"], [
-            f"_act_{self.id[:6]} = {act_expr}",
-            f"{tout} = _act_{self.id[:6]}({tin})",
+            f"_act_{self.safe_id} = {act_expr}",
+            f"{tout} = _act_{self.safe_id}({tin})",
         ]

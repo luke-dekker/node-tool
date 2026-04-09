@@ -48,6 +48,6 @@ class EmbeddingNode(BaseNode):
         return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):
-        lv = f"_emb_{self.id[:6]}"
+        lv = f"_emb_{self.safe_id}"
         return _layer_fwd(
             ov, iv, lv, f"nn.Embedding({self._val(iv,'num_embeddings')}, {self._val(iv,'embedding_dim')})")

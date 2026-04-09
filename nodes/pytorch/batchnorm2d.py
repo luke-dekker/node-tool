@@ -41,6 +41,6 @@ class BatchNorm2dNode(BaseNode):
         return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):
-        lv = f"_bn2_{self.id[:6]}"
+        lv = f"_bn2_{self.safe_id}"
         return _layer_fwd(
             ov, iv, lv, f"nn.BatchNorm2d({self._val(iv,'num_features')})")

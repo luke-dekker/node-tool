@@ -285,7 +285,7 @@ class LoadModelNode(BaseNode):
         replace_head     = (self.inputs["replace_head"].default_value or "").strip()
         save_path = (self.inputs["save_path"].default_value or "").strip()
         tin    = iv.get("tensor_in")
-        m_var  = f"_loaded_{self.id[:6]}"
+        m_var  = f"_loaded_{self.safe_id}"
         out_var      = ov.get("tensor_out",      "_lm_out")
         model_var    = ov.get("model",           "_lm_model")
         info_var     = ov.get("info",            "_lm_info")

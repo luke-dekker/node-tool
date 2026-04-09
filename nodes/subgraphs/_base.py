@@ -133,7 +133,7 @@ class SubgraphNode(BaseNode):
             return [], [f"# {self.label}: failed to build inner graph: {exc}"]
 
         # Per-instance prefix so multiple subgraph drops don't collide
-        prefix = f"_sg{self.id[:6]}_"
+        prefix = f"_sg{self.safe_id}_"
 
         # Build connection lookup for the inner graph
         inner_conn: dict[tuple[str, str], tuple[str, str]] = {}

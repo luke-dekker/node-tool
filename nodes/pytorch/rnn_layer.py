@@ -41,7 +41,7 @@ class RNNLayerNode(BaseNode):
             return {"module": None}
 
     def export(self, iv, ov):
-        lv = f"_rnn_{self.id[:6]}"
+        lv = f"_rnn_{self.safe_id}"
         lines = [
             f"{lv} = nn.RNN(",
             f"    input_size={self._val(iv, 'input_size')},",

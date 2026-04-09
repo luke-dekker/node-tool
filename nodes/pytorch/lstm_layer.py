@@ -39,7 +39,7 @@ class LSTMLayerNode(BaseNode):
             return {"module": None}
 
     def export(self, iv, ov):
-        lv = f"_lstm_{self.id[:6]}"
+        lv = f"_lstm_{self.safe_id}"
         lines = [
             f"{lv} = nn.LSTM(",
             f"    input_size={self._val(iv, 'input_size')},",

@@ -43,6 +43,6 @@ class MaxPool2dNode(BaseNode):
         return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):
-        lv = f"_mxp_{self.id[:6]}"
+        lv = f"_mxp_{self.safe_id}"
         return _layer_fwd(
             ov, iv, lv, f"nn.MaxPool2d({self._val(iv,'kernel')}, stride={self._val(iv,'stride')})")

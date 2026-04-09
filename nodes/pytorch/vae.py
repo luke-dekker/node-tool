@@ -102,7 +102,7 @@ class VAENode(BaseNode):
         act_name = str(self.inputs["activation"].default_value or "relu").lower()
         act_cls = {"relu": "nn.ReLU", "tanh": "nn.Tanh",
                    "sigmoid": "nn.Sigmoid", "leaky_relu": "nn.LeakyReLU"}.get(act_name, "nn.ReLU")
-        cls_name = f"_VAE_{self.id[:6]}"
+        cls_name = f"_VAE_{self.safe_id}"
         m_var = ov.get("model",   "_vae")
         e_var = ov.get("encoder", "_vae_encoder")
         d_var = ov.get("decoder", "_vae_decoder")

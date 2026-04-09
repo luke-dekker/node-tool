@@ -34,7 +34,7 @@ class TensorSplitNode(BaseNode):
 
     def export(self, iv, ov):
         t = iv.get("tensor") or "None"
-        var = f"_split_{self.id[:6]}"
+        var = f"_split_{self.safe_id}"
         lines = [
             f"{var} = torch.split({t}, {self._val(iv, 'split_size')}, "
             f"dim={self._val(iv, 'dim')})",

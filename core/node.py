@@ -114,6 +114,20 @@ class BaseNode(ABC):
         self.outputs: dict[str, Port] = {}
         self._setup_ports()
 
+    @property
+    def safe_id(self) -> str:
+        """A 6-char Python-safe slice of self.id, suitable for variable names.
+
+        Real graphs use uuid4 IDs whose first 6 chars are always hex (no dashes),
+        but hand-edited subgraph JSON files may use arbitrary string IDs that
+        contain dashes or other non-alphanumeric chars. This sanitizes them
+        into valid Python identifier fragments so layer node export() methods
+        can write things like `f'_lin_{self.safe_id}'` without producing
+        broken code on edge cases.
+        """
+        s = self.id[:6]
+        return "".join(c if (c.isalnum() or c == "_") else "_" for c in s)
+
     @abstractmethod
     def _setup_ports(self) -> None:
         """Define inputs and outputs by populating self.inputs and self.outputs."""

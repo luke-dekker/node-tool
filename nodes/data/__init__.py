@@ -1,12 +1,9 @@
 """Data nodes: constants, print, type converters."""
-# Consolidated v5 nodes — TEMPORARILY DISABLED
-# These files exist on the other machine and need to be synced before re-enabling.
-# from nodes.data.const_node    import ConstNode
-# from nodes.data.cast_node     import CastNode
-# from nodes.data.preview_node  import PreviewNode
-# from nodes.data.image_input   import ImageInputNode
-
-# Print node (also serves as a "consolidated" node — single class)
+# Consolidated v5 nodes — one node per concept with a Type/Op dropdown.
+from nodes.data.const_node    import ConstNode
+from nodes.data.cast_node     import CastNode
+from nodes.data.preview_node  import PreviewNode
+from nodes.data.image_input   import ImageInputNode
 from nodes.data.print_node    import PrintNode
 
 # Legacy nodes kept in registry for loading old saved graphs

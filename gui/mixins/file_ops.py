@@ -4,6 +4,88 @@ import dearpygui.dearpygui as dpg
 from core.serializer import Serializer
 
 
+def _prompt_port_names(ext_in: list, ext_out: list) -> tuple[list, list] | None:
+    """Show a Tk dialog letting the user rename each external port before save.
+
+    Builds a small Toplevel with one Entry widget per port (initialized with
+    the auto-detected name) plus OK/Cancel buttons. Returns (ext_in, ext_out)
+    with the renamed `name` fields, or None if the user cancelled.
+
+    Defined as a module-level helper rather than a method so the closure
+    captures are explicit and the dialog can be unit-tested in isolation.
+    """
+    import tkinter as tk
+    from dataclasses import replace
+
+    root = tk.Tk()
+    root.title("Pack as Subgraph — name external ports")
+    root.geometry("420x500")
+    root.attributes("-topmost", True)
+
+    in_entries: list[tk.Entry] = []
+    out_entries: list[tk.Entry] = []
+    cancelled = {"value": True}  # mutable closure cell
+
+    pad = {"padx": 8, "pady": 2}
+    tk.Label(root, text="External input ports:", font=("Segoe UI", 10, "bold")).pack(
+        anchor="w", padx=8, pady=(8, 2)
+    )
+    if not ext_in:
+        tk.Label(root, text="  (none)", fg="gray").pack(anchor="w", **pad)
+    for ep in ext_in:
+        frame = tk.Frame(root); frame.pack(fill="x", **pad)
+        tk.Label(frame, text=f"  {ep.type.name:<10s}", font=("Consolas", 9), width=12, anchor="w").pack(side="left")
+        e = tk.Entry(frame, font=("Segoe UI", 10))
+        e.insert(0, ep.name)
+        e.pack(side="left", fill="x", expand=True)
+        in_entries.append(e)
+
+    tk.Label(root, text="External output ports:", font=("Segoe UI", 10, "bold")).pack(
+        anchor="w", padx=8, pady=(12, 2)
+    )
+    if not ext_out:
+        tk.Label(root, text="  (none)", fg="gray").pack(anchor="w", **pad)
+    for ep in ext_out:
+        frame = tk.Frame(root); frame.pack(fill="x", **pad)
+        tk.Label(frame, text=f"  {ep.type.name:<10s}", font=("Consolas", 9), width=12, anchor="w").pack(side="left")
+        e = tk.Entry(frame, font=("Segoe UI", 10))
+        e.insert(0, ep.name)
+        e.pack(side="left", fill="x", expand=True)
+        out_entries.append(e)
+
+    def on_ok():
+        cancelled["value"] = False
+        root.quit()
+
+    def on_cancel():
+        root.quit()
+
+    btn_frame = tk.Frame(root); btn_frame.pack(side="bottom", fill="x", pady=10)
+    tk.Button(btn_frame, text="Cancel", width=10, command=on_cancel).pack(side="right", padx=8)
+    tk.Button(btn_frame, text="Save",   width=10, command=on_ok).pack(side="right")
+
+    root.protocol("WM_DELETE_WINDOW", on_cancel)
+    root.mainloop()
+
+    if cancelled["value"]:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return None
+
+    # Pull the renamed values out before destroying the window
+    new_in  = [replace(ep, name=in_entries[i].get().strip() or ep.name)
+               for i, ep in enumerate(ext_in)]
+    new_out = [replace(ep, name=out_entries[i].get().strip() or ep.name)
+               for i, ep in enumerate(ext_out)]
+    try:
+        root.destroy()
+    except Exception:
+        pass
+    return new_in, new_out
+
+
 class FileOpsMixin:
     """Graph file operations: save, load, code export."""
 
@@ -181,6 +263,13 @@ class FileOpsMixin:
             # Detect boundary ports
             from core.subgraph import SubgraphFile, SUBGRAPHS_DIR, detect_boundary_ports
             ext_in, ext_out = detect_boundary_ports(self.graph, selected_node_ids)
+
+            # Let the user rename the auto-detected port names before saving
+            renamed = _prompt_port_names(ext_in, ext_out)
+            if renamed is None:
+                self._log("[Pack] Cancelled.")
+                return
+            ext_in, ext_out = renamed
 
             # Serialize the selected nodes + their internal connections
             nodes_json = []

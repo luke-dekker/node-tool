@@ -208,7 +208,16 @@ class Graph:
                     from_node_id, from_port = conn_map[key]
                     if from_node_id in stored and from_port in stored[from_node_id]:
                         raw = stored[from_node_id][from_port]
-                        inputs[port_name] = port.port_type.coerce(raw)
+                        if raw is None:
+                            # Upstream produced None — fall back to this port's
+                            # default value so live-preview workflows (where the
+                            # user sets a port default to test a subgraph in
+                            # isolation) don't get clobbered by an upstream that
+                            # hasn't been provided real data yet. Matches the
+                            # "no connection" branch below.
+                            inputs[port_name] = port.default_value
+                        else:
+                            inputs[port_name] = port.port_type.coerce(raw)
                     else:
                         inputs[port_name] = port.default_value
                 else:

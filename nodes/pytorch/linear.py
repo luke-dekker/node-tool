@@ -62,7 +62,7 @@ class LinearNode(BaseNode):
         return {"tensor_out": _forward(layer, act, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):
-        lv  = f"_lin_{self.id[:6]}"
+        lv  = f"_lin_{self.safe_id}"
         act = self.inputs["activation"].default_value if "activation" in self.inputs else ""
         layer = (f"nn.Linear({self._val(iv,'in_features')}, {self._val(iv,'out_features')}, "
                  f"bias={self._val(iv,'bias')})")

@@ -39,6 +39,6 @@ class FlattenNode(BaseNode):
         return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
 
     def export(self, iv, ov):
-        lv = f"_flat_{self.id[:6]}"
+        lv = f"_flat_{self.safe_id}"
         return _layer_fwd(
             ov, iv, lv, f"nn.Flatten(start_dim={self._val(iv,'start_dim')})")
