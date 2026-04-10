@@ -34,7 +34,7 @@ def _prompt_port_names(ext_in: list, ext_out: list) -> tuple[list, list] | None:
         tk.Label(root, text="  (none)", fg="gray").pack(anchor="w", **pad)
     for ep in ext_in:
         frame = tk.Frame(root); frame.pack(fill="x", **pad)
-        tk.Label(frame, text=f"  {ep.type.name:<10s}", font=("Consolas", 9), width=12, anchor="w").pack(side="left")
+        tk.Label(frame, text=f"  {ep.type:<10s}", font=("Consolas", 9), width=12, anchor="w").pack(side="left")
         e = tk.Entry(frame, font=("Segoe UI", 10))
         e.insert(0, ep.name)
         e.pack(side="left", fill="x", expand=True)
@@ -47,7 +47,7 @@ def _prompt_port_names(ext_in: list, ext_out: list) -> tuple[list, list] | None:
         tk.Label(root, text="  (none)", fg="gray").pack(anchor="w", **pad)
     for ep in ext_out:
         frame = tk.Frame(root); frame.pack(fill="x", **pad)
-        tk.Label(frame, text=f"  {ep.type.name:<10s}", font=("Consolas", 9), width=12, anchor="w").pack(side="left")
+        tk.Label(frame, text=f"  {ep.type:<10s}", font=("Consolas", 9), width=12, anchor="w").pack(side="left")
         e = tk.Entry(frame, font=("Segoe UI", 10))
         e.insert(0, ep.name)
         e.pack(side="left", fill="x", expand=True)

@@ -45,14 +45,14 @@ class ExternalPort:
     inner_port: str       # port name on that inner node
 
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "type": self.type.name,
+        return {"name": self.name, "type": self.type,  # type is already a string
                 "inner_node": self.inner_node, "inner_port": self.inner_port}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ExternalPort":
         return cls(
             name=d["name"],
-            type=PortType[d["type"]],
+            type=d["type"],  # port type is now a string, not an enum
             inner_node=d["inner_node"],
             inner_port=d["inner_port"],
         )

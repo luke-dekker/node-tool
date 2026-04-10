@@ -1,0 +1,209 @@
+"""Extensible port type registry — the foundation for domain-agnostic graphs.
+
+Instead of a fixed enum with ML-specific types baked in, PortType is a
+string-based registry. The core ships with 5 base types (FLOAT, INT, BOOL,
+STRING, ANY). Plugins register domain-specific types at startup:
+
+    from core.port_types import PortTypeRegistry
+    PortTypeRegistry.register("TENSOR", default=None, color=(255,120,40,255))
+
+Port.port_type stores the string name (e.g., "FLOAT"). The GUI reads colors
+and pin shapes from the registry. Coercion and default values are looked up
+dynamically. Any domain can add types without touching core code.
+
+Usage in nodes:
+    # Old (enum):  self.add_input("x", PortType.FLOAT, 0.0)
+    # New (same!): self.add_input("x", PortType.FLOAT, 0.0)
+    # PortType.FLOAT is now the string "FLOAT", not an enum value.
+    # All comparisons still work: if ptype == PortType.FLOAT: ...
+"""
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+
+@dataclass
+class PortTypeInfo:
+    """Everything the system needs to know about a port type."""
+    name:          str
+    default_value: Any                         = None
+    coerce:        Callable[[Any], Any] | None = None   # None → passthrough
+    color:         tuple[int, ...]             = (160, 160, 180, 255)
+    pin_shape:     str                         = "circle"  # circle, triangle, quad, circle_filled, etc.
+    description:   str                         = ""
+
+
+class PortTypeRegistry:
+    """Global registry of port types. Plugins call register() at startup."""
+
+    _types: dict[str, PortTypeInfo] = {}
+
+    @classmethod
+    def register(cls, name: str, *,
+                 default: Any = None,
+                 coerce: Callable[[Any], Any] | None = None,
+                 color: tuple[int, ...] = (160, 160, 180, 255),
+                 pin_shape: str = "circle",
+                 description: str = "") -> str:
+        """Register a port type. Returns the name string for convenience."""
+        cls._types[name] = PortTypeInfo(
+            name=name, default_value=default, coerce=coerce,
+            color=color, pin_shape=pin_shape, description=description,
+        )
+        return name
+
+    @classmethod
+    def get(cls, name: str) -> PortTypeInfo | None:
+        return cls._types.get(name)
+
+    @classmethod
+    def get_default(cls, name: str) -> Any:
+        info = cls._types.get(name)
+        return info.default_value if info else None
+
+    @classmethod
+    def coerce_value(cls, name: str, value: Any) -> Any:
+        """Coerce a value to the given port type. Falls back to passthrough."""
+        if value is None:
+            return cls.get_default(name)
+        info = cls._types.get(name)
+        if info is None or info.coerce is None:
+            return value
+        try:
+            return info.coerce(value)
+        except (ValueError, TypeError):
+            return cls.get_default(name)
+
+    @classmethod
+    def get_color(cls, name: str) -> tuple[int, ...]:
+        info = cls._types.get(name)
+        return info.color if info else (160, 160, 180, 255)
+
+    @classmethod
+    def get_pin_shape(cls, name: str) -> str:
+        info = cls._types.get(name)
+        return info.pin_shape if info else "circle"
+
+    @classmethod
+    def all_types(cls) -> dict[str, PortTypeInfo]:
+        return dict(cls._types)
+
+
+# ── Coercion helpers for base types ──────────────────────────────────────────
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.lower() not in ("", "0", "false", "no")
+    return bool(value)
+
+
+def _coerce_tensor(value: Any) -> Any:
+    """Coerce scalars/lists to torch.Tensor if torch is available."""
+    if isinstance(value, (int, float, list)):
+        try:
+            import torch
+            return torch.tensor(value)
+        except Exception:
+            return None
+    return value
+
+
+# ── Base types (always available, any domain) ────────────────────────────────
+
+PortTypeRegistry.register("FLOAT",  default=0.0,   coerce=float,
+                          color=(80, 200, 120, 255), pin_shape="circle_filled",
+                          description="Floating-point scalar")
+PortTypeRegistry.register("INT",    default=0,     coerce=int,
+                          color=(80, 140, 220, 255), pin_shape="triangle_filled",
+                          description="Integer scalar")
+PortTypeRegistry.register("BOOL",   default=False, coerce=_coerce_bool,
+                          color=(220, 100, 80, 255), pin_shape="quad_filled",
+                          description="Boolean")
+PortTypeRegistry.register("STRING", default="",    coerce=str,
+                          color=(220, 180, 80, 255), pin_shape="circle_filled",
+                          description="Text string")
+PortTypeRegistry.register("ANY",    default=None,  coerce=None,
+                          color=(160, 160, 180, 255), pin_shape="circle",
+                          description="Any type (passthrough)")
+
+
+# ── PyTorch types (will move to plugins/pytorch/ eventually) ─────────────────
+# Registered here for now during the transition. Once the plugin system is
+# built, these move to plugins/pytorch/port_types.py.
+
+PortTypeRegistry.register("TENSOR",     default=None, coerce=_coerce_tensor,
+                          color=(255, 120, 40, 255),  pin_shape="circle",
+                          description="torch.Tensor")
+PortTypeRegistry.register("MODULE",     default=None,
+                          color=(160, 80, 255, 255),  pin_shape="triangle",
+                          description="torch.nn.Module")
+PortTypeRegistry.register("DATALOADER", default=None,
+                          color=(40, 200, 200, 255),  pin_shape="quad",
+                          description="torch.utils.data.DataLoader")
+PortTypeRegistry.register("OPTIMIZER",  default=None,
+                          color=(255, 200, 40, 255),  pin_shape="circle",
+                          description="torch.optim.Optimizer")
+PortTypeRegistry.register("LOSS_FN",    default=None,
+                          color=(220, 60, 120, 255),  pin_shape="circle",
+                          description="Loss function callable")
+PortTypeRegistry.register("SCHEDULER",  default=None,
+                          color=(160, 230, 60, 255),  pin_shape="circle_filled",
+                          description="Learning rate scheduler")
+PortTypeRegistry.register("DATASET",    default=None,
+                          color=(80, 220, 180, 255),  pin_shape="circle_filled",
+                          description="torch.utils.data.Dataset")
+PortTypeRegistry.register("TRANSFORM",  default=None,
+                          color=(200, 130, 255, 255), pin_shape="circle_filled",
+                          description="Data transform callable")
+
+# Data science types
+PortTypeRegistry.register("NDARRAY",       default=None,
+                          color=(80, 180, 255, 255),  pin_shape="triangle_filled",
+                          description="numpy.ndarray")
+PortTypeRegistry.register("DATAFRAME",     default=None,
+                          color=(50, 205, 120, 255),  pin_shape="quad_filled",
+                          description="pandas.DataFrame")
+PortTypeRegistry.register("SERIES",        default=None,
+                          color=(150, 230, 80, 255),  pin_shape="circle_filled",
+                          description="pandas.Series")
+PortTypeRegistry.register("SKLEARN_MODEL", default=None,
+                          color=(255, 160, 50, 255),  pin_shape="triangle",
+                          description="sklearn estimator")
+PortTypeRegistry.register("IMAGE",         default=None,
+                          color=(255, 80, 180, 255),  pin_shape="quad",
+                          description="RGB uint8 ndarray (H, W, 3)")
+
+
+# ── Convenience class for backward compat ────────────────────────────────────
+# Code that does `PortType.FLOAT` gets the string "FLOAT".
+# Code that does `port.port_type == PortType.FLOAT` still works.
+# Code that calls `PortType.coerce(value)` uses the registry.
+
+class PortType:
+    """Backward-compatible PortType constants. Each is just a string."""
+    FLOAT        = "FLOAT"
+    INT          = "INT"
+    BOOL         = "BOOL"
+    STRING       = "STRING"
+    ANY          = "ANY"
+    TENSOR       = "TENSOR"
+    MODULE       = "MODULE"
+    DATALOADER   = "DATALOADER"
+    OPTIMIZER    = "OPTIMIZER"
+    LOSS_FN      = "LOSS_FN"
+    SCHEDULER    = "SCHEDULER"
+    DATASET      = "DATASET"
+    TRANSFORM    = "TRANSFORM"
+    NDARRAY      = "NDARRAY"
+    DATAFRAME    = "DATAFRAME"
+    SERIES       = "SERIES"
+    SKLEARN_MODEL = "SKLEARN_MODEL"
+    IMAGE        = "IMAGE"
+
+    @staticmethod
+    def default_value(name: str) -> Any:
+        return PortTypeRegistry.get_default(name)
+
+    @staticmethod
+    def coerce(name: str, value: Any) -> Any:
+        return PortTypeRegistry.coerce_value(name, value)

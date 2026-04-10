@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 
 from core.graph import Graph
-from core.node import PortType
+from core.port_types import PortType, PortTypeRegistry
 
 
 def _collect_layer_modules(graph: Graph) -> dict[str, nn.Module]:
@@ -120,7 +120,7 @@ class GraphAsModule(nn.Module):
           - (x, y) tuple: standard classification batch
           - single tensor: unsupervised / autoencoder
         """
-        from core.node import PortType
+        from core.port_types import PortType, PortTypeRegistry
         overrides: dict[tuple[str, str], Any] = {}
 
         # Find injection points: dataset nodes with DATALOADER + TENSOR outputs,
@@ -197,7 +197,7 @@ class GraphAsModule(nn.Module):
                     from_id, from_port = conn_map[key]
                     if from_id in stored and from_port in stored[from_id]:
                         raw = stored[from_id][from_port]
-                        inputs[port_name] = port.port_type.coerce(raw) if raw is not None else None
+                        inputs[port_name] = PortTypeRegistry.coerce_value(port.port_type, raw) if raw is not None else None
                     else:
                         inputs[port_name] = port.default_value
                 else:

@@ -5,6 +5,7 @@ from typing import Any
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from core.node import BaseNode
+from core.port_types import PortTypeRegistry
 
 
 # ── Command stack (undo/redo) ─────────────────────────────────────────────────
@@ -217,7 +218,7 @@ class Graph:
                             # "no connection" branch below.
                             inputs[port_name] = port.default_value
                         else:
-                            inputs[port_name] = port.port_type.coerce(raw)
+                            inputs[port_name] = PortTypeRegistry.coerce_value(port.port_type, raw)
                     else:
                         inputs[port_name] = port.default_value
                 else:
