@@ -229,14 +229,17 @@ def test_registry_has_per_layer_blocks():
     monolithic VAENode/AutoencoderNode/VAETrainingConfigNode hard-delete."""
     from nodes import NODE_REGISTRY
     expected = ["pt_reparameterize", "pt_kl_divergence", "pt_vae_loss",
-                "pt_latent_sampler", "pt_gaussian_noise",
-                "pt_freeze_named_layers", "pt_loss_compute"]
+                "pt_latent_sampler", "pt_freeze_named_layers",
+                "pt_loss_compute", "pt_gate", "pt_train_output", "pt_dataset"]
     for tn in expected:
         assert tn in NODE_REGISTRY, f"Missing: {tn}"
 
 def test_registry_does_not_have_deleted_nodes():
-    """VAENode, AutoencoderNode, and VAETrainingConfigNode were hard-deleted —
-    confirm they don't accidentally come back via some forgotten import path."""
+    """Obsolete nodes should not appear in the registry."""
     from nodes import NODE_REGISTRY
-    for tn in ("pt_vae", "pt_autoencoder", "pt_vae_training_config"):
-        assert tn not in NODE_REGISTRY, f"Should be deleted: {tn}"
+    obsolete = ("pt_vae", "pt_autoencoder", "pt_vae_training_config",
+                "batch_input", "pt_multi_dataset", "pt_multimodal_model",
+                "pt_gaussian_noise", "pt_training_config",
+                "pt_multimodal_training_config")
+    for tn in obsolete:
+        assert tn not in NODE_REGISTRY, f"Should be removed: {tn}"

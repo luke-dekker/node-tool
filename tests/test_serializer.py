@@ -8,11 +8,15 @@ def test_save_load_roundtrip():
     from core.graph import Graph
     from core.serializer import Serializer
     from nodes.math import MathNode
-    from nodes.data import FloatConstNode
+    from nodes.data import ConstNode
 
     graph = Graph()
-    a = FloatConstNode(); a.inputs["Value"].default_value = 7.0
-    b = FloatConstNode(); b.inputs["Value"].default_value = 3.0
+    a = ConstNode()
+    a.inputs["Type"].default_value = "float"
+    a.inputs["Value"].default_value = "7.0"
+    b = ConstNode()
+    b.inputs["Type"].default_value = "float"
+    b.inputs["Value"].default_value = "3.0"
     add = MathNode()  # default Op="add"
     graph.add_node(a); graph.add_node(b); graph.add_node(add)
     graph.add_connection(a.id, "Value", add.id, "A")

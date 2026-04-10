@@ -212,10 +212,11 @@ def test_full_pipeline():
 
 def test_registry_has_dataset_nodes():
     from nodes import NODE_REGISTRY
-    expected = ["pt_csv_dataset", "pt_numpy_dataset", "pt_image_folder_dataset",
-                "pt_hf_dataset", "pt_audio_folder_dataset",
-                "pt_compose_transforms", "pt_to_tensor_transform", "pt_resize_transform",
-                "pt_normalize_transform", "pt_train_val_split", "pt_train_val_test_split",
-                "pt_dataloader", "pt_dataset_info", "pt_apply_transform"]
+    # New architecture: universal DatasetNode + benchmark auto-download nodes
+    expected = ["pt_dataset", "pt_mnist", "pt_cifar10", "pt_text_dataset",
+                "pt_hf_dataset", "pt_train_val_split", "pt_train_val_test_split",
+                "pt_compose_transforms", "pt_to_tensor_transform",
+                "pt_resize_transform", "pt_normalize_transform",
+                "pt_apply_transform"]
     for tn in expected:
         assert tn in NODE_REGISTRY, f"Missing from registry: {tn}"

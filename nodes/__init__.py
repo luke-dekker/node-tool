@@ -72,6 +72,41 @@ _discover(code)
 from nodes import subgraphs
 _discover(subgraphs)
 
+# Remove obsolete nodes from the palette. Their .py files stay on disk so
+# old saved graphs can still load, but they don't clutter the palette.
+# These are all replaced by the new architecture:
+#   - Individual dataset nodes → universal DatasetNode
+#   - BatchInput → dataset x/label ports
+#   - MultiDataset, MultimodalModel → per-layer wiring
+#   - TrainingConfig, MultimodalTrainingConfig → panel + TrainOutput
+#   - DataLoader, DataLoaderInfo, DatasetInfo, SampleBatch → universal DatasetNode
+#   - GaussianNoise → GateNode (noise mode)
+#   - Legacy single-type const/cast nodes → ConstNode, CastNode
+# Keep: MNIST, CIFAR10, TextDataset, HFDataset (auto-download benchmarks).
+# Keep: TrainOutput, Dataset (universal), Gate, LossCompute, ApplyModule (new arch).
+# Keep: FreezeLayersNode, FreezeNamedLayersNode (useful experiment controls).
+# Keep: ConstNode, CastNode, PreviewNode, ImageInputNode (consolidated v5).
+# Remove: everything replaced by the new architecture.
+_OBSOLETE = {
+    # Legacy training adapters — replaced by panel + TrainOutput
+    "batch_input", "pt_training_config", "pt_multimodal_training_config",
+    # Monolithic multi-modal — replaced by per-layer wiring
+    "pt_multi_dataset", "pt_multimodal_model",
+    # Folder-based dataset nodes — replaced by universal DatasetNode
+    "pt_csv_dataset", "pt_numpy_dataset", "pt_image_folder_dataset",
+    "pt_audio_folder_dataset", "pt_folder_multimodal_dataset",
+    # Utility nodes absorbed into universal DatasetNode or GateNode
+    "pt_dataloader", "pt_dataloader_info", "pt_dataset_info", "pt_sample_batch",
+    "pt_gaussian_noise",
+    # Legacy single-type const/cast — replaced by ConstNode/CastNode
+    "float_const", "int_const", "bool_const", "string_const",
+    "to_float", "to_int", "to_bool", "to_string",
+    # Old forward pass node
+    "pt_forward_pass",
+}
+for _tn in _OBSOLETE:
+    NODE_REGISTRY.pop(_tn, None)
+
 # Grouped by category for the palette
 CATEGORY_ORDER = [
     # ML workflow
