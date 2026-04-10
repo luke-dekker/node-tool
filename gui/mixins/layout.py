@@ -252,66 +252,76 @@ class LayoutMixin:
         training_y = inspector_height + MENU_H + 4
         training_h = usable_h - inspector_height - 4
         with dpg.window(
-            label="Training", tag="TrainingWindow",
+            label="Panels", tag="TrainingWindow",
             pos=[inspector_x, training_y], width=INSPECTOR_W, height=training_h,
             no_close=True, no_collapse=True,
         ):
-            _section_header("Training", self._section_header_theme)
-            with dpg.group(horizontal=True):
-                dpg.add_text("*", tag="train_status_dot", color=list(TEXT_DIM))
-                dpg.add_text("Idle", tag="train_status_text", color=list(TEXT_DIM))
-            dpg.add_spacer(height=4)
+            dpg.add_tab_bar(tag="panel_tab_bar")
 
-            # Training hyperparameters — these used to live on TrainingConfigNode;
-            # now they're panel widgets. The graph only declares WHAT to optimize
-            # (via TrainOutputNode); the panel declares HOW.
-            hw = (INSPECTOR_W - 36) // 2  # half-width for two-column layout
-            with dpg.group(horizontal=True):
-                dpg.add_input_int(label="epochs", tag="train_epochs_input",
-                                  default_value=10, width=hw, step=0, min_value=1)
-                dpg.add_combo(label="device", tag="train_device_combo",
-                              items=["cpu", "cuda", "cuda:0", "cuda:1"],
-                              default_value="cpu", width=hw)
-            with dpg.group(horizontal=True):
-                dpg.add_input_float(label="lr", tag="train_lr_input",
-                                    default_value=0.001, width=hw, step=0,
-                                    format="%.5f")
-                dpg.add_combo(label="optim", tag="train_optimizer_combo",
-                              items=["adam", "adamw", "sgd", "rmsprop"],
-                              default_value="adam", width=hw)
-            with dpg.group(horizontal=True):
-                dpg.add_combo(label="loss", tag="train_loss_combo",
-                              items=["crossentropy", "mse", "bce",
-                                     "bcewithlogits", "l1"],
-                              default_value="crossentropy", width=hw)
-                dpg.add_text("(ignored if\nloss_is_output)", color=list(TEXT_DIM))
+        # Build the Training tab using parent= to avoid deep nesting
+        dpg.add_tab(label="Training", tag="panel_tab_training", parent="panel_tab_bar")
+        hw = (INSPECTOR_W - 36) // 2
+        P = "panel_tab_training"  # parent shorthand
+        with dpg.group(horizontal=True, parent=P):
+            dpg.add_text("*", tag="train_status_dot", color=list(TEXT_DIM))
+            dpg.add_text("Idle", tag="train_status_text", color=list(TEXT_DIM))
+        dpg.add_spacer(height=4, parent=P)
+        with dpg.group(horizontal=True, parent=P):
+            dpg.add_input_int(label="epochs", tag="train_epochs_input",
+                              default_value=10, width=hw, step=0, min_value=1)
+            dpg.add_combo(label="device", tag="train_device_combo",
+                          items=["cpu", "cuda", "cuda:0", "cuda:1"],
+                          default_value="cpu", width=hw)
+        with dpg.group(horizontal=True, parent=P):
+            dpg.add_input_float(label="lr", tag="train_lr_input",
+                                default_value=0.001, width=hw, step=0, format="%.5f")
+            dpg.add_combo(label="optim", tag="train_optimizer_combo",
+                          items=["adam", "adamw", "sgd", "rmsprop"],
+                          default_value="adam", width=hw)
+        with dpg.group(horizontal=True, parent=P):
+            dpg.add_combo(label="loss", tag="train_loss_combo",
+                          items=["crossentropy", "mse", "bce", "bcewithlogits", "l1"],
+                          default_value="crossentropy", width=hw)
+            dpg.add_text("(ignored if\nloss_is_output)", color=list(TEXT_DIM))
+        dpg.add_spacer(height=4, parent=P)
+        with dpg.group(horizontal=True, parent=P):
+            dpg.add_button(label=" Start ", tag="train_start_btn",
+                           callback=lambda: self._train_start())
+            dpg.add_button(label=" Pause ", tag="train_pause_btn",
+                           callback=lambda: self._train_pause_resume())
+            dpg.add_button(label=" Stop ",  tag="train_stop_btn",
+                           callback=lambda: self._train_stop())
+        dpg.add_spacer(height=4, parent=P)
+        dpg.add_button(label="Check Wiring", width=-1, parent=P,
+                       callback=lambda: self._train_check_wiring())
+        dpg.add_spacer(height=6, parent=P)
+        dpg.add_text("Epoch  0 / 0", tag="train_epoch_text", color=list(TEXT), parent=P)
+        dpg.add_text("Best loss  —", tag="train_loss_text",  color=list(TEXT), parent=P)
+        dpg.add_spacer(height=4, parent=P)
+        with dpg.plot(label="Loss", height=100, width=-1, tag="loss_plot", parent=P):
+            dpg.add_plot_legend()
+            dpg.add_plot_axis(dpg.mvXAxis, label="epoch", tag="loss_x_axis")
+            with dpg.plot_axis(dpg.mvYAxis, label="loss", tag="loss_y_axis"):
+                dpg.add_line_series([], [], label="train", tag="loss_series")
+                dpg.add_line_series([], [], label="val",   tag="val_loss_series")
+        dpg.add_spacer(height=4, parent=P)
+        dpg.add_button(label="Save Model", tag="save_model_btn", width=-1, parent=P,
+                       callback=lambda: self._save_model())
 
-            dpg.add_spacer(height=4)
-            with dpg.group(horizontal=True):
-                dpg.add_button(label=" Start ", tag="train_start_btn",
-                               callback=lambda: self._train_start())
-                dpg.add_button(label=" Pause ", tag="train_pause_btn",
-                               callback=lambda: self._train_pause_resume())
-                dpg.add_button(label=" Stop ",  tag="train_stop_btn",
-                               callback=lambda: self._train_stop())
-            dpg.add_spacer(height=4)
-            dpg.add_button(label="Check Wiring", width=-1,
-                           callback=lambda: self._train_check_wiring())
-            dpg.add_spacer(height=6)
-            dpg.add_text("Epoch  0 / 0", tag="train_epoch_text", color=list(TEXT))
-            dpg.add_text("Best loss  —", tag="train_loss_text",  color=list(TEXT))
-            dpg.add_spacer(height=4)
-            with dpg.plot(label="Loss", height=120, width=-1, tag="loss_plot"):
-                dpg.add_plot_legend()
-                dpg.add_plot_axis(dpg.mvXAxis, label="epoch", tag="loss_x_axis")
-                with dpg.plot_axis(dpg.mvYAxis, label="loss", tag="loss_y_axis"):
-                    dpg.add_line_series([], [], label="train", tag="loss_series")
-                    dpg.add_line_series([], [], label="val",   tag="val_loss_series")
-            dpg.add_spacer(height=4)
-            dpg.add_button(label="Save Model", tag="save_model_btn", width=-1,
-                           callback=lambda: self._save_model())
+        # Plugin-provided panel tabs
+        try:
+            from nodes import _plugin_ctx
+            if _plugin_ctx:
+                for plabel, pbuilder in _plugin_ctx.panels:
+                    tab_tag = dpg.add_tab(label=plabel, parent="panel_tab_bar")
+                    try:
+                        pbuilder(tab_tag, self)
+                    except Exception as exc:
+                        dpg.add_text(f"Error: {exc}", color=[220, 80, 80], parent=tab_tag)
+        except Exception:
+            pass
 
-        # Terminal / output window (buttons moved to menu bar)
+        # Terminal / output window
         term_y = editor_h + MENU_H + 4
         term_w = VIEWPORT_W - PALETTE_W - INSPECTOR_W - 8
         with dpg.window(
