@@ -228,7 +228,9 @@ def detect_boundary_ports(
             if (node_id, port_name) in nodes_with_consumers:
                 continue
             # Auto-promote popular tensor-style output names
-            if port_name in ("tensor_out", "tensor", "output", "model"):
+            if port_name in ("tensor_out", "tensor", "output", "model",
+                            "config", "result", "loss", "dataloader",
+                            "predictions", "info"):
                 ext_name = unique(f"{short(node_id)}_{port_name}")
                 external_outputs.append(ExternalPort(
                     name=ext_name, type=port.port_type,

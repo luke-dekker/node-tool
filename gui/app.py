@@ -353,6 +353,14 @@ class NodeApp(
         with dpg.node(label=node.label, tag=node_tag,
                       pos=scaled_pos, parent=editor_tag):
 
+            # DPG bug workaround: a node with zero child attributes has no
+            # content to anchor its width, so DPG's auto-size logic drifts
+            # wider by ~8px per frame indefinitely. Adding a minimal static
+            # attribute prevents this. Only needed when the node has no ports.
+            if not node.inputs and not node.outputs:
+                with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
+                    dpg.add_text("(no ports)", color=[100, 100, 120])
+
             # Input attributes
             for port_name, port in node.inputs.items():
                 attr_tag = f"attr_in_{node.id}_{port_name}"
@@ -864,6 +872,7 @@ class NodeApp(
             if _code_counter >= 30:       # refresh code panel ~2x/sec at 60fps
                 _code_counter = 0
                 self._refresh_code_panel()
+
             dpg.render_dearpygui_frame()
             frame_count += 1
 
