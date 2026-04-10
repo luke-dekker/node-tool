@@ -131,18 +131,17 @@ def _summarise(val, has_pd=False, pd=None) -> str:
     return val.__class__.__name__
 
 
-_REFERENCE_TYPES = {
-    PortType.TENSOR, PortType.MODULE, PortType.DATALOADER,
-    PortType.OPTIMIZER, PortType.LOSS_FN,
-    PortType.DATAFRAME, PortType.NDARRAY, PortType.SERIES,
-    PortType.SKLEARN_MODEL, PortType.IMAGE, PortType.SCHEDULER,
-    PortType.DATASET, PortType.TRANSFORM, PortType.ANY,
-}
+# Whether a port type gets a widget or a text label is now registry-driven.
+# Plugins register types with editable=True (primitives) or editable=False
+# (complex/reference types). No hardcoded sets in app.py.
 
-# Output ports that show a live value in the node after execution
-_PRIMITIVE_OUT_TYPES = {
-    PortType.FLOAT, PortType.INT, PortType.BOOL, PortType.STRING,
-}
+def _is_reference_type(port_type: str) -> bool:
+    """True if this port type should show a text label, not an editable widget."""
+    return not PortTypeRegistry.is_editable(port_type)
+
+def _is_primitive_output(port_type: str) -> bool:
+    """True if this output port should show a live value after execution."""
+    return PortTypeRegistry.is_editable(port_type)
 
 
 class NodeApp(
@@ -254,7 +253,7 @@ class NodeApp(
         ptype = port.port_type
         default = port.default_value
 
-        if ptype in _REFERENCE_TYPES:
+        if _is_reference_type(ptype):
             # Show the port name as the label - tells user exactly what to connect
             dpg.add_text(port_name, parent=parent_tag, color=[160, 160, 180])
             return
@@ -370,7 +369,7 @@ class NodeApp(
                     shape=shape,
                 ):
                     out_display = f"outdisp_{node.id}_{port_name}"
-                    if port.port_type in _PRIMITIVE_OUT_TYPES:
+                    if _is_primitive_output(port.port_type):
                         # Primitive types: show live value after execution
                         dpg.add_text(f"{port_name}: -", tag=out_display)
                         self.output_displays[(node.id, port_name)] = out_display

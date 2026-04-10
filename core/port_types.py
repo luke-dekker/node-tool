@@ -31,6 +31,7 @@ class PortTypeInfo:
     color:         tuple[int, ...]             = (160, 160, 180, 255)
     pin_shape:     str                         = "circle"  # circle, triangle, quad, circle_filled, etc.
     description:   str                         = ""
+    editable:      bool                        = False  # True → widget on canvas, False → text label
 
 
 class PortTypeRegistry:
@@ -44,11 +45,19 @@ class PortTypeRegistry:
                  coerce: Callable[[Any], Any] | None = None,
                  color: tuple[int, ...] = (160, 160, 180, 255),
                  pin_shape: str = "circle",
-                 description: str = "") -> str:
-        """Register a port type. Returns the name string for convenience."""
+                 description: str = "",
+                 editable: bool = False) -> str:
+        """Register a port type. Returns the name string for convenience.
+
+        editable=True means the port shows an input widget on the canvas
+        (like float spinner, text field). editable=False means the port shows
+        a text label and must be connected — this is the default for complex
+        types like TENSOR, MODULE, POINT_CLOUD, etc.
+        """
         cls._types[name] = PortTypeInfo(
             name=name, default_value=default, coerce=coerce,
             color=color, pin_shape=pin_shape, description=description,
+            editable=editable,
         )
         return name
 
@@ -85,6 +94,12 @@ class PortTypeRegistry:
         return info.pin_shape if info else "circle"
 
     @classmethod
+    def is_editable(cls, name: str) -> bool:
+        """True if this type gets a widget on the canvas (FLOAT/INT/BOOL/STRING)."""
+        info = cls._types.get(name)
+        return info.editable if info else False
+
+    @classmethod
     def all_types(cls) -> dict[str, PortTypeInfo]:
         return dict(cls._types)
 
@@ -110,16 +125,16 @@ def _coerce_tensor(value: Any) -> Any:
 
 # ── Base types (always available, any domain) ────────────────────────────────
 
-PortTypeRegistry.register("FLOAT",  default=0.0,   coerce=float,
+PortTypeRegistry.register("FLOAT",  default=0.0,   coerce=float, editable=True,
                           color=(80, 200, 120, 255), pin_shape="circle_filled",
                           description="Floating-point scalar")
-PortTypeRegistry.register("INT",    default=0,     coerce=int,
+PortTypeRegistry.register("INT",    default=0,     coerce=int, editable=True,
                           color=(80, 140, 220, 255), pin_shape="triangle_filled",
                           description="Integer scalar")
-PortTypeRegistry.register("BOOL",   default=False, coerce=_coerce_bool,
+PortTypeRegistry.register("BOOL",   default=False, coerce=_coerce_bool, editable=True,
                           color=(220, 100, 80, 255), pin_shape="quad_filled",
                           description="Boolean")
-PortTypeRegistry.register("STRING", default="",    coerce=str,
+PortTypeRegistry.register("STRING", default="",    coerce=str, editable=True,
                           color=(220, 180, 80, 255), pin_shape="circle_filled",
                           description="Text string")
 PortTypeRegistry.register("ANY",    default=None,  coerce=None,
