@@ -260,7 +260,33 @@ class LayoutMixin:
             with dpg.group(horizontal=True):
                 dpg.add_text("*", tag="train_status_dot", color=list(TEXT_DIM))
                 dpg.add_text("Idle", tag="train_status_text", color=list(TEXT_DIM))
-            dpg.add_spacer(height=6)
+            dpg.add_spacer(height=4)
+
+            # Training hyperparameters — these used to live on TrainingConfigNode;
+            # now they're panel widgets. The graph only declares WHAT to optimize
+            # (via TrainOutputNode); the panel declares HOW.
+            hw = (INSPECTOR_W - 36) // 2  # half-width for two-column layout
+            with dpg.group(horizontal=True):
+                dpg.add_input_int(label="epochs", tag="train_epochs_input",
+                                  default_value=10, width=hw, step=0, min_value=1)
+                dpg.add_combo(label="device", tag="train_device_combo",
+                              items=["cpu", "cuda", "cuda:0", "cuda:1"],
+                              default_value="cpu", width=hw)
+            with dpg.group(horizontal=True):
+                dpg.add_input_float(label="lr", tag="train_lr_input",
+                                    default_value=0.001, width=hw, step=0,
+                                    format="%.5f")
+                dpg.add_combo(label="optim", tag="train_optimizer_combo",
+                              items=["adam", "adamw", "sgd", "rmsprop"],
+                              default_value="adam", width=hw)
+            with dpg.group(horizontal=True):
+                dpg.add_combo(label="loss", tag="train_loss_combo",
+                              items=["crossentropy", "mse", "bce",
+                                     "bcewithlogits", "l1"],
+                              default_value="crossentropy", width=hw)
+                dpg.add_text("(ignored if\nloss_is_output)", color=list(TEXT_DIM))
+
+            dpg.add_spacer(height=4)
             with dpg.group(horizontal=True):
                 dpg.add_button(label=" Start ", tag="train_start_btn",
                                callback=lambda: self._train_start())
@@ -271,17 +297,17 @@ class LayoutMixin:
             dpg.add_spacer(height=4)
             dpg.add_button(label="Check Wiring", width=-1,
                            callback=lambda: self._train_check_wiring())
-            dpg.add_spacer(height=8)
+            dpg.add_spacer(height=6)
             dpg.add_text("Epoch  0 / 0", tag="train_epoch_text", color=list(TEXT))
             dpg.add_text("Best loss  —", tag="train_loss_text",  color=list(TEXT))
-            dpg.add_spacer(height=6)
-            with dpg.plot(label="Loss", height=150, width=-1, tag="loss_plot"):
+            dpg.add_spacer(height=4)
+            with dpg.plot(label="Loss", height=120, width=-1, tag="loss_plot"):
                 dpg.add_plot_legend()
                 dpg.add_plot_axis(dpg.mvXAxis, label="epoch", tag="loss_x_axis")
                 with dpg.plot_axis(dpg.mvYAxis, label="loss", tag="loss_y_axis"):
                     dpg.add_line_series([], [], label="train", tag="loss_series")
                     dpg.add_line_series([], [], label="val",   tag="val_loss_series")
-            dpg.add_spacer(height=6)
+            dpg.add_spacer(height=4)
             dpg.add_button(label="Save Model", tag="save_model_btn", width=-1,
                            callback=lambda: self._save_model())
 

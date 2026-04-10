@@ -30,14 +30,67 @@ def _set_train_status(label: str) -> None:
 class TrainingMixin:
     """Methods for collecting model layers, starting/stopping training, and saving the model."""
 
+    # ── Panel widget readers ──────────────────────────────────────────────
+
+    def _read_panel_config(self) -> dict:
+        """Read training hyperparameters from the panel's DPG widgets.
+
+        These used to live on TrainingConfigNode; now they're persistent panel
+        widgets. The graph only declares WHAT to optimize (via TrainOutputNode);
+        the panel declares HOW.
+        """
+        def _get(tag, fallback):
+            try:
+                return dpg.get_value(tag)
+            except Exception:
+                return fallback
+
+        return {
+            "epochs":         max(1, int(_get("train_epochs_input", 10))),
+            "lr":             float(_get("train_lr_input", 0.001)),
+            "optimizer_name": str(_get("train_optimizer_combo", "adam")),
+            "loss_name":      str(_get("train_loss_combo", "crossentropy")),
+            "device":         str(_get("train_device_combo", "cpu")),
+        }
+
+    def _find_train_outputs(self, outputs: dict) -> list[tuple[str, dict]]:
+        """Find all TrainOutputNode(s) in the graph that produced output."""
+        results = []
+        for node_id, node in self.graph.nodes.items():
+            if node.type_name in ("pt_train_output", "pt_training_config") \
+                    and node_id in outputs:
+                cfg = outputs[node_id].get("config")
+                if cfg is not None:
+                    results.append((node_id, cfg))
+        return results
+
+    def _find_dataloaders(self, outputs: dict) -> list:
+        """Auto-discover DataLoader objects from graph node outputs."""
+        from core.node import PortType
+        loaders = []
+        for node_id, node in self.graph.nodes.items():
+            for port_name, port in node.outputs.items():
+                if port.port_type == PortType.DATALOADER:
+                    val = outputs.get(node_id, {}).get(port_name)
+                    if val is not None:
+                        loaders.append(val)
+        return loaders
+
+    # ── Training start ─────────────────────────────────────────────────────
+
     def _train_start(self) -> None:
         """Wrap the graph as an nn.Module and start training.
 
+        New architecture: training hyperparameters come from panel widgets,
+        not from a TrainingConfigNode. The graph declares WHAT to optimize
+        (via TrainOutputNode); the panel declares HOW.
+
         Flow:
           1. Run the graph once (live preview) to lazy-init all layer modules
-          2. Find the training-config node (regular or multimodal)
-          3. Wrap the graph as GraphAsModule, targeting cfg.tensor_in as the output
-          4. Hand off to the background training thread
+          2. Find TrainOutputNode(s) + auto-discover DataLoader(s)
+          3. Read training params from panel widgets
+          4. Wrap graph as GraphAsModule targeting the TrainOutput's tensor_in
+          5. Hand off to the background training thread
         """
         from nodes.pytorch.training import _build_optimizer, _build_scheduler
         from core.graph_module import GraphAsModule
@@ -51,58 +104,72 @@ class TrainingMixin:
             self._log(f"[Train] Graph error: {exc}")
             return
 
-        # Find the training config node
-        cfg_node_id = None
-        config = None
-        for node_id, node in self.graph.nodes.items():
-            if node.type_name in ("pt_training_config", "pt_multimodal_training_config") \
-                    and node_id in outputs:
-                cfg_node_id = node_id
-                config = outputs[node_id].get("config")
-                break
-        if config is None:
-            self._log("[Train] No Training Config node found.")
+        # Find the training target (TrainOutputNode or legacy TrainingConfigNode)
+        train_outputs = self._find_train_outputs(outputs)
+        if not train_outputs:
+            self._log("[Train] No Train Output node found. Add one to mark the training target.")
             return
-        if config.get("dataloader") is None:
-            self._log("[Train] No dataloader connected to Training Config.")
+
+        # For now: use the first TrainOutput. Multi-task (multiple TrainOutputs)
+        # will be wired via the panel's task table in R4.
+        target_node_id, target_cfg = train_outputs[0]
+        loss_is_output = target_cfg.get("loss_is_output", False)
+
+        # Auto-discover dataloaders from the graph
+        dataloaders = self._find_dataloaders(outputs)
+        if not dataloaders:
+            # Fall back to legacy: check if TrainingConfigNode had a dataloader
+            dl_legacy = target_cfg.get("dataloader")
+            if dl_legacy is not None:
+                dataloaders = [dl_legacy]
+        if not dataloaders:
+            self._log("[Train] No dataloader found. Add a dataset node to the graph.")
             return
+        dataloader = dataloaders[0]
+
+        # Read training params from panel widgets
+        panel = self._read_panel_config()
 
         # The graph IS the model
         try:
-            model = GraphAsModule(self.graph, output_node_id=cfg_node_id, output_port="tensor_in")
+            model = GraphAsModule(self.graph, output_node_id=target_node_id,
+                                  output_port="tensor_in")
         except Exception as exc:
             self._log(f"[Train] Failed to wrap graph as module: {exc}")
             return
         n_params = sum(p.numel() for p in model.parameters())
         if n_params == 0:
-            self._log("[Train] Graph has no trainable layers upstream of Training Config.")
+            self._log("[Train] Graph has no trainable layers upstream of Train Output.")
             return
 
+        # Build optimizer from panel params
         optimizer = _build_optimizer(
-            config["optimizer_name"], model,
-            config["lr"], config["weight_decay"], config["momentum"],
+            panel["optimizer_name"], model,
+            panel["lr"], 0.0, 0.9,  # weight_decay, momentum use defaults
         )
-        scheduler = _build_scheduler(
-            config["scheduler_name"], optimizer,
-            config["step_size"], config["gamma"], config["T_max"],
-        )
+
+        # Build loss_fn from panel dropdown (used when loss_is_output=False)
+        from nodes.pytorch.training import _build_loss
+        loss_fn = _build_loss(panel["loss_name"]) if not loss_is_output else None
+
         full_config = {
             "model":          model,
             "optimizer":      optimizer,
-            "loss_fn":        config["loss_fn"],
-            "loss_is_output": config.get("loss_is_output", False),
-            "dataloader":     config["dataloader"],
-            "val_dataloader": config.get("val_dataloader"),
-            "scheduler":      scheduler,
-            "epochs":         config["epochs"],
-            "device":         config["device"],
-            "multimodal":      config.get("multimodal", False),
-            "freeze_strategy": config.get("freeze_strategy", "hard"),
-            "log_modalities":  config.get("log_modalities", True),
-            "graph_module":    True,   # tells the worker this is a GraphAsModule (dict input)
+            "loss_fn":        loss_fn,
+            "loss_is_output": loss_is_output,
+            "dataloader":     dataloader,
+            "val_dataloader": None,  # TODO: panel val_dataloader picker
+            "scheduler":      None,  # TODO: panel scheduler config
+            "epochs":         panel["epochs"],
+            "device":         panel["device"],
+            "multimodal":     False,
+            "freeze_strategy": "hard",
+            "log_modalities":  False,
+            "graph_module":    True,
         }
-        self._log(f"[Train] Starting: {config['epochs']} epochs on {config['device']}  "
-                  f"({n_params:,} params)")
+        task_name = target_cfg.get("task_name", "default")
+        self._log(f"[Train] Starting: {panel['epochs']} epochs on {panel['device']}  "
+                  f"({n_params:,} params, task={task_name!r})")
         self._training_ctrl.on_epoch_end = self.refresh_graph_silent
         self._training_ctrl.start(full_config)
         _set_train_status("Running")
@@ -121,39 +188,45 @@ class TrainingMixin:
         except Exception as exc:
             self._log(f"[Check] Graph error: {exc}")
             return
-        cfg_node_id = None
-        config = None
-        for node_id, node in self.graph.nodes.items():
-            if node.type_name in ("pt_training_config", "pt_multimodal_training_config") \
-                    and node_id in outputs:
-                cfg_node_id = node_id
-                config = outputs[node_id].get("config")
-                break
-        if config is None:
-            self._log("[Check] No Training Config node found.")
-            return
 
+        # Find targets
+        train_outputs = self._find_train_outputs(outputs)
+        if not train_outputs:
+            self._log("[Check] [x] No Train Output node found.")
+            return
+        self._log(f"[Check] [ok] {len(train_outputs)} Train Output(s) found")
+        for nid, cfg in train_outputs:
+            name = cfg.get("task_name", "?")
+            lio  = cfg.get("loss_is_output", False)
+            self._log(f"[Check]   - {name} (loss_is_output={lio})")
+
+        # First target for the model check
+        target_node_id = train_outputs[0][0]
         try:
-            model = GraphAsModule(self.graph, output_node_id=cfg_node_id, output_port="tensor_in")
+            model = GraphAsModule(self.graph, output_node_id=target_node_id,
+                                  output_port="tensor_in")
             n_params = sum(p.numel() for p in model.parameters())
             n_modules = len(model._layer_modules)
             if n_params == 0:
                 self._log("[Check] [x] No trainable layers in the graph.")
             else:
-                self._log(f"[Check] [ok] Graph model: {n_modules} layer nodes, {n_params:,} parameters")
+                self._log(f"[Check] [ok] Graph model: {n_modules} layer nodes, "
+                          f"{n_params:,} parameters")
         except Exception as exc:
             self._log(f"[Check] [x] Failed to wrap graph: {exc}")
             return
 
-        if config.get("dataloader") is not None:
-            self._log("[Check] [ok] dataloader connected")
+        # Dataloaders
+        dataloaders = self._find_dataloaders(outputs)
+        if dataloaders:
+            self._log(f"[Check] [ok] {len(dataloaders)} dataloader(s) found")
         else:
-            self._log("[Check] [x] dataloader not connected")
-        val_dl = config.get("val_dataloader")
-        self._log(f"[Check]   val_dataloader: {'connected' if val_dl else 'not connected (optional)'}")
-        self._log(f"[Check]   optimizer: {config.get('optimizer_name', '?')}  lr={config.get('lr', '?')}")
-        self._log(f"[Check]   loss: {config.get('loss_fn', '?').__class__.__name__}")
-        if config.get("dataloader") is not None:
+            self._log("[Check] [x] No dataloader found in the graph")
+
+        panel = self._read_panel_config()
+        self._log(f"[Check]   optimizer: {panel['optimizer_name']}  lr={panel['lr']}")
+        self._log(f"[Check]   epochs: {panel['epochs']}  device: {panel['device']}")
+        if dataloaders:
             self._log("[Check] Ready to train!")
 
     def _train_pause_resume(self) -> None:
