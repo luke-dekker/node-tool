@@ -19,58 +19,44 @@ from gui.theme import (
     create_global_theme, create_node_theme, create_fonts,
     CATEGORY_COLORS, TEXT, TEXT_DIM,
     ACCENT, ACCENT2, BG_DARK, BG_MID, BG_LIGHT,
-    FLOAT_PIN, INT_PIN, BOOL_PIN, STRING_PIN, ANY_PIN,
-    TENSOR_PIN, MODULE_PIN, DATALOADER_PIN, OPTIMIZER_PIN, LOSS_FN_PIN,
-    DATAFRAME_PIN, NDARRAY_PIN, SERIES_PIN, SKLEARN_PIN, IMAGE_PIN,
-    SCHEDULER_PIN, DATASET_PIN, TRANSFORM_PIN,
 )
+# Pin color/shape imports no longer needed — driven by PortTypeRegistry
 from gui.training_panel import TrainingController
 from gui.mixins import (
     TrainingMixin, PollingMixin, FileOpsMixin,
     EditOpsMixin, LayoutMixin, HandlersMixin,
 )
 
-PIN_COLORS = {
-    PortType.FLOAT:        FLOAT_PIN,
-    PortType.INT:          INT_PIN,
-    PortType.BOOL:         BOOL_PIN,
-    PortType.STRING:       STRING_PIN,
-    PortType.ANY:          ANY_PIN,
-    PortType.TENSOR:       TENSOR_PIN,
-    PortType.MODULE:       MODULE_PIN,
-    PortType.DATALOADER:   DATALOADER_PIN,
-    PortType.OPTIMIZER:    OPTIMIZER_PIN,
-    PortType.LOSS_FN:      LOSS_FN_PIN,
-    PortType.DATAFRAME:    DATAFRAME_PIN,
-    PortType.NDARRAY:      NDARRAY_PIN,
-    PortType.SERIES:       SERIES_PIN,
-    PortType.SKLEARN_MODEL: SKLEARN_PIN,
-    PortType.IMAGE:        IMAGE_PIN,
-    PortType.SCHEDULER:    SCHEDULER_PIN,
-    PortType.DATASET:      DATASET_PIN,
-    PortType.TRANSFORM:    TRANSFORM_PIN,
+# Pin colors and shapes are now driven by the PortTypeRegistry — no hardcoded
+# dicts. Any plugin that registers a port type with a color/pin_shape gets
+# automatic palette support. These helper functions do the lookup.
+from core.port_types import PortTypeRegistry
+
+_PIN_SHAPE_MAP = {
+    "circle":          dpg.mvNode_PinShape_Circle,
+    "circle_filled":   dpg.mvNode_PinShape_CircleFilled,
+    "triangle":        dpg.mvNode_PinShape_Triangle,
+    "triangle_filled": dpg.mvNode_PinShape_TriangleFilled,
+    "quad":            dpg.mvNode_PinShape_Quad,
+    "quad_filled":     dpg.mvNode_PinShape_QuadFilled,
 }
 
-PIN_SHAPES = {
-    PortType.FLOAT:        dpg.mvNode_PinShape_CircleFilled,
-    PortType.INT:          dpg.mvNode_PinShape_TriangleFilled,
-    PortType.BOOL:         dpg.mvNode_PinShape_QuadFilled,
-    PortType.STRING:       dpg.mvNode_PinShape_CircleFilled,
-    PortType.ANY:          dpg.mvNode_PinShape_Circle,
-    PortType.TENSOR:       dpg.mvNode_PinShape_Circle,
-    PortType.MODULE:       dpg.mvNode_PinShape_Triangle,
-    PortType.DATALOADER:   dpg.mvNode_PinShape_Quad,
-    PortType.OPTIMIZER:    dpg.mvNode_PinShape_Circle,
-    PortType.LOSS_FN:      dpg.mvNode_PinShape_Circle,
-    PortType.DATAFRAME:    dpg.mvNode_PinShape_QuadFilled,
-    PortType.NDARRAY:      dpg.mvNode_PinShape_TriangleFilled,
-    PortType.SERIES:       dpg.mvNode_PinShape_CircleFilled,
-    PortType.SKLEARN_MODEL: dpg.mvNode_PinShape_Triangle,
-    PortType.IMAGE:        dpg.mvNode_PinShape_Quad,
-    PortType.SCHEDULER:    dpg.mvNode_PinShape_CircleFilled,
-    PortType.DATASET:      dpg.mvNode_PinShape_CircleFilled,
-    PortType.TRANSFORM:    dpg.mvNode_PinShape_CircleFilled,
-}
+def _get_pin_color(port_type: str) -> tuple:
+    return PortTypeRegistry.get_color(port_type)
+
+def _get_pin_shape(port_type: str) -> int:
+    shape_name = PortTypeRegistry.get_pin_shape(port_type)
+    return _PIN_SHAPE_MAP.get(shape_name, dpg.mvNode_PinShape_Circle)
+
+# Backward-compat shims for any code that reads PIN_COLORS / PIN_SHAPES directly
+class _DynamicPinLookup:
+    def get(self, key, default=None):
+        return PortTypeRegistry.get_color(key) if key else default
+    def __getitem__(self, key):
+        return PortTypeRegistry.get_color(key)
+
+PIN_COLORS = _DynamicPinLookup()
+PIN_SHAPES = type("_S", (), {"get": lambda self, k, d=dpg.mvNode_PinShape_Circle: _get_pin_shape(k)})()
 
 # Reference PortTypes that cannot be edited via widget
 def _summarise(val, has_pd=False, pd=None) -> str:

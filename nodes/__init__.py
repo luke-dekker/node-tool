@@ -101,6 +101,22 @@ _OBSOLETE = {
 for _tn in _OBSOLETE:
     NODE_REGISTRY.pop(_tn, None)
 
+# ── Plugin system ────────────────────────────────────────────────────────────
+# Discover and load plugins from the plugins/ directory. Each plugin calls
+# register(ctx) which can add port types, node classes, panel builders, and
+# categories. Plugins are loaded AFTER the built-in nodes so they can
+# reference existing node types in their subgraphs/templates.
+try:
+    from core.plugins import load_plugins
+    _plugin_ctx = load_plugins()
+    # Merge plugin-registered nodes into NODE_REGISTRY
+    for _cls in _plugin_ctx.node_classes:
+        if hasattr(_cls, "type_name") and _cls.type_name not in NODE_REGISTRY:
+            NODE_REGISTRY[_cls.type_name] = _cls
+except Exception as _exc:
+    print(f"[plugins] Plugin loading failed: {_exc}")
+    _plugin_ctx = None
+
 # Grouped by category for the palette
 CATEGORY_ORDER = [
     # ML workflow
