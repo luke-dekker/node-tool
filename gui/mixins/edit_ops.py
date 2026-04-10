@@ -119,18 +119,55 @@ class EditOpsMixin:
             self._paste_nodes()
 
     def _build_demo_graph(self) -> None:
-        """Pre-populate with the MNIST MLP template — the new-architecture hello world.
+        """Pre-populate with a classification demo using the universal DatasetNode.
 
-        Uses the template builder directly so the demo always reflects the
-        current recommended architecture (dataset → model → TrainOutput,
-        panel-driven training config, zero legacy adapters).
+        Generates a tiny synthetic dataset on disk (20 images + labels) and wires:
+        Dataset → Flatten → Linear+ReLU → Linear → TrainOutput. Shows the
+        recommended workflow with the new architecture — zero legacy nodes.
         """
-        from templates.mnist_mlp import build
-        positions = build(self.graph)
+        self._ensure_demo_classify_data()
 
+        from nodes.pytorch.dataset      import DatasetNode
+        from nodes.pytorch.flatten       import FlattenNode
+        from nodes.pytorch.linear        import LinearNode
+        from nodes.pytorch.train_output  import TrainOutputNode
+        from templates._helpers          import grid
+
+        pos = grid(step_x=240)
+        positions: dict[str, tuple[int, int]] = {}
+
+        ds = DatasetNode()
+        ds.inputs["path"].default_value      = "demo_data/classify"
+        ds.inputs["batch_size"].default_value = 8
+        self.graph.add_node(ds); positions[ds.id] = pos()
+
+        flat = FlattenNode()
+        self.graph.add_node(flat); positions[flat.id] = pos()
+
+        h1 = LinearNode()
+        h1.inputs["in_features"].default_value  = 192  # 8*8*3 flattened
+        h1.inputs["out_features"].default_value = 32
+        h1.inputs["activation"].default_value   = "relu"
+        self.graph.add_node(h1); positions[h1.id] = pos()
+
+        head = LinearNode()
+        head.inputs["in_features"].default_value  = 32
+        head.inputs["out_features"].default_value = 2
+        head.inputs["activation"].default_value   = "none"
+        self.graph.add_node(head); positions[head.id] = pos()
+
+        target = TrainOutputNode()
+        self.graph.add_node(target); positions[target.id] = pos()
+
+        # Wire: dataset.image → flatten → linear → linear → train output
+        self.graph.add_connection(ds.id,   "image",      flat.id,   "tensor_in")
+        self.graph.add_connection(flat.id,  "tensor_out", h1.id,     "tensor_in")
+        self.graph.add_connection(h1.id,    "tensor_out", head.id,   "tensor_in")
+        self.graph.add_connection(head.id,  "tensor_out", target.id, "tensor_in")
+
+        # Build DPG visuals
         for node_id, node in self.graph.nodes.items():
-            pos = positions.get(node_id, (100, 100))
-            self.add_node_to_editor(node, tuple(pos))
+            self.add_node_to_editor(node, positions.get(node_id, (100, 100)))
 
         for conn in self.graph.connections:
             from_attr = f"attr_out_{conn.from_node_id}_{conn.from_port}"
@@ -141,6 +178,28 @@ class EditOpsMixin:
                     conn.from_node_id, conn.from_port,
                     conn.to_node_id, conn.to_port,
                 )
+
+    def _ensure_demo_classify_data(self) -> None:
+        """Generate a tiny synthetic 2-class image classification dataset."""
+        import os
+        if os.path.isdir("demo_data/classify"):
+            return
+        try:
+            import numpy as np
+            from PIL import Image
+        except ImportError:
+            return
+        os.makedirs("demo_data/classify/images", exist_ok=True)
+        rows = ["id,image,label"]
+        for i in range(24):
+            label = "cat" if i % 2 == 0 else "dog"
+            img = np.zeros((8, 8, 3), dtype=np.uint8)
+            img[:] = ((i % 2) * 180, 50, 100)
+            img += np.random.randint(0, 40, img.shape, dtype=np.uint8)
+            Image.fromarray(img).save(f"demo_data/classify/images/{i:03d}.png")
+            rows.append(f"{i:03d},images/{i:03d}.png,{label}")
+        with open("demo_data/classify/samples.csv", "w") as f:
+            f.write("\n".join(rows))
 
     def _ensure_demo_multimodal_data(self) -> None:
         """Generate a tiny synthetic 2-class multimodal dataset on disk if it doesn't exist."""
