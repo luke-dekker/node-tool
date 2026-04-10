@@ -122,6 +122,8 @@ from nodes.pytorch.pretrained_block import PretrainedBlockNode
 from nodes.pytorch.load_model import LoadModelNode
 from nodes.pytorch.apply_module import ApplyModuleNode
 from nodes.pytorch.train_output import TrainOutputNode
+from nodes.pytorch.dataset import DatasetNode
+from nodes.pytorch.gate import GateNode
 from nodes.pytorch.class_module_import import ClassModuleImportNode
 from nodes.pytorch.model_info_persist import ModelInfoPersistNode
 
