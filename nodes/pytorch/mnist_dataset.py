@@ -29,6 +29,8 @@ class MNISTDatasetNode(BaseNode):
         super().__init__()
 
     def _setup_ports(self):
+        self.add_input("task_id",    PortType.STRING, default="default",
+                       description="Pairs this dataset with a Train Output that has the same task_name")
         self.add_input("batch_size", PortType.INT,  default=32)
         self.add_input("train",      PortType.BOOL, default=True)
         self.add_input("download",   PortType.BOOL, default=True)

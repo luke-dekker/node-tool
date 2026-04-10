@@ -51,6 +51,8 @@ class TextDatasetNode(BaseNode):
     def _setup_ports(self) -> None:
         self.add_input("path",       PortType.STRING, default="data/text.txt",
                        description="Path to a .txt file (falls back to built-in if missing)")
+        self.add_input("task_id",    PortType.STRING, default="default",
+                       description="Pairs this dataset with a Train Output that has the same task_name")
         self.add_input("seq_len",    PortType.INT,    default=64,
                        description="Window length per training sample")
         self.add_input("batch_size", PortType.INT,    default=32)

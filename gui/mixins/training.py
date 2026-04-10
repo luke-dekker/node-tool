@@ -64,17 +64,34 @@ class TrainingMixin:
                     results.append((node_id, cfg))
         return results
 
-    def _find_dataloaders(self, outputs: dict) -> list:
-        """Auto-discover DataLoader objects from graph node outputs."""
+    def _find_dataloaders(self, outputs: dict) -> list[tuple[str, object]]:
+        """Auto-discover DataLoader objects from graph node outputs.
+
+        Returns a list of (task_id, dataloader) tuples. The task_id comes from
+        the dataset node's `task_id` input port; defaults to "default" if not
+        set. The training mixin matches this against TrainOutput.task_name to
+        pair datasets with training targets — no cross-canvas wires needed.
+        """
         from core.node import PortType
-        loaders = []
+        results: list[tuple[str, object]] = []
         for node_id, node in self.graph.nodes.items():
+            has_dl = False
             for port_name, port in node.outputs.items():
                 if port.port_type == PortType.DATALOADER:
                     val = outputs.get(node_id, {}).get(port_name)
                     if val is not None:
-                        loaders.append(val)
-        return loaders
+                        task_id = str(node.inputs.get("task_id", None)
+                                      and node.inputs["task_id"].default_value or "default")
+                        # Read task_id from the execute inputs if connected upstream
+                        node_outs = outputs.get(node_id, {})
+                        # But task_id is an INPUT, not an output. Read the port default
+                        # which gets synced from the widget via _sync_inputs_from_widgets.
+                        if "task_id" in node.inputs:
+                            task_id = str(node.inputs["task_id"].default_value or "default")
+                        results.append((task_id, val))
+                        has_dl = True
+                        break
+        return results
 
     # ── Training start ─────────────────────────────────────────────────────
 
@@ -110,18 +127,23 @@ class TrainingMixin:
             self._log("[Train] No Train Output node found. Add one to mark the training target.")
             return
 
-        # Build the task list: each task pairs a TrainOutput with a dataloader.
-        # For single-task graphs (most common), there's one of each.
-        # For multi-task, the panel maps them. For now: auto-pair by index,
-        # with the last dataloader repeating if there are more tasks than loaders.
-        dataloaders = self._find_dataloaders(outputs)
-        if not dataloaders:
-            # Fall back to legacy: check if any TrainOutput config has a dataloader
+        # Build the task list by matching dataset.task_id ↔ TrainOutput.task_name.
+        # For single-task (both default to "default"), this auto-pairs trivially.
+        # For multi-task, the user types the same label on both the dataset node
+        # and the TrainOutput node — explicit, no wires, no guessing.
+        discovered_loaders = self._find_dataloaders(outputs)  # [(task_id, loader)]
+        loader_by_id: dict[str, object] = {}
+        for task_id, loader in discovered_loaders:
+            loader_by_id[task_id] = loader
+
+        # Legacy fallback: if a TrainOutput/TrainingConfig had a dataloader
+        if not loader_by_id:
             for _, cfg in train_outputs:
                 dl_legacy = cfg.get("dataloader")
                 if dl_legacy is not None:
-                    dataloaders.append(dl_legacy)
-        if not dataloaders:
+                    loader_by_id["default"] = dl_legacy
+                    break
+        if not loader_by_id:
             self._log("[Train] No dataloader found. Add a dataset node to the graph.")
             return
 
@@ -132,8 +154,18 @@ class TrainingMixin:
         tasks = []
         for i, (target_id, target_cfg) in enumerate(train_outputs):
             lio = target_cfg.get("loss_is_output", False)
-            dl = dataloaders[min(i, len(dataloaders) - 1)]
             name = target_cfg.get("task_name", f"task_{i}")
+            # Match by label: find the dataloader whose task_id matches this
+            # TrainOutput's task_name. Fall back to "default" then to first found.
+            dl = loader_by_id.get(name)
+            if dl is None:
+                dl = loader_by_id.get("default")
+            if dl is None:
+                dl = next(iter(loader_by_id.values()), None)
+            if dl is None:
+                self._log(f"[Train] No dataloader found for task {name!r}. "
+                          f"Set task_id on a dataset node to match.")
+                continue
             tasks.append({
                 "target_id":      target_id,
                 "dataloader":     dl,
@@ -141,6 +173,9 @@ class TrainingMixin:
                 "loss_fn":        None if lio else loss_fn,
                 "task_name":      name,
             })
+        if not tasks:
+            self._log("[Train] No valid tasks. Check task_id/task_name matching.")
+            return
 
         # Use the first TrainOutput for the initial GraphAsModule target;
         # the training loop re-targets per task by updating model.output_node_id.
