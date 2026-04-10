@@ -110,29 +110,44 @@ class TrainingMixin:
             self._log("[Train] No Train Output node found. Add one to mark the training target.")
             return
 
-        # For now: use the first TrainOutput. Multi-task (multiple TrainOutputs)
-        # will be wired via the panel's task table in R4.
-        target_node_id, target_cfg = train_outputs[0]
-        loss_is_output = target_cfg.get("loss_is_output", False)
-
-        # Auto-discover dataloaders from the graph
+        # Build the task list: each task pairs a TrainOutput with a dataloader.
+        # For single-task graphs (most common), there's one of each.
+        # For multi-task, the panel maps them. For now: auto-pair by index,
+        # with the last dataloader repeating if there are more tasks than loaders.
         dataloaders = self._find_dataloaders(outputs)
         if not dataloaders:
-            # Fall back to legacy: check if TrainingConfigNode had a dataloader
-            dl_legacy = target_cfg.get("dataloader")
-            if dl_legacy is not None:
-                dataloaders = [dl_legacy]
+            # Fall back to legacy: check if any TrainOutput config has a dataloader
+            for _, cfg in train_outputs:
+                dl_legacy = cfg.get("dataloader")
+                if dl_legacy is not None:
+                    dataloaders.append(dl_legacy)
         if not dataloaders:
             self._log("[Train] No dataloader found. Add a dataset node to the graph.")
             return
-        dataloader = dataloaders[0]
 
-        # Read training params from panel widgets
+        from nodes.pytorch.training import _build_loss
         panel = self._read_panel_config()
+        loss_fn = _build_loss(panel["loss_name"])
 
-        # The graph IS the model
+        tasks = []
+        for i, (target_id, target_cfg) in enumerate(train_outputs):
+            lio = target_cfg.get("loss_is_output", False)
+            dl = dataloaders[min(i, len(dataloaders) - 1)]
+            name = target_cfg.get("task_name", f"task_{i}")
+            tasks.append({
+                "target_id":      target_id,
+                "dataloader":     dl,
+                "loss_is_output": lio,
+                "loss_fn":        None if lio else loss_fn,
+                "task_name":      name,
+            })
+
+        # Use the first TrainOutput for the initial GraphAsModule target;
+        # the training loop re-targets per task by updating model.output_node_id.
+        first_target = tasks[0]["target_id"]
+
         try:
-            model = GraphAsModule(self.graph, output_node_id=target_node_id,
+            model = GraphAsModule(self.graph, output_node_id=first_target,
                                   output_port="tensor_in")
         except Exception as exc:
             self._log(f"[Train] Failed to wrap graph as module: {exc}")
@@ -142,24 +157,21 @@ class TrainingMixin:
             self._log("[Train] Graph has no trainable layers upstream of Train Output.")
             return
 
-        # Build optimizer from panel params
         optimizer = _build_optimizer(
             panel["optimizer_name"], model,
-            panel["lr"], 0.0, 0.9,  # weight_decay, momentum use defaults
+            panel["lr"], 0.0, 0.9,
         )
-
-        # Build loss_fn from panel dropdown (used when loss_is_output=False)
-        from nodes.pytorch.training import _build_loss
-        loss_fn = _build_loss(panel["loss_name"]) if not loss_is_output else None
 
         full_config = {
             "model":          model,
             "optimizer":      optimizer,
-            "loss_fn":        loss_fn,
-            "loss_is_output": loss_is_output,
-            "dataloader":     dataloader,
-            "val_dataloader": None,  # TODO: panel val_dataloader picker
-            "scheduler":      None,  # TODO: panel scheduler config
+            "tasks":          tasks,
+            # Legacy single-task fields for backward compat with training_panel
+            "loss_fn":        tasks[0].get("loss_fn"),
+            "loss_is_output": tasks[0].get("loss_is_output", False),
+            "dataloader":     tasks[0]["dataloader"],
+            "val_dataloader": None,
+            "scheduler":      None,
             "epochs":         panel["epochs"],
             "device":         panel["device"],
             "multimodal":     False,
@@ -167,9 +179,9 @@ class TrainingMixin:
             "log_modalities":  False,
             "graph_module":    True,
         }
-        task_name = target_cfg.get("task_name", "default")
+        task_names = [t["task_name"] for t in tasks]
         self._log(f"[Train] Starting: {panel['epochs']} epochs on {panel['device']}  "
-                  f"({n_params:,} params, task={task_name!r})")
+                  f"({n_params:,} params, tasks={task_names})")
         self._training_ctrl.on_epoch_end = self.refresh_graph_silent
         self._training_ctrl.start(full_config)
         _set_train_status("Running")

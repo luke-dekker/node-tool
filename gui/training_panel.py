@@ -111,30 +111,32 @@ class TrainingController:
             import torch
             model = config["model"]
             optimizer = config["optimizer"]
-            loss_fn = config["loss_fn"]
-            dataloader = config["dataloader"]
-            val_dataloader = config.get("val_dataloader")
-            scheduler = config.get("scheduler")
             epochs = int(config.get("epochs", 10))
             device_str = config.get("device", "cpu")
             device = torch.device(device_str if torch.cuda.is_available() or device_str == "cpu" else "cpu")
 
-            loss_is_output = config.get("loss_is_output", False)
-            if model is None or optimizer is None or dataloader is None:
-                self._evt_q.put(("error", "Training config has None values - wire all inputs."))
+            if model is None or optimizer is None:
+                self._evt_q.put(("error", "Training config has None values."))
                 return
-            # In loss_is_output mode the graph computes the loss internally,
-            # so loss_fn isn't needed. Otherwise it must be set.
-            if not loss_is_output and loss_fn is None:
-                self._evt_q.put(("error", "Training config has None values - wire all inputs."))
+
+            # Build the task list. New-style configs have a "tasks" list;
+            # legacy configs have a single dataloader/loss_fn/loss_is_output.
+            tasks = config.get("tasks")
+            if not tasks:
+                tasks = [{
+                    "dataloader":     config["dataloader"],
+                    "loss_fn":        config.get("loss_fn"),
+                    "loss_is_output": config.get("loss_is_output", False),
+                    "target_id":      getattr(model, "output_node_id", None),
+                    "task_name":      "default",
+                }]
+            if not any(t.get("dataloader") for t in tasks):
+                self._evt_q.put(("error", "No dataloader found for any task."))
                 return
 
             model = model.to(device)
-
-            is_multimodal   = config.get("multimodal", False)
-            freeze_strategy = config.get("freeze_strategy", "hard")
-            log_modalities  = config.get("log_modalities", True)
-            is_graph_module = config.get("graph_module", False)
+            scheduler = config.get("scheduler")
+            val_dataloader = config.get("val_dataloader")
 
             for epoch in range(1, epochs + 1):
                 # Check for stop/pause
@@ -155,129 +157,96 @@ class TrainingController:
                 model.train()
                 epoch_loss = 0.0
                 batches = 0
-                for batch in dataloader:
-                    # Check for stop mid-epoch
-                    try:
-                        cmd = self._cmd_q.get_nowait()
-                        if cmd == "stop":
-                            return
-                    except queue.Empty:
-                        pass
 
-                    # GraphAsModule path: model takes the full batch dict/tuple directly
-                    if is_graph_module:
-                        # Move batch tensors to device, extract labels
-                        labels = None
-                        present = []
+                # Multi-task: iterate each task's dataloader within the epoch.
+                # For single-task graphs this is just one iteration of one loader.
+                for task in tasks:
+                    task_dl  = task.get("dataloader")
+                    task_lio = task.get("loss_is_output", False)
+                    task_lfn = task.get("loss_fn")
+                    task_tid = task.get("target_id")
+
+                    if task_dl is None:
+                        continue
+
+                    # Re-target GraphAsModule to this task's TrainOutput
+                    if task_tid is not None:
+                        model.output_node_id = task_tid
+                        model.output_port = "tensor_in"
+
+                    for batch in task_dl:
+                        try:
+                            cmd = self._cmd_q.get_nowait()
+                            if cmd == "stop":
+                                return
+                        except queue.Empty:
+                            pass
+
+                        # Move batch to device
                         if isinstance(batch, dict) and "data" in batch:
-                            # Multimodal collate format
-                            dev_data = {}
-                            for m, v in batch["data"].items():
-                                dev_data[m] = v.to(device) if hasattr(v, "to") else v
+                            dev_data = {m: (v.to(device) if hasattr(v, "to") else v)
+                                        for m, v in batch["data"].items()}
                             labels = batch.get("label")
                             if hasattr(labels, "to"):
                                 labels = labels.to(device)
                             dev_batch = {"data": dev_data, "label": labels,
                                          "present": batch.get("present", [])}
-                            present = dev_batch["present"]
                         elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
                             dev_batch = (batch[0].to(device), batch[1].to(device))
                             labels = dev_batch[1]
                         else:
                             dev_batch = batch.to(device) if hasattr(batch, "to") else batch
-
-                        # Hard-freeze strategy: walk upstream from inactive modality ports
-                        if is_multimodal and freeze_strategy == "hard" and present:
-                            try:
-                                model.freeze_inactive_encoders(present)
-                            except Exception:
-                                pass
+                            labels = None
 
                         optimizer.zero_grad()
                         out = model(dev_batch)
                         if out is None:
                             continue
-                        # loss_is_output: the graph's leaf already IS the scalar loss
-                        # (computed via LossComputeNode + math nodes inside the graph).
-                        # No external loss_fn needed. This is the path for VAE,
-                        # multi-task learning, custom losses.
-                        if loss_is_output:
+
+                        if task_lio:
                             loss = out
                         else:
                             if labels is None or not hasattr(labels, "shape"):
                                 continue
-                            loss = loss_fn(out, labels)
+                            loss = task_lfn(out, labels) if task_lfn else out
                         loss.backward()
                         optimizer.step()
                         epoch_loss += loss.item()
                         batches += 1
-                        if is_multimodal and log_modalities and batches % 10 == 0:
-                            self._evt_q.put(("log", f"[MM] batch {batches} present={present}"))
-                        continue
-
-                    if isinstance(batch, (list, tuple)):
-                        x, y = batch[0].to(device), batch[1].to(device)
-                    else:
-                        x = batch.to(device)
-                        y = x  # autoencoder-style fallback
-
-                    optimizer.zero_grad()
-                    if loss_is_output:
-                        # Same loss-is-the-graph-output mode for the non-graph_module path
-                        loss = model(x)
-                    else:
-                        out = model(x)
-                        loss = loss_fn(out, y)
-                    loss.backward()
-                    optimizer.step()
-                    epoch_loss += loss.item()
-                    batches += 1
 
                 avg_loss = epoch_loss / max(batches, 1)
 
-                # Validation pass
+                # Validation pass (uses first task's settings for now)
                 val_loss = None
                 if val_dataloader is not None:
                     model.eval()
+                    first_task = tasks[0]
+                    val_lio = first_task.get("loss_is_output", False)
+                    val_lfn = first_task.get("loss_fn")
                     val_epoch_loss = 0.0
                     val_batches = 0
                     with torch.no_grad():
                         for batch in val_dataloader:
-                            # GraphAsModule validation: same batch handling as training
-                            if is_graph_module:
+                            if isinstance(batch, (list, tuple)) and len(batch) >= 2:
+                                dev_b = (batch[0].to(device), batch[1].to(device))
+                                labels_v = dev_b[1]
+                            elif isinstance(batch, dict) and "data" in batch:
+                                dev_data = {m: (v.to(device) if hasattr(v, "to") else v)
+                                            for m, v in batch["data"].items()}
+                                labels_v = batch.get("label")
+                                if hasattr(labels_v, "to"):
+                                    labels_v = labels_v.to(device)
+                                dev_b = {"data": dev_data, "label": labels_v}
+                            else:
+                                dev_b = batch.to(device) if hasattr(batch, "to") else batch
                                 labels_v = None
-                                if isinstance(batch, dict) and "data" in batch:
-                                    dev_data = {m: (v.to(device) if hasattr(v, "to") else v)
-                                                for m, v in batch["data"].items()}
-                                    labels_v = batch.get("label")
-                                    if hasattr(labels_v, "to"):
-                                        labels_v = labels_v.to(device)
-                                    dev_b = {"data": dev_data, "label": labels_v,
-                                             "present": batch.get("present", [])}
-                                elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
-                                    dev_b = (batch[0].to(device), batch[1].to(device))
-                                    labels_v = dev_b[1]
-                                else:
-                                    dev_b = batch.to(device) if hasattr(batch, "to") else batch
-                                out_v = model(dev_b)
-                                if out_v is None:
-                                    continue
-                                if loss_is_output:
-                                    val_epoch_loss += out_v.item()
-                                else:
-                                    if labels_v is None or not hasattr(labels_v, "shape"):
-                                        continue
-                                    val_epoch_loss += loss_fn(out_v, labels_v).item()
-                                val_batches += 1
+                            out_v = model(dev_b)
+                            if out_v is None:
                                 continue
-                            if isinstance(batch, (list, tuple)):
-                                x, y = batch[0].to(device), batch[1].to(device)
-                            else:
-                                x = batch.to(device); y = x
-                            if loss_is_output:
-                                val_epoch_loss += model(x).item()
-                            else:
-                                val_epoch_loss += loss_fn(model(x), y).item()
+                            if val_lio:
+                                val_epoch_loss += out_v.item()
+                            elif val_lfn and labels_v is not None:
+                                val_epoch_loss += val_lfn(out_v, labels_v).item()
                             val_batches += 1
                     val_loss = val_epoch_loss / max(val_batches, 1)
 

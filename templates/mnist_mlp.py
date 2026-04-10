@@ -1,35 +1,35 @@
-"""MNIST MLP classifier template.
+"""MNIST MLP classifier — the hello-world of deep learning.
 
-The hello-world of deep learning. Loads MNIST, flattens 28x28 images to 784
-vectors, runs a 2-layer MLP, and trains with cross-entropy loss.
+Loads MNIST, flattens 28x28 images to 784 vectors, runs a 2-layer MLP, and
+trains with cross-entropy loss. Set epochs/lr/optimizer in the Training Panel
+(right sidebar) and click Start.
 
-Open the Training panel and click Start to train.
+New architecture: 4 nodes, zero legacy adapters, zero cross-canvas wires.
+
+    MNIST Dataset ── x ──→ Flatten → Linear+ReLU → Linear ──→ Train Output
+                  └─ label  (auto-discovered by panel for loss computation)
+                  └─ dataloader  (auto-discovered by panel for batch iteration)
 """
 from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
 LABEL = "MNIST Classifier (MLP)"
-DESCRIPTION = "Hello-world MLP on MNIST. Flatten -> Linear+ReLU -> Linear -> CrossEntropy."
+DESCRIPTION = "Hello-world MLP on MNIST. 4 nodes, no legacy adapters."
 
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.mnist_dataset    import MNISTDatasetNode
-    from nodes.pytorch.batch_input      import BatchInputNode
-    from nodes.pytorch.flatten          import FlattenNode
-    from nodes.pytorch.linear           import LinearNode
-    from nodes.pytorch.training_config  import TrainingConfigNode
+    from nodes.pytorch.mnist_dataset  import MNISTDatasetNode
+    from nodes.pytorch.flatten        import FlattenNode
+    from nodes.pytorch.linear         import LinearNode
+    from nodes.pytorch.train_output   import TrainOutputNode
 
     pos = grid(step_x=240)
     positions: dict[str, tuple[int, int]] = {}
 
     mnist = MNISTDatasetNode()
     mnist.inputs["batch_size"].default_value = 64
-    mnist.inputs["train"].default_value      = True
     graph.add_node(mnist); positions[mnist.id] = pos()
-
-    batch = BatchInputNode()
-    graph.add_node(batch); positions[batch.id] = pos()
 
     flat = FlattenNode()
     graph.add_node(flat); positions[flat.id] = pos()
@@ -46,20 +46,12 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     h2.inputs["activation"].default_value   = "none"
     graph.add_node(h2); positions[h2.id] = pos()
 
-    cfg = TrainingConfigNode()
-    cfg.inputs["epochs"].default_value    = 5
-    cfg.inputs["device"].default_value    = "cpu"
-    cfg.inputs["optimizer"].default_value = "adam"
-    cfg.inputs["lr"].default_value        = 0.001
-    cfg.inputs["loss"].default_value      = "crossentropy"
-    graph.add_node(cfg); positions[cfg.id] = pos()
+    target = TrainOutputNode()
+    graph.add_node(target); positions[target.id] = pos()
 
-    # Wire the model: dataloader -> batch input -> flatten -> linear -> linear -> cfg
-    # MNIST batches arrive as (x, y) tuples, so the BatchInput's `x` port is the entry point.
-    graph.add_connection(mnist.id, "dataloader", batch.id, "dataloader")
-    graph.add_connection(mnist.id, "dataloader", cfg.id,   "dataloader")
-    graph.add_connection(batch.id, "x",          flat.id,  "tensor_in")
-    graph.add_connection(flat.id,  "tensor_out", h1.id,    "tensor_in")
-    graph.add_connection(h1.id,    "tensor_out", h2.id,    "tensor_in")
-    graph.add_connection(h2.id,    "tensor_out", cfg.id,   "tensor_in")
+    # Wire: dataset.x → flatten → linear → linear → train output
+    graph.add_connection(mnist.id, "x",          flat.id,   "tensor_in")
+    graph.add_connection(flat.id,  "tensor_out", h1.id,     "tensor_in")
+    graph.add_connection(h1.id,    "tensor_out", h2.id,     "tensor_in")
+    graph.add_connection(h2.id,    "tensor_out", target.id, "tensor_in")
     return positions
