@@ -1,8 +1,9 @@
 """GraphAsModule — wraps a Graph as an nn.Module that runs the DAG on forward().
 
 Design principle: the graph IS the model. Training reuses graph.execute() directly,
-with the current batch's tensors injected into BatchInput node outputs before the
-topological traversal runs.
+with the current batch's tensors injected into dataset node outputs (or legacy
+BatchInput outputs) before the topological traversal runs. Injection points are
+any node with a DATALOADER output + x/label TENSOR outputs.
 
 Usage:
     model = GraphAsModule(graph, output_node_id, output_port="tensor_in")
@@ -19,6 +20,7 @@ import torch
 import torch.nn as nn
 
 from core.graph import Graph
+from core.node import PortType
 
 
 def _collect_layer_modules(graph: Graph) -> dict[str, nn.Module]:
@@ -105,13 +107,36 @@ class GraphAsModule(nn.Module):
     # ------------------------------------------------------------------ helpers
 
     def _batch_to_port_values(self, batch: Any) -> dict[tuple[str, str], Any]:
-        """Map `batch` onto {(batch_input_node_id, port_name): tensor}."""
+        """Map `batch` onto {(injection_node_id, port_name): tensor}.
+
+        Injection points are discovered by looking for nodes that have BOTH
+        a DATALOADER output port AND x/label tensor output ports — these are
+        the new-style dataset nodes that serve as both data sources and
+        injection points. Legacy BatchInput nodes are also supported for
+        backward compat.
+
+        The batch is unpacked as:
+          - dict with 'data': multimodal collate format → per-modality tensors
+          - (x, y) tuple: standard classification batch
+          - single tensor: unsupervised / autoencoder
+        """
+        from core.node import PortType
         overrides: dict[tuple[str, str], Any] = {}
 
-        # Find all BatchInput nodes in the graph
-        batch_inputs = [nid for nid, n in self.graph.nodes.items()
-                        if n.type_name == "batch_input"]
-        if not batch_inputs:
+        # Find injection points: dataset nodes with DATALOADER + TENSOR outputs,
+        # OR legacy BatchInput nodes
+        injection_nodes: list[str] = []
+        for nid, n in self.graph.nodes.items():
+            if n.type_name == "batch_input":
+                injection_nodes.append(nid)
+                continue
+            # New-style: any node with a DATALOADER output + x/label TENSOR outputs
+            has_dl = any(p.port_type == PortType.DATALOADER for p in n.outputs.values())
+            has_x  = "x" in n.outputs and n.outputs["x"].port_type == PortType.TENSOR
+            if has_dl and has_x:
+                injection_nodes.append(nid)
+
+        if not injection_nodes:
             return overrides
 
         # Parse the batch into a dict of {port_name: tensor}
@@ -126,10 +151,12 @@ class GraphAsModule(nn.Module):
         else:
             port_values["x"] = batch
 
-        # Apply to every BatchInput node
-        for nid in batch_inputs:
+        # Apply to every injection node — only override ports that exist on the node
+        for nid in injection_nodes:
+            node = self.graph.nodes[nid]
             for port_name, val in port_values.items():
-                overrides[(nid, port_name)] = val
+                if port_name in node.outputs:
+                    overrides[(nid, port_name)] = val
 
         return overrides
 
@@ -152,9 +179,15 @@ class GraphAsModule(nn.Module):
         for node_id in order:
             node = self.graph.nodes[node_id]
 
-            # If this is a fully-overridden BatchInput, skip its execute() —
-            # stored[node_id] already holds the injected values.
-            if node.type_name == "batch_input" and node_id in stored:
+            # If this node is an injection point (BatchInput or dataset node)
+            # and its outputs are already overridden with batch tensors,
+            # skip its execute() — stored[node_id] already holds the values.
+            if node_id in stored and (
+                node.type_name == "batch_input"
+                or ("x" in node.outputs and any(
+                    p.port_type == PortType.DATALOADER for p in node.outputs.values()
+                ))
+            ):
                 continue
 
             inputs: dict[str, Any] = {}

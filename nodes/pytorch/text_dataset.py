@@ -55,6 +55,11 @@ class TextDatasetNode(BaseNode):
                        description="Window length per training sample")
         self.add_input("batch_size", PortType.INT,    default=32)
         self.add_input("shuffle",    PortType.BOOL,   default=True)
+        # Tensor preview outputs — wire x → Embedding, label → ReshapeForLoss
+        self.add_output("x",          PortType.TENSOR,
+                        description="One batch of input sequences (B, seq_len) int64")
+        self.add_output("label",      PortType.TENSOR,
+                        description="Shifted target sequences (B, seq_len) int64")
         self.add_output("dataloader", PortType.DATALOADER)
         self.add_output("vocab_size", PortType.INT,
                         description="Number of distinct chars — use as Embedding "
@@ -117,8 +122,20 @@ class TextDatasetNode(BaseNode):
                 return {"dataloader": None, "vocab_size": 0,
                         "info": f"build failed: {exc}"}
 
+        loader = self._cached["loader"]
+        # Sample one batch for tensor preview
+        x, label = None, None
+        if loader is not None:
+            try:
+                batch = next(iter(loader))
+                x, label = batch[0], batch[1]
+            except Exception:
+                pass
+
         return {
-            "dataloader": self._cached["loader"],
+            "x":          x,
+            "label":      label,
+            "dataloader": loader,
             "vocab_size": self._cached["vocab_size"],
             "info":       self._cached["info"],
         }
