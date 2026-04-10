@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "kind": "subgraph",
+  "manifest": {
+    "name": "MyBlock4",
+    "description": "Packed from 3 nodes",
+    "external_inputs": [
+      {
+        "name": "batch_input_dataloader",
+        "type": "DATALOADER",
+        "inner_node": "0fb44963-d6ec-4c04-a881-6cdfd0bc2e78",
+        "inner_port": "dataloader"
+      }
+    ],
+    "external_outputs": [
+      {
+        "name": "folder_multimodal_dataset_dataset",
+        "type": "DATASET",
+        "inner_node": "42bcb291-4b64-48a9-aaba-b6045626f234",
+        "inner_port": "dataset"
+      },
+      {
+        "name": "folder_multimodal_dataset_dataset_2",
+        "type": "DATASET",
+        "inner_node": "770e4cd4-1493-409b-8800-702bd02c6053",
+        "inner_port": "dataset"
+      },
+      {
+        "name": "batch_input_audio",
+        "type": "TENSOR",
+        "inner_node": "0fb44963-d6ec-4c04-a881-6cdfd0bc2e78",
+        "inner_port": "audio"
+      },
+      {
+        "name": "batch_input_image",
+        "type": "TENSOR",
+        "inner_node": "0fb44963-d6ec-4c04-a881-6cdfd0bc2e78",
+        "inner_port": "image"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "42bcb291-4b64-48a9-aaba-b6045626f234",
+      "type_name": "pt_folder_multimodal_dataset",
+      "pos": [
+        20,
+        20
+      ],
+      "inputs": {
+        "root_path": "demo_data/audio_set",
+        "modalities": "audio,image",
+        "drop_missing": false
+      }
+    },
+    {
+      "id": "770e4cd4-1493-409b-8800-702bd02c6053",
+      "type_name": "pt_folder_multimodal_dataset",
+      "pos": [
+        20,
+        200
+      ],
+      "inputs": {
+        "root_path": "demo_data/image_set",
+        "modalities": "audio,image",
+        "drop_missing": false
+      }
+    },
+    {
+      "id": "0fb44963-d6ec-4c04-a881-6cdfd0bc2e78",
+      "type_name": "batch_input",
+      "pos": [
+        650,
+        -66
+      ],
+      "inputs": {
+        "dataloader": null
+      }
+    }
+  ],
+  "connections": []
+}

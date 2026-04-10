@@ -69,7 +69,7 @@ def test_freeze_named_layers_none_guard():
 # ── Reparameterize ────────────────────────────────────────────────────────────
 
 def test_reparameterize():
-    from nodes.pytorch.autoencoder import ReparameterizeNode
+    from nodes.pytorch.reparameterize import ReparameterizeNode
     mu      = torch.zeros(4, 8)
     log_var = torch.zeros(4, 8)
     result  = ReparameterizeNode().execute({"mu": mu, "log_var": log_var})
@@ -80,7 +80,7 @@ def test_reparameterize():
     assert not torch.all(z == 0)
 
 def test_reparameterize_none_guard():
-    from nodes.pytorch.autoencoder import ReparameterizeNode
+    from nodes.pytorch.reparameterize import ReparameterizeNode
     result = ReparameterizeNode().execute({"mu": None, "log_var": None})
     assert result["z"] is None
 
@@ -88,7 +88,7 @@ def test_reparameterize_none_guard():
 # ── KL Divergence ─────────────────────────────────────────────────────────────
 
 def test_kl_divergence():
-    from nodes.pytorch.autoencoder import KLDivergenceNode
+    from nodes.pytorch.kl_divergence import KLDivergenceNode
     mu      = torch.zeros(4, 8)
     log_var = torch.zeros(4, 8)
     result  = KLDivergenceNode().execute({"mu": mu, "log_var": log_var})
@@ -97,14 +97,14 @@ def test_kl_divergence():
     assert abs(result["kl_loss"].item()) < 1e-5
 
 def test_kl_divergence_nonzero():
-    from nodes.pytorch.autoencoder import KLDivergenceNode
+    from nodes.pytorch.kl_divergence import KLDivergenceNode
     mu      = torch.ones(4, 8) * 2.0
     log_var = torch.ones(4, 8) * 0.5
     result  = KLDivergenceNode().execute({"mu": mu, "log_var": log_var})
     assert result["kl_loss"].item() > 0
 
 def test_kl_none_guard():
-    from nodes.pytorch.autoencoder import KLDivergenceNode
+    from nodes.pytorch.kl_divergence import KLDivergenceNode
     result = KLDivergenceNode().execute({"mu": None, "log_var": None})
     assert result["kl_loss"] is None
 
@@ -112,21 +112,21 @@ def test_kl_none_guard():
 # ── VAE Loss combiner ────────────────────────────────────────────────────────
 
 def test_vae_loss_combines():
-    from nodes.pytorch.autoencoder import VAELossNode
+    from nodes.pytorch.vae_loss import VAELossNode
     recon = torch.tensor(0.5)
     kl    = torch.tensor(0.1)
     result = VAELossNode().execute({"recon_loss": recon, "kl_loss": kl, "beta": 1.0})
     assert abs(result["loss"].item() - 0.6) < 1e-5
 
 def test_vae_loss_beta():
-    from nodes.pytorch.autoencoder import VAELossNode
+    from nodes.pytorch.vae_loss import VAELossNode
     recon = torch.tensor(0.5)
     kl    = torch.tensor(0.1)
     result = VAELossNode().execute({"recon_loss": recon, "kl_loss": kl, "beta": 4.0})
     assert abs(result["loss"].item() - 0.9) < 1e-5
 
 def test_vae_loss_none_guard():
-    from nodes.pytorch.autoencoder import VAELossNode
+    from nodes.pytorch.vae_loss import VAELossNode
     result = VAELossNode().execute({"recon_loss": None, "kl_loss": None, "beta": 1.0})
     assert result["loss"] is None
 
@@ -136,7 +136,7 @@ def test_vae_loss_none_guard():
 def test_latent_sampler():
     """Use a simple Sequential as the decoder — not the deleted VAENode."""
     import torch.nn as nn
-    from nodes.pytorch.autoencoder import LatentSamplerNode
+    from nodes.pytorch.latent_sampler import LatentSamplerNode
     decoder = nn.Sequential(nn.Linear(4, 16), nn.ReLU(), nn.Linear(16, 32))
     result = LatentSamplerNode().execute({
         "decoder": decoder, "latent_dim": 4, "n_samples": 6, "device": "cpu"
@@ -146,24 +146,23 @@ def test_latent_sampler():
     assert result["samples"].shape[1] == 32
 
 def test_latent_sampler_none_guard():
-    from nodes.pytorch.autoencoder import LatentSamplerNode
+    from nodes.pytorch.latent_sampler import LatentSamplerNode
     result = LatentSamplerNode().execute({"decoder": None, "latent_dim": 8, "n_samples": 4, "device": "cpu"})
     assert result["samples"] is None
 
-def test_gaussian_noise():
-    from nodes.pytorch.autoencoder import GaussianNoiseNode
+def test_gate_noise():
+    from nodes.pytorch.gate import GateNode
     t = torch.ones(4, 8) * 0.5
-    result = GaussianNoiseNode().execute({"tensor": t, "std": 0.1, "clip": True})
-    noisy = result["tensor"]
+    result = GateNode().execute({"tensor_in": t, "mode": "noise", "noise_std": 0.1})
+    noisy = result["tensor_out"]
     assert noisy is not None
     assert noisy.shape == t.shape
-    assert not torch.all(noisy == t)  # noise was added
-    assert noisy.min() >= 0.0 and noisy.max() <= 1.0  # clipped
+    assert not torch.all(noisy == t)
 
-def test_gaussian_noise_none_guard():
-    from nodes.pytorch.autoencoder import GaussianNoiseNode
-    result = GaussianNoiseNode().execute({"tensor": None, "std": 0.1, "clip": True})
-    assert result["tensor"] is None
+def test_gate_none_guard():
+    from nodes.pytorch.gate import GateNode
+    result = GateNode().execute({"tensor_in": None, "mode": "pass"})
+    assert result["tensor_out"] is None
 
 
 # ── LossComputeNode (the new generic in-graph loss node) ─────────────────────

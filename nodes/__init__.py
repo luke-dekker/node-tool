@@ -12,11 +12,10 @@ from nodes import pytorch, io, ai
 # Import individual pytorch node modules (shims forward to individual files)
 from nodes.pytorch import (
     layers, losses, optimizers, schedulers,
-    training, dataset_sources, dataset_transforms, dataset_ops,
-    tensor_ops, recurrent, backbones, autoencoder, persistence,
+    dataset_transforms,
+    tensor_ops, recurrent, backbones, persistence,
     viz as pt_viz, architecture,
 )
-from nodes.pytorch import data as pt_data
 
 # Import individual IO and AI modules (shims forward to individual files)
 from nodes.io import serial_nodes, network_nodes, file_nodes
@@ -45,15 +44,10 @@ _discover(layers)
 _discover(losses)
 _discover(optimizers)
 _discover(schedulers)
-_discover(pt_data)
-_discover(training)
-_discover(dataset_sources)
 _discover(dataset_transforms)
-_discover(dataset_ops)
 _discover(tensor_ops)
 _discover(recurrent)
 _discover(backbones)
-_discover(autoencoder)
 _discover(persistence)
 _discover(pt_viz)
 _discover(architecture)

@@ -10,10 +10,7 @@ from nodes.math import MathNode, ClampNode, MapRangeNode
 from nodes.logic import LogicNode, BranchNode
 from nodes.string import StringNode, FormatNode, ReplaceNode
 from nodes.code import PythonNode
-from nodes.data import (
-    FloatConstNode, IntConstNode, BoolConstNode, StringConstNode,
-    PrintNode, ToFloatNode, ToIntNode, ToStringNode, ToBoolNode,
-)
+from nodes.data import ConstNode, CastNode, PrintNode
 from nodes import NODE_REGISTRY
 
 
@@ -168,21 +165,6 @@ def test_python_multiline():
 
 # ── Data nodes ──────────────────────────────────────────────────────────────
 
-def test_float_const():
-    assert FloatConstNode().execute({"Value": 3.14})["Value"] == 3.14
-
-def test_int_const():
-    assert IntConstNode().execute({"Value": 42})["Value"] == 42
-
-def test_bool_const_true():
-    assert BoolConstNode().execute({"Value": True})["Value"] is True
-
-def test_bool_const_false():
-    assert BoolConstNode().execute({"Value": False})["Value"] is False
-
-def test_string_const():
-    assert StringConstNode().execute({"Value": "node-tool"})["Value"] == "node-tool"
-
 def test_print_passthrough():
     result = PrintNode().execute({"Value": 42.0, "Label": "x"})
     assert result["Value"] == 42.0
@@ -192,19 +174,6 @@ def test_print_passthrough():
 def test_print_no_label():
     result = PrintNode().execute({"Value": "hello", "Label": ""})
     assert result["__terminal__"] == "hello"
-
-def test_to_float():        assert ToFloatNode().execute({"Value": "3.14"})["Result"] == 3.14
-def test_to_float_invalid():assert ToFloatNode().execute({"Value": "abc"})["Result"] == 0.0
-def test_to_int():          assert ToIntNode().execute({"Value": 3.9})["Result"] == 3
-def test_to_int_string():   assert ToIntNode().execute({"Value": "7"})["Result"] == 7
-def test_to_string():       assert ToStringNode().execute({"Value": 123})["Result"] == "123"
-def test_to_bool_zero():    assert ToBoolNode().execute({"Value": 0})["Result"] is False
-def test_to_bool_nonzero(): assert ToBoolNode().execute({"Value": 1})["Result"] is True
-def test_to_bool_false_str():assert ToBoolNode().execute({"Value": "false"})["Result"] is False
-def test_to_bool_true_str(): assert ToBoolNode().execute({"Value": "yes"})["Result"] is True
-
-
-# ── Registry ────────────────────────────────────────────────────────────────
 
 def test_registry_populated():
     assert len(NODE_REGISTRY) > 0

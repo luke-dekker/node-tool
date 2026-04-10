@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pytest
 from core.graph import Graph
 from nodes.math import MathNode, ClampNode
-from nodes.data import FloatConstNode, PrintNode
+from nodes.data import ConstNode, PrintNode
 from nodes.logic import LogicNode, BranchNode
 
 
@@ -33,7 +33,7 @@ def test_divide_normal():
 
 def test_graph_single_node():
     g = Graph()
-    n = g.add_node(FloatConstNode())
+    n = g.add_node(ConstNode())
     n.inputs["Value"].default_value = 42.0
     outputs, terminal = g.execute()
     assert outputs[n.id]["Value"] == 42.0
@@ -42,9 +42,9 @@ def test_graph_single_node():
 def test_graph_execution():
     """Wire two FloatConst nodes into MathNode(add), into Print, verify output."""
     g = Graph()
-    c1 = g.add_node(FloatConstNode())
+    c1 = g.add_node(ConstNode())
     c1.inputs["Value"].default_value = 10.0
-    c2 = g.add_node(FloatConstNode())
+    c2 = g.add_node(ConstNode())
     c2.inputs["Value"].default_value = 5.0
 
     add = g.add_node(MathNode())  # default Op="add"
@@ -63,8 +63,8 @@ def test_graph_execution():
 def test_topological_sort():
     """Verify graph executes in dependency order."""
     g = Graph()
-    c1 = g.add_node(FloatConstNode()); c1.inputs["Value"].default_value = 3.0
-    c2 = g.add_node(FloatConstNode()); c2.inputs["Value"].default_value = 4.0
+    c1 = g.add_node(ConstNode()); c1.inputs["Value"].default_value = 3.0
+    c2 = g.add_node(ConstNode()); c2.inputs["Value"].default_value = 4.0
 
     add = g.add_node(MathNode())   # add A+B
     mul = g.add_node(MathNode())   # multiply A*B
@@ -91,7 +91,7 @@ def test_cycle_detection():
 
 def test_graph_execute():
     g = Graph()
-    c = g.add_node(FloatConstNode())
+    c = g.add_node(ConstNode())
     c.inputs["Value"].default_value = 99.0
     outputs, _ = g.execute()
     assert outputs[c.id]["Value"] == 99.0
@@ -99,7 +99,7 @@ def test_graph_execute():
 
 def test_remove_node_cleans_connections():
     g = Graph()
-    a = g.add_node(FloatConstNode())
+    a = g.add_node(ConstNode())
     b = g.add_node(MathNode())
     g.add_connection(a.id, "Value", b.id, "A")
     assert len(g.connections) == 1
@@ -131,7 +131,7 @@ def test_branch_node():
 def test_long_chain():
     """FloatConst -> add -> multiply -> add chain: ((5+5)*3)+2 = 32."""
     g = Graph()
-    c = g.add_node(FloatConstNode()); c.inputs["Value"].default_value = 5.0
+    c = g.add_node(ConstNode()); c.inputs["Value"].default_value = 5.0
 
     add1 = g.add_node(MathNode()); add1.inputs["B"].default_value = 5.0
     mul  = g.add_node(MathNode()); mul.inputs["Op"].default_value = "multiply"; mul.inputs["B"].default_value = 3.0

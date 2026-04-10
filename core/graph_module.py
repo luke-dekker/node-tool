@@ -212,59 +212,6 @@ class GraphAsModule(nn.Module):
 
         return stored
 
-    # ------------------------------------------------------------------ hard freeze
-
-    def freeze_inactive_encoders(self, present_modalities: list[str]) -> None:
-        """Hard-freeze (set requires_grad=False) all layer nodes upstream of an
-        INACTIVE modality port on any MultimodalModelNode. Layer nodes upstream of
-        active ports are unfrozen. Used to isolate gradient flow per batch when
-        a dataset only contains some modalities.
-        """
-        from nodes.pytorch.multimodal_model import MODALITY_PORTS
-
-        mm_nodes = [n for n in self.graph.nodes.values()
-                    if n.type_name == "pt_multimodal_model"]
-        if not mm_nodes:
-            return
-
-        conn_map = {(c.to_node_id, c.to_port): (c.from_node_id, c.from_port)
-                    for c in self.graph.connections}
-
-        def walk_upstream_layers(start_node_id: str, start_port: str) -> list[str]:
-            """Return all layer node IDs upstream of (start_node_id, start_port)."""
-            found: list[str] = []
-            visited: set[str] = set()
-            stack = [(start_node_id, start_port)]
-            while stack:
-                nid, port = stack.pop()
-                key = (nid, port)
-                if key not in conn_map:
-                    continue
-                from_id, _ = conn_map[key]
-                if from_id in visited:
-                    continue
-                visited.add(from_id)
-                node = self.graph.nodes.get(from_id)
-                if node is None:
-                    continue
-                if isinstance(getattr(node, "_layer", None), nn.Module):
-                    found.append(from_id)
-                # Continue walking upstream via standard tensor_in if present
-                if "tensor_in" in node.inputs:
-                    stack.append((from_id, "tensor_in"))
-            return found
-
-        for mm in mm_nodes:
-            for modality in MODALITY_PORTS:
-                if modality not in mm.inputs:
-                    continue
-                active = modality in present_modalities
-                for node_id in walk_upstream_layers(mm.id, modality):
-                    layer = getattr(self.graph.nodes[node_id], "_layer", None)
-                    if isinstance(layer, nn.Module):
-                        for p in layer.parameters():
-                            p.requires_grad = active
-
     # ------------------------------------------------------------------ train/eval
 
     def train(self, mode: bool = True):

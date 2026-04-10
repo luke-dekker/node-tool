@@ -1,0 +1,243 @@
+{
+  "version": 1,
+  "kind": "subgraph",
+  "manifest": {
+    "name": "MyBlock",
+    "description": "Packed from 10 nodes",
+    "external_inputs": [],
+    "external_outputs": []
+  },
+  "nodes": [
+    {
+      "id": "3e2b7c07-864f-406b-8123-1668edc2a28e",
+      "type_name": "pt_multimodal_model",
+      "pos": [
+        1140,
+        380
+      ],
+      "inputs": {
+        "audio": null,
+        "text": null,
+        "image": null,
+        "video": null,
+        "sensor": null,
+        "custom": null,
+        "fusion": "concat",
+        "fusion_dim": 32,
+        "missing_strategy": "learnable_token",
+        "active_flag": true
+      }
+    },
+    {
+      "id": "4e724aef-886b-4621-b5d8-1a1c843f7ada",
+      "type_name": "pt_multimodal_training_config",
+      "pos": [
+        1620,
+        200
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "dataloader": null,
+        "val_dataloader": null,
+        "freeze_strategy": "hard",
+        "log_modalities": true,
+        "epochs": 10,
+        "device": "cpu",
+        "optimizer": "adam",
+        "lr": 0.005,
+        "weight_decay": 0.0,
+        "momentum": 0.9,
+        "loss": "crossentropy",
+        "scheduler": "none",
+        "step_size": 10,
+        "gamma": 0.1,
+        "T_max": 50
+      }
+    },
+    {
+      "id": "fbc0950b-ed9b-42be-9359-bb428aa28863",
+      "type_name": "pt_linear",
+      "pos": [
+        680,
+        320
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 64,
+        "out_features": 32,
+        "bias": true,
+        "activation": "relu",
+        "freeze": false
+      }
+    },
+    {
+      "id": "eb9ad242-b715-47f1-89e8-9cb0cf9ca778",
+      "type_name": "batch_input",
+      "pos": [
+        451,
+        392
+      ],
+      "inputs": {
+        "dataloader": null
+      }
+    },
+    {
+      "id": "7c587e48-2256-4e92-84e5-b9b13c500407",
+      "type_name": "pt_flatten",
+      "pos": [
+        680,
+        460
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "start_dim": 1
+      }
+    },
+    {
+      "id": "4eec4e3b-4f44-491c-88a0-d7ce38f70ff7",
+      "type_name": "pt_folder_multimodal_dataset",
+      "pos": [
+        348,
+        364
+      ],
+      "inputs": {
+        "root_path": "demo_data/image_set",
+        "modalities": "audio,image",
+        "drop_missing": false
+      }
+    },
+    {
+      "id": "68f0df9d-aa36-4867-9c32-72233f850f88",
+      "type_name": "pt_linear",
+      "pos": [
+        1380,
+        380
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 198,
+        "out_features": 2,
+        "bias": true,
+        "activation": "none",
+        "freeze": false
+      }
+    },
+    {
+      "id": "8fc685d3-b255-4e0c-bb95-54386007f336",
+      "type_name": "pt_multi_dataset",
+      "pos": [
+        126,
+        456
+      ],
+      "inputs": {
+        "dataset_1": null,
+        "dataset_2": null,
+        "dataset_3": null,
+        "dataset_4": null,
+        "batch_size": 4,
+        "shuffle": true,
+        "num_workers": 0,
+        "strategy": "round_robin",
+        "weights": "1,1,1,1",
+        "epoch_steps": 0
+      }
+    },
+    {
+      "id": "c77dd79d-a8b8-4d00-abb1-f55985446604",
+      "type_name": "pt_linear",
+      "pos": [
+        900,
+        460
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 192,
+        "out_features": 32,
+        "bias": true,
+        "activation": "relu",
+        "freeze": false
+      }
+    },
+    {
+      "id": "abedcbb3-ce8a-4fbc-847c-cc56bd2d49a0",
+      "type_name": "pt_folder_multimodal_dataset",
+      "pos": [
+        418,
+        396
+      ],
+      "inputs": {
+        "root_path": "demo_data/audio_set",
+        "modalities": "audio,image",
+        "drop_missing": false
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "abedcbb3-ce8a-4fbc-847c-cc56bd2d49a0",
+      "from_port": "dataset",
+      "to_node": "8fc685d3-b255-4e0c-bb95-54386007f336",
+      "to_port": "dataset_1"
+    },
+    {
+      "from_node": "4eec4e3b-4f44-491c-88a0-d7ce38f70ff7",
+      "from_port": "dataset",
+      "to_node": "8fc685d3-b255-4e0c-bb95-54386007f336",
+      "to_port": "dataset_2"
+    },
+    {
+      "from_node": "8fc685d3-b255-4e0c-bb95-54386007f336",
+      "from_port": "dataloader",
+      "to_node": "4e724aef-886b-4621-b5d8-1a1c843f7ada",
+      "to_port": "dataloader"
+    },
+    {
+      "from_node": "8fc685d3-b255-4e0c-bb95-54386007f336",
+      "from_port": "dataloader",
+      "to_node": "eb9ad242-b715-47f1-89e8-9cb0cf9ca778",
+      "to_port": "dataloader"
+    },
+    {
+      "from_node": "eb9ad242-b715-47f1-89e8-9cb0cf9ca778",
+      "from_port": "audio",
+      "to_node": "fbc0950b-ed9b-42be-9359-bb428aa28863",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "eb9ad242-b715-47f1-89e8-9cb0cf9ca778",
+      "from_port": "image",
+      "to_node": "7c587e48-2256-4e92-84e5-b9b13c500407",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "7c587e48-2256-4e92-84e5-b9b13c500407",
+      "from_port": "tensor_out",
+      "to_node": "c77dd79d-a8b8-4d00-abb1-f55985446604",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "fbc0950b-ed9b-42be-9359-bb428aa28863",
+      "from_port": "tensor_out",
+      "to_node": "3e2b7c07-864f-406b-8123-1668edc2a28e",
+      "to_port": "audio"
+    },
+    {
+      "from_node": "c77dd79d-a8b8-4d00-abb1-f55985446604",
+      "from_port": "tensor_out",
+      "to_node": "3e2b7c07-864f-406b-8123-1668edc2a28e",
+      "to_port": "image"
+    },
+    {
+      "from_node": "3e2b7c07-864f-406b-8123-1668edc2a28e",
+      "from_port": "tensor_out",
+      "to_node": "68f0df9d-aa36-4867-9c32-72233f850f88",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "68f0df9d-aa36-4867-9c32-72233f850f88",
+      "from_port": "tensor_out",
+      "to_node": "4e724aef-886b-4621-b5d8-1a1c843f7ada",
+      "to_port": "tensor_in"
+    }
+  ]
+}

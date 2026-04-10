@@ -29,22 +29,6 @@ def test_rand_tensor_node():
     assert list(result["tensor"].shape) == [2, 3]
 
 
-def test_forward_pass():
-    from nodes.pytorch import ForwardPassNode, RandTensorNode
-    import torch.nn as nn, torch
-    model = nn.Linear(4, 2)
-    tensor = RandTensorNode().execute({"shape": "1,4", "requires_grad": False})["tensor"]
-    result = ForwardPassNode().execute({"model": model, "input": tensor})
-    assert isinstance(result["output"], torch.Tensor)
-    assert list(result["output"].shape) == [1, 2]
-
-
-def test_none_guard():
-    from nodes.pytorch import ForwardPassNode
-    result = ForwardPassNode().execute({"model": None, "input": None})
-    assert result["output"] is None
-
-
 def test_mse_loss():
     from nodes.pytorch import MSELossNode
     import torch.nn as nn
@@ -56,37 +40,6 @@ def test_adam_none_guard():
     from nodes.pytorch import AdamNode
     result = AdamNode().execute({"model": None, "lr": 0.001, "weight_decay": 0.0})
     assert result["optimizer"] is None
-
-
-def test_training_config_returns_hyperparams():
-    from nodes.pytorch import TrainingConfigNode
-    import torch.nn as nn
-    node = TrainingConfigNode()
-    result = node.execute({
-        "tensor_in": None, "dataloader": None, "val_dataloader": None,
-        "epochs": 5, "device": "cpu",
-        "optimizer": "adam", "lr": 0.001, "weight_decay": 0.0, "momentum": 0.9,
-        "loss": "crossentropy", "scheduler": "none",
-        "step_size": 10, "gamma": 0.1, "T_max": 50,
-    })
-    cfg = result["config"]
-    assert cfg["epochs"] == 5
-    assert cfg["optimizer_name"] == "adam"
-    assert isinstance(cfg["loss_fn"], nn.CrossEntropyLoss)
-    assert "val_dataloader" in cfg
-
-
-def test_training_config_val_dataloader():
-    from nodes.pytorch import TrainingConfigNode
-    sentinel = object()
-    result = TrainingConfigNode().execute({
-        "tensor_in": None, "dataloader": None, "val_dataloader": sentinel,
-        "epochs": 3, "device": "cpu",
-        "optimizer": "adam", "lr": 0.001, "weight_decay": 0.0, "momentum": 0.9,
-        "loss": "crossentropy", "scheduler": "none",
-        "step_size": 10, "gamma": 0.1, "T_max": 50,
-    })
-    assert result["config"]["val_dataloader"] is sentinel
 
 
 def test_step_lr_node():

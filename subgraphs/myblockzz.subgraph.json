@@ -1,0 +1,243 @@
+{
+  "version": 1,
+  "kind": "subgraph",
+  "manifest": {
+    "name": "MyBlockzz",
+    "description": "Packed from 10 nodes",
+    "external_inputs": [],
+    "external_outputs": []
+  },
+  "nodes": [
+    {
+      "id": "af3076cf-4f38-4400-86a4-cf38d6455284",
+      "type_name": "pt_multimodal_model",
+      "pos": [
+        1140,
+        380
+      ],
+      "inputs": {
+        "audio": null,
+        "text": null,
+        "image": null,
+        "video": null,
+        "sensor": null,
+        "custom": null,
+        "fusion": "concat",
+        "fusion_dim": 32,
+        "missing_strategy": "learnable_token",
+        "active_flag": true
+      }
+    },
+    {
+      "id": "c1746b7b-6a04-4d4a-8975-3952df098344",
+      "type_name": "batch_input",
+      "pos": [
+        460,
+        100
+      ],
+      "inputs": {
+        "dataloader": null
+      }
+    },
+    {
+      "id": "ee8948b0-1604-471b-a090-0e4be5f51a43",
+      "type_name": "pt_linear",
+      "pos": [
+        1380,
+        380
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 198,
+        "out_features": 2,
+        "bias": true,
+        "activation": "none",
+        "freeze": false
+      }
+    },
+    {
+      "id": "7393a243-7440-48f5-b3ee-ec21e02224bf",
+      "type_name": "pt_multimodal_training_config",
+      "pos": [
+        1620,
+        200
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "dataloader": null,
+        "val_dataloader": null,
+        "freeze_strategy": "hard",
+        "log_modalities": true,
+        "epochs": 10,
+        "device": "cpu",
+        "optimizer": "adam",
+        "lr": 0.005,
+        "weight_decay": 0.0,
+        "momentum": 0.9,
+        "loss": "crossentropy",
+        "scheduler": "none",
+        "step_size": 10,
+        "gamma": 0.1,
+        "T_max": 50
+      }
+    },
+    {
+      "id": "7efa265d-3e86-4375-9ea5-108e4ad4f19a",
+      "type_name": "pt_multi_dataset",
+      "pos": [
+        240,
+        100
+      ],
+      "inputs": {
+        "dataset_1": null,
+        "dataset_2": null,
+        "dataset_3": null,
+        "dataset_4": null,
+        "batch_size": 4,
+        "shuffle": true,
+        "num_workers": 0,
+        "strategy": "round_robin",
+        "weights": "1,1,1,1",
+        "epoch_steps": 0
+      }
+    },
+    {
+      "id": "1fcea0b2-82e0-4eed-aa94-ea0e76bea4ee",
+      "type_name": "pt_folder_multimodal_dataset",
+      "pos": [
+        20,
+        200
+      ],
+      "inputs": {
+        "root_path": "demo_data/image_set",
+        "modalities": "audio,image",
+        "drop_missing": false
+      }
+    },
+    {
+      "id": "a5327704-c450-40ed-a2d3-6ddbd668814d",
+      "type_name": "pt_flatten",
+      "pos": [
+        680,
+        460
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "start_dim": 1
+      }
+    },
+    {
+      "id": "e264c290-fb01-49b1-8dfb-8c008a4b15f7",
+      "type_name": "pt_linear",
+      "pos": [
+        900,
+        460
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 192,
+        "out_features": 32,
+        "bias": true,
+        "activation": "relu",
+        "freeze": false
+      }
+    },
+    {
+      "id": "60fc7f99-feeb-4f6f-b333-a68850f1b1d8",
+      "type_name": "pt_linear",
+      "pos": [
+        680,
+        320
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 64,
+        "out_features": 32,
+        "bias": true,
+        "activation": "relu",
+        "freeze": false
+      }
+    },
+    {
+      "id": "feb68bd0-6d9d-42e9-95ce-83a3b54f7cdf",
+      "type_name": "pt_folder_multimodal_dataset",
+      "pos": [
+        20,
+        20
+      ],
+      "inputs": {
+        "root_path": "demo_data/audio_set",
+        "modalities": "audio,image",
+        "drop_missing": false
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "feb68bd0-6d9d-42e9-95ce-83a3b54f7cdf",
+      "from_port": "dataset",
+      "to_node": "7efa265d-3e86-4375-9ea5-108e4ad4f19a",
+      "to_port": "dataset_1"
+    },
+    {
+      "from_node": "1fcea0b2-82e0-4eed-aa94-ea0e76bea4ee",
+      "from_port": "dataset",
+      "to_node": "7efa265d-3e86-4375-9ea5-108e4ad4f19a",
+      "to_port": "dataset_2"
+    },
+    {
+      "from_node": "7efa265d-3e86-4375-9ea5-108e4ad4f19a",
+      "from_port": "dataloader",
+      "to_node": "7393a243-7440-48f5-b3ee-ec21e02224bf",
+      "to_port": "dataloader"
+    },
+    {
+      "from_node": "7efa265d-3e86-4375-9ea5-108e4ad4f19a",
+      "from_port": "dataloader",
+      "to_node": "c1746b7b-6a04-4d4a-8975-3952df098344",
+      "to_port": "dataloader"
+    },
+    {
+      "from_node": "c1746b7b-6a04-4d4a-8975-3952df098344",
+      "from_port": "audio",
+      "to_node": "60fc7f99-feeb-4f6f-b333-a68850f1b1d8",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "c1746b7b-6a04-4d4a-8975-3952df098344",
+      "from_port": "image",
+      "to_node": "a5327704-c450-40ed-a2d3-6ddbd668814d",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "a5327704-c450-40ed-a2d3-6ddbd668814d",
+      "from_port": "tensor_out",
+      "to_node": "e264c290-fb01-49b1-8dfb-8c008a4b15f7",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "60fc7f99-feeb-4f6f-b333-a68850f1b1d8",
+      "from_port": "tensor_out",
+      "to_node": "af3076cf-4f38-4400-86a4-cf38d6455284",
+      "to_port": "audio"
+    },
+    {
+      "from_node": "e264c290-fb01-49b1-8dfb-8c008a4b15f7",
+      "from_port": "tensor_out",
+      "to_node": "af3076cf-4f38-4400-86a4-cf38d6455284",
+      "to_port": "image"
+    },
+    {
+      "from_node": "af3076cf-4f38-4400-86a4-cf38d6455284",
+      "from_port": "tensor_out",
+      "to_node": "ee8948b0-1604-471b-a090-0e4be5f51a43",
+      "to_port": "tensor_in"
+    },
+    {
+      "from_node": "ee8948b0-1604-471b-a090-0e4be5f51a43",
+      "from_port": "tensor_out",
+      "to_node": "7393a243-7440-48f5-b3ee-ec21e02224bf",
+      "to_port": "tensor_in"
+    }
+  ]
+}

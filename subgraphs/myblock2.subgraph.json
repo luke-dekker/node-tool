@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "kind": "subgraph",
+  "manifest": {
+    "name": "MyBlock2",
+    "description": "Packed from 3 nodes",
+    "external_inputs": [
+      {
+        "name": "linear_tensor_in",
+        "type": "TENSOR",
+        "inner_node": "aa0bf63a-ea0a-4e7b-a138-0ab5f9d5e3f8",
+        "inner_port": "tensor_in"
+      },
+      {
+        "name": "linear_tensor_in_2",
+        "type": "TENSOR",
+        "inner_node": "8f47cca2-6f66-4d3f-b44a-a455ba85e3da",
+        "inner_port": "tensor_in"
+      }
+    ],
+    "external_outputs": [
+      {
+        "name": "multimodal_model_tensor_out",
+        "type": "TENSOR",
+        "inner_node": "1cc0dd6d-ef0a-43a1-bac8-46878a9d5af4",
+        "inner_port": "tensor_out"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "8f47cca2-6f66-4d3f-b44a-a455ba85e3da",
+      "type_name": "pt_linear",
+      "pos": [
+        1154,
+        -458
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 192,
+        "out_features": 32,
+        "bias": true,
+        "activation": "relu",
+        "freeze": false
+      }
+    },
+    {
+      "id": "1cc0dd6d-ef0a-43a1-bac8-46878a9d5af4",
+      "type_name": "pt_multimodal_model",
+      "pos": [
+        1517,
+        -559
+      ],
+      "inputs": {
+        "audio": null,
+        "text": null,
+        "image": null,
+        "video": null,
+        "sensor": null,
+        "custom": null,
+        "fusion": "concat",
+        "fusion_dim": 32,
+        "missing_strategy": "learnable_token",
+        "active_flag": true
+      }
+    },
+    {
+      "id": "aa0bf63a-ea0a-4e7b-a138-0ab5f9d5e3f8",
+      "type_name": "pt_linear",
+      "pos": [
+        1156,
+        -739
+      ],
+      "inputs": {
+        "tensor_in": null,
+        "in_features": 64,
+        "out_features": 32,
+        "bias": true,
+        "activation": "relu",
+        "freeze": false
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "aa0bf63a-ea0a-4e7b-a138-0ab5f9d5e3f8",
+      "from_port": "tensor_out",
+      "to_node": "1cc0dd6d-ef0a-43a1-bac8-46878a9d5af4",
+      "to_port": "audio"
+    },
+    {
+      "from_node": "8f47cca2-6f66-4d3f-b44a-a455ba85e3da",
+      "from_port": "tensor_out",
+      "to_node": "1cc0dd6d-ef0a-43a1-bac8-46878a9d5af4",
+      "to_port": "image"
+    }
+  ]
+}
