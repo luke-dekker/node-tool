@@ -31,3 +31,7 @@ def register(ctx: PluginContext) -> None:
 
     # ── Categories ──────────────────────────────────────────────────────
     ctx.add_categories(["Control", "Sensors", "Actuators", "Signal", "Kinematics"])
+
+    # ── Panel ───────────────────────────────────────────────────────────
+    from plugins.robotics.panel import build_robotics_panel
+    ctx.register_panel("Robotics", build_robotics_panel)
