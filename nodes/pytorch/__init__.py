@@ -40,12 +40,8 @@ from nodes.pytorch.reduce_lr_plateau import ReduceLROnPlateauNode
 # Training
 from nodes.pytorch.train_output import TrainOutputNode
 
-# Datasets — universal node + benchmark auto-download nodes
+# Datasets — universal node handles all formats
 from nodes.pytorch.dataset import DatasetNode
-from nodes.pytorch.mnist_dataset import MNISTDatasetNode
-from nodes.pytorch.cifar10_dataset import CIFAR10DatasetNode
-from nodes.pytorch.text_dataset import TextDatasetNode
-from nodes.pytorch.hf_dataset import HuggingFaceDatasetNode
 
 # Dataset transforms
 from nodes.pytorch.apply_transform import ApplyTransformNode

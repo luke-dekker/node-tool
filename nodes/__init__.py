@@ -76,8 +76,8 @@ _discover(subgraphs)
 #   - DataLoader, DataLoaderInfo, DatasetInfo, SampleBatch → universal DatasetNode
 #   - GaussianNoise → GateNode (noise mode)
 #   - Legacy single-type const/cast nodes → ConstNode, CastNode
-# Keep: MNIST, CIFAR10, TextDataset, HFDataset (auto-download benchmarks).
-# Keep: TrainOutput, Dataset (universal), Gate, LossCompute, ApplyModule (new arch).
+# Keep: Dataset (universal — handles built-in benchmarks, local folders, HF repos).
+# Keep: TrainOutput, Gate, LossCompute, ApplyModule (new arch).
 # Keep: FreezeLayersNode, FreezeNamedLayersNode (useful experiment controls).
 # Keep: ConstNode, CastNode, PreviewNode, ImageInputNode (consolidated v5).
 # Remove: everything replaced by the new architecture.

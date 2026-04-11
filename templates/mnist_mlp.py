@@ -19,7 +19,7 @@ DESCRIPTION = "Hello-world MLP on MNIST. 4 nodes, no legacy adapters."
 
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.mnist_dataset  import MNISTDatasetNode
+    from nodes.pytorch.dataset        import DatasetNode
     from nodes.pytorch.flatten        import FlattenNode
     from nodes.pytorch.linear         import LinearNode
     from nodes.pytorch.train_output   import TrainOutputNode
@@ -27,7 +27,8 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     pos = grid(step_x=240)
     positions: dict[str, tuple[int, int]] = {}
 
-    mnist = MNISTDatasetNode()
+    mnist = DatasetNode()
+    mnist.inputs["path"].default_value = "mnist"
     mnist.inputs["batch_size"].default_value = 64
     graph.add_node(mnist); positions[mnist.id] = pos()
 

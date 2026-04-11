@@ -7,7 +7,7 @@ LABEL = "MNIST VAE (Image Generator)"
 DESCRIPTION = "Per-layer VAE with loss computed in the graph via LossCompute + KL + VAELoss."
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.mnist_dataset    import MNISTDatasetNode
+    from nodes.pytorch.dataset          import DatasetNode
     from nodes.pytorch.flatten          import FlattenNode
     from nodes.pytorch.linear           import LinearNode
     from nodes.pytorch.reparameterize   import ReparameterizeNode
@@ -19,7 +19,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     LATENT = 16
     pos = grid(step_x=200); positions = {}
 
-    mnist = MNISTDatasetNode(); mnist.inputs["batch_size"].default_value = 128
+    mnist = DatasetNode(); mnist.inputs["path"].default_value = "mnist"; mnist.inputs["batch_size"].default_value = 128
     graph.add_node(mnist); positions[mnist.id] = pos(col=0, row=2)
 
     flat = FlattenNode(); graph.add_node(flat); positions[flat.id] = pos(col=1, row=2)

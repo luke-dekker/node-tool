@@ -7,7 +7,7 @@ LABEL = "Transfer Learning (ResNet18)"
 DESCRIPTION = "Pretrained ResNet18, frozen backbone, new classification head on CIFAR-10."
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.cifar10_dataset       import CIFAR10DatasetNode
+    from nodes.pytorch.dataset               import DatasetNode
     from nodes.pytorch.resnet18              import ResNet18Node
     from nodes.pytorch.freeze_named_layers   import FreezeNamedLayersNode
     from nodes.pytorch.apply_module          import ApplyModuleNode
@@ -15,7 +15,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
 
     pos = grid(step_x=240); positions = {}
 
-    ds = CIFAR10DatasetNode(); ds.inputs["batch_size"].default_value = 32
+    ds = DatasetNode(); ds.inputs["path"].default_value = "cifar10"; ds.inputs["batch_size"].default_value = 32
     graph.add_node(ds); positions[ds.id] = pos(col=0, row=1)
 
     backbone = ResNet18Node(); backbone.inputs["pretrained"].default_value=True; backbone.inputs["num_classes"].default_value=10

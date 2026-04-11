@@ -7,7 +7,7 @@ LABEL = "MNIST Classifier (CNN)"
 DESCRIPTION = "Convolutional pipeline on MNIST. Conv -> Pool -> Conv -> Pool -> Linear."
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.mnist_dataset import MNISTDatasetNode
+    from nodes.pytorch.dataset       import DatasetNode
     from nodes.pytorch.conv2d        import Conv2dNode
     from nodes.pytorch.maxpool2d     import MaxPool2dNode
     from nodes.pytorch.flatten       import FlattenNode
@@ -15,7 +15,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.train_output  import TrainOutputNode
 
     pos = grid(step_x=200); positions = {}
-    mnist = MNISTDatasetNode(); mnist.inputs["batch_size"].default_value = 64
+    mnist = DatasetNode(); mnist.inputs["path"].default_value = "mnist"; mnist.inputs["batch_size"].default_value = 64
     graph.add_node(mnist); positions[mnist.id] = pos()
     c1 = Conv2dNode(); c1.inputs["in_ch"].default_value=1; c1.inputs["out_ch"].default_value=16; c1.inputs["kernel"].default_value=3; c1.inputs["padding"].default_value=1; c1.inputs["activation"].default_value="relu"
     graph.add_node(c1); positions[c1.id] = pos()

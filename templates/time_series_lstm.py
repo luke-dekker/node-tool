@@ -7,7 +7,7 @@ LABEL = "Time Series Forecasting (LSTM)"
 DESCRIPTION = "Synthetic sine wave forecasting with LSTM. No external data needed."
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.text_dataset   import TextDatasetNode
+    from nodes.pytorch.dataset        import DatasetNode
     from nodes.pytorch.lstm_layer     import LSTMLayerNode
     from nodes.pytorch.lstm_forward   import LSTMForwardNode
     from nodes.pytorch.linear         import LinearNode
@@ -15,8 +15,8 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
 
     pos = grid(step_x=240); positions = {}
 
-    # Use TextDataset as a simple sequence source (built-in fallback corpus)
-    ds = TextDatasetNode(); ds.inputs["seq_len"].default_value=32; ds.inputs["batch_size"].default_value=32
+    # Use Dataset in text mode as a simple sequence source (built-in fallback corpus)
+    ds = DatasetNode(); ds.inputs["path"].default_value="data/text.txt"; ds.inputs["seq_len"].default_value=32; ds.inputs["batch_size"].default_value=32
     graph.add_node(ds); positions[ds.id] = pos()
 
     lstm = LSTMLayerNode(); lstm.inputs["input_size"].default_value=1; lstm.inputs["hidden_size"].default_value=32; lstm.inputs["batch_first"].default_value=True

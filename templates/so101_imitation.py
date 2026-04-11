@@ -19,7 +19,7 @@ DESCRIPTION = (
 
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from plugins.lerobot.nodes.dataset   import LeRobotDatasetNode
+    from nodes.pytorch.dataset           import DatasetNode
     from plugins.lerobot.nodes.policy    import ACTPolicyNode
     from plugins.lerobot.nodes.camera    import CameraInputNode
     from plugins.lerobot.nodes.servo_bus import FeetechServoBusNode
@@ -29,9 +29,9 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     positions = {}
 
     # ── Row 0: Training pipeline ────────────────────────────────────────
-    # Dataset (loads recorded demonstrations)
-    ds = LeRobotDatasetNode()
-    ds.inputs["repo_id"].default_value = "lerobot/so100_test"
+    # Dataset (loads recorded demonstrations — auto-detects HF LeRobot format)
+    ds = DatasetNode()
+    ds.inputs["path"].default_value = "lerobot/so100_test"
     ds.inputs["batch_size"].default_value = 32
     ds.inputs["task_id"].default_value = "so101_train"
     graph.add_node(ds)

@@ -7,7 +7,7 @@ LABEL = "Char-Level LSTM Language Model"
 DESCRIPTION = "TextDataset -> Embedding -> LSTM -> Linear -> ReshapeForLoss -> TrainOutput."
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.text_dataset      import TextDatasetNode
+    from nodes.pytorch.dataset           import DatasetNode
     from nodes.pytorch.embedding         import EmbeddingNode
     from nodes.pytorch.lstm_layer        import LSTMLayerNode
     from nodes.pytorch.lstm_forward      import LSTMForwardNode
@@ -18,7 +18,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     pos = grid(step_x=220); positions = {}
     SEQ_LEN, EMBED, HIDDEN = 64, 64, 128
 
-    ds = TextDatasetNode(); ds.inputs["seq_len"].default_value=SEQ_LEN; ds.inputs["batch_size"].default_value=32
+    ds = DatasetNode(); ds.inputs["path"].default_value="data/text.txt"; ds.inputs["seq_len"].default_value=SEQ_LEN; ds.inputs["batch_size"].default_value=32
     graph.add_node(ds); positions[ds.id] = pos(col=0, row=1)
 
     emb = EmbeddingNode(); emb.inputs["num_embeddings"].default_value=256; emb.inputs["embedding_dim"].default_value=EMBED
