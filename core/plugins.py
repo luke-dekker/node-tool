@@ -136,6 +136,8 @@ def discover_plugins() -> list[tuple[str, Any]]:
     for path in sorted(PLUGINS_DIR.iterdir()):
         if not path.is_dir():
             continue
+        if path.name.startswith("_"):
+            continue  # skip _example, __pycache__, etc.
         init_file = path / "__init__.py"
         if not init_file.exists():
             continue
