@@ -119,7 +119,7 @@ except Exception as _exc:
 
 # Grouped by category for the palette
 CATEGORY_ORDER = [
-    # ML workflow
+    # Core ML workflow (built-in)
     "Datasets", "Layers", "Models", "Training", "AI", "Analyze",
     # General compute
     "Python", "NumPy", "Pandas", "Sklearn", "SciPy",
@@ -128,6 +128,12 @@ CATEGORY_ORDER = [
     # Output
     "IO",
 ]
+
+# Merge plugin-registered categories into the order list (after built-in ones)
+if _plugin_ctx:
+    for cat in _plugin_ctx.categories:
+        if cat not in CATEGORY_ORDER:
+            CATEGORY_ORDER.append(cat)
 
 def get_nodes_by_category() -> dict[str, list[Type[BaseNode]]]:
     result: dict[str, list[Type[BaseNode]]] = {}
