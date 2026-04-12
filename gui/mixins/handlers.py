@@ -7,25 +7,35 @@ class HandlersMixin:
     """Keyboard shortcuts and mouse handlers."""
 
     def _handle_zoom(self, sender, app_data) -> None:
-        """Ctrl+scroll to zoom the canvas by rescaling all node positions."""
-        if not (dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)):
-            return
-        delta = app_data
-        factor = 1.1 if delta > 0 else (1 / 1.1)
-        new_zoom = max(0.2, min(3.0, self._zoom * factor))
-        if new_zoom == self._zoom:
+        """Scroll wheel to zoom the canvas. Nodes visually shrink/grow via
+        global font scale + position rescaling. Hold Ctrl to pan instead."""
+        # If Ctrl is held, let DPG handle normal scroll (pan). Only zoom on plain scroll.
+        if dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl):
             return
 
+        # Only zoom when mouse is over the editor area
         mx, my = dpg.get_mouse_pos(local=False)
         try:
             ex, ey = dpg.get_item_pos("EditorWindow")
+            ew = dpg.get_item_width("EditorWindow")
+            eh = dpg.get_item_height("EditorWindow")
         except Exception:
-            ex, ey = 0, 0
+            return
+        if not (ex <= mx <= ex + ew and ey <= my <= ey + eh):
+            return
+
+        delta = app_data
+        factor = 1.1 if delta > 0 else (1 / 1.1)
+        new_zoom = max(0.3, min(2.5, self._zoom * factor))
+        if new_zoom == self._zoom:
+            return
+
         pivot_x = (mx - ex) / self._zoom
         pivot_y = (my - ey) / self._zoom
 
         self._zoom = new_zoom
 
+        # Update base positions from current DPG positions
         for node_id, node_tag in self.node_id_to_dpg.items():
             try:
                 cx, cy = dpg.get_item_pos(node_tag)
@@ -34,6 +44,7 @@ class HandlersMixin:
             except Exception:
                 pass
 
+        # Rescale node positions around pivot
         for node_id, node_tag in self.node_id_to_dpg.items():
             base = self._node_base_pos.get(node_id)
             if base is None:

@@ -167,6 +167,7 @@ class NodeApp(
 
         # Selected node
         self.selected_node_id: str | None = None
+        self._inspector_node_id: str | None = None  # tracks which node's widgets are in inspector
 
         # Category themes cache
         self._cat_themes: dict[str, int] = {}
@@ -322,10 +323,39 @@ class NodeApp(
         except Exception:
             pass
 
+    @staticmethod
+    def _config_summary(node: BaseNode) -> str:
+        """One-line summary of key config values for display on the canvas node."""
+        parts: list[str] = []
+        for pname, port in node.inputs.items():
+            if not PortTypeRegistry.is_editable(port.port_type):
+                continue
+            val = port.default_value
+            if val is None:
+                continue
+            # Skip defaults that are unhelpful (empty strings, False bools)
+            if isinstance(val, bool) and not val:
+                continue
+            if isinstance(val, str) and not val:
+                continue
+            # Compact representation
+            if isinstance(val, float):
+                parts.append(f"{val:g}")
+            elif isinstance(val, bool):
+                parts.append(pname)
+            else:
+                parts.append(str(val))
+        summary = ", ".join(parts[:5])
+        if len(parts) > 5:
+            summary += " …"
+        return summary
+
     def add_node_to_editor(self, node: BaseNode, pos: tuple[int, int],
                            editor_tag="NodeEditor") -> str:
         """
         Creates DPG node items for the given Python node and registers all mappings.
+        Config (editable) input ports are hidden from the canvas — edit them in the
+        inspector. Only data/reference ports get connection points.
         Returns the dpg node tag.
         """
         cat_theme = self._get_cat_theme(node.category)
@@ -335,19 +365,29 @@ class NodeApp(
         scaled_pos = [pos[0] * self._zoom, pos[1] * self._zoom]
         self._node_base_pos[node.id] = list(pos)
 
+        # Classify inputs: data ports go on canvas, config ports go to inspector
+        data_inputs = {n: p for n, p in node.inputs.items()
+                       if not PortTypeRegistry.is_editable(p.port_type)}
+        config_inputs = {n: p for n, p in node.inputs.items()
+                         if PortTypeRegistry.is_editable(p.port_type)}
+
         with dpg.node(label=node.label, tag=node_tag,
                       pos=scaled_pos, parent=editor_tag):
 
-            # DPG bug workaround: a node with zero child attributes has no
-            # content to anchor its width, so DPG's auto-size logic drifts
-            # wider by ~8px per frame indefinitely. Adding a minimal static
-            # attribute prevents this. Only needed when the node has no ports.
-            if not node.inputs and not node.outputs:
+            # Compact config summary line (static — no pin)
+            summary = self._config_summary(node)
+            if summary:
                 with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
-                    dpg.add_text("(no ports)", color=[100, 100, 120])
+                    dpg.add_text(summary, color=[140, 140, 160],
+                                 tag=f"cfg_summary_{node.id}")
 
-            # Input attributes
-            for port_name, port in node.inputs.items():
+            # If no data ports at all, show a minimal placeholder
+            if not data_inputs and not node.outputs and not summary:
+                with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
+                    dpg.add_text("(config in inspector)", color=[100, 100, 120])
+
+            # Data input attributes (connection points)
+            for port_name, port in data_inputs.items():
                 attr_tag = f"attr_in_{node.id}_{port_name}"
                 shape = PIN_SHAPES.get(port.port_type, dpg.mvNode_PinShape_Circle)
                 with dpg.node_attribute(
@@ -355,11 +395,11 @@ class NodeApp(
                     attribute_type=dpg.mvNode_Attr_Input,
                     shape=shape,
                 ):
-                    self._create_input_widget(node, port_name, attr_tag)
+                    dpg.add_text(port_name, color=[160, 160, 180])
                 self.dpg_attr_to_key[attr_tag] = (node.id, port_name, True)
                 self.dpg_attr_to_key[dpg.get_alias_id(attr_tag)] = (node.id, port_name, True)
 
-            # Output attributes
+            # Output attributes (all shown — they're connection targets)
             for port_name, port in node.outputs.items():
                 attr_tag = f"attr_out_{node.id}_{port_name}"
                 shape = PIN_SHAPES.get(port.port_type, dpg.mvNode_PinShape_Circle)
@@ -370,18 +410,14 @@ class NodeApp(
                 ):
                     out_display = f"outdisp_{node.id}_{port_name}"
                     if _is_primitive_output(port.port_type):
-                        # Primitive types: show live value after execution
                         dpg.add_text(f"{port_name}: -", tag=out_display)
                         self.output_displays[(node.id, port_name)] = out_display
                     else:
-                        # Complex types: just show the port name, never dump the value
                         dpg.add_text(port_name, color=[160, 160, 180], tag=out_display)
                 self.dpg_attr_to_key[attr_tag] = (node.id, port_name, False)
                 self.dpg_attr_to_key[dpg.get_alias_id(attr_tag)] = (node.id, port_name, False)
 
         dpg.bind_item_theme(node_tag, cat_theme)
-        # Map both string alias AND integer id -> node.id
-        # get_selected_nodes() returns integer IDs, not string aliases
         self.dpg_node_to_node_id[node_tag] = node.id
         self.dpg_node_to_node_id[dpg.get_alias_id(node_tag)] = node.id
         self.node_id_to_dpg[node.id] = node_tag
@@ -686,14 +722,31 @@ class NodeApp(
     # -- Inspector ---------------------------------------------------------
 
     def _update_inspector(self, node_id: str | None) -> None:
-        """Refresh the inspector panel for the selected node."""
+        """Refresh the inspector panel for the selected node.
+
+        Config (editable) input ports are shown as live widgets here — this is
+        the primary editing surface. Data ports and outputs are shown as
+        read-only summaries.
+        """
+        # Remove inspector widgets from the tracking dict before clearing
+        if self._inspector_node_id is not None:
+            old_id = self._inspector_node_id
+            for k in [k for k in self.input_widgets if k[0] == old_id]:
+                tag = self.input_widgets[k]
+                # Only remove if this tag was created by the inspector (not canvas)
+                if isinstance(tag, (int, str)):
+                    attr_tag = f"attr_in_{k[0]}_{k[1]}"
+                    if not dpg.does_item_exist(attr_tag):
+                        # This widget was inspector-only, remove from tracking
+                        self.input_widgets.pop(k, None)
+        self._inspector_node_id = node_id
+
         try:
-            # Clear inspector content
             if dpg.does_item_exist("inspector_content"):
                 dpg.delete_item("inspector_content", children_only=True)
 
             if node_id is None:
-                dpg.add_text("No node selected.", parent="inspector_content",
+                dpg.add_text("Select a node to inspect.", parent="inspector_content",
                              color=list(TEXT_DIM))
                 return
 
@@ -703,39 +756,100 @@ class NodeApp(
                              color=list(TEXT_DIM))
                 return
 
-            # Title + category on one line
+            parent = "inspector_content"
+            iw = INSPECTOR_W - 40  # usable widget width
+
+            # Title + category
             cat_color = list(CATEGORY_COLORS.get(node.category, (160, 160, 180, 255)))
-            with dpg.group(horizontal=True, parent="inspector_content"):
+            with dpg.group(horizontal=True, parent=parent):
                 dpg.add_text(node.label, color=[255, 255, 255, 255])
                 dpg.add_text(f"({node.category})", color=cat_color)
 
-            # Description
-            dpg.add_text(node.description, parent="inspector_content",
+            dpg.add_text(node.description, parent=parent,
                          wrap=INSPECTOR_W - 20, color=list(TEXT_DIM))
-            dpg.add_separator(parent="inspector_content")
+            dpg.add_separator(parent=parent)
 
-            # Inputs
-            if node.inputs:
-                dpg.add_text("Inputs", parent="inspector_content", color=list(TEXT_DIM))
-                for port_name, port in node.inputs.items():
-                    pin_col = list(PIN_COLORS.get(port.port_type, (160, 160, 180, 255)))
-                    val = port.default_value
-                    widget_tag = self.input_widgets.get((node_id, port_name))
-                    if widget_tag is not None:
-                        try: val = dpg.get_value(widget_tag)
-                        except Exception: pass
-                    with dpg.group(horizontal=True, parent="inspector_content"):
+            # ── Editable config inputs (the main editing surface) ─────
+            config_ports = {n: p for n, p in node.inputs.items()
+                           if PortTypeRegistry.is_editable(p.port_type)}
+            if config_ports:
+                dpg.add_text("Config", parent=parent, color=list(ACCENT))
+                dpg.add_spacer(height=2, parent=parent)
+                for port_name, port in config_ports.items():
+                    key = (node_id, port_name)
+                    ptype = port.port_type
+                    default = port.default_value
+
+                    if ptype == PortType.FLOAT:
+                        tag = dpg.add_input_float(
+                            label=port_name,
+                            default_value=float(default) if default is not None else 0.0,
+                            width=iw, step=0, parent=parent,
+                            callback=lambda s, a, u: self._on_inspector_changed(u),
+                            user_data=key,
+                        )
+                    elif ptype == PortType.INT:
+                        tag = dpg.add_input_int(
+                            label=port_name,
+                            default_value=int(default) if default is not None else 0,
+                            width=iw, step=0, parent=parent,
+                            callback=lambda s, a, u: self._on_inspector_changed(u),
+                            user_data=key,
+                        )
+                    elif ptype == PortType.BOOL:
+                        tag = dpg.add_checkbox(
+                            label=port_name,
+                            default_value=bool(default) if default is not None else False,
+                            parent=parent,
+                            callback=lambda s, a, u: self._on_inspector_changed(u),
+                            user_data=key,
+                        )
+                    elif ptype == PortType.STRING:
+                        if port.choices:
+                            tag = dpg.add_combo(
+                                label=port_name, items=port.choices,
+                                default_value=str(default) if default is not None else port.choices[0],
+                                width=iw, parent=parent,
+                                callback=lambda s, a, u: self._on_inspector_changed(u),
+                                user_data=key,
+                            )
+                        else:
+                            tag = dpg.add_input_text(
+                                label=port_name,
+                                default_value=str(default) if default is not None else "",
+                                width=iw, parent=parent,
+                                callback=lambda s, a, u: self._on_inspector_changed(u),
+                                user_data=key,
+                            )
+                    else:
+                        tag = dpg.add_input_text(
+                            label=port_name,
+                            default_value=str(default) if default is not None else "",
+                            width=iw, parent=parent,
+                            callback=lambda s, a, u: self._on_inspector_changed(u),
+                            user_data=key,
+                        )
+                    self.input_widgets[key] = tag
+
+            # ── Data inputs (read-only summary) ───────────────────────
+            data_inputs = {n: p for n, p in node.inputs.items()
+                          if not PortTypeRegistry.is_editable(p.port_type)}
+            if data_inputs:
+                dpg.add_separator(parent=parent)
+                dpg.add_text("Data Inputs", parent=parent, color=list(TEXT_DIM))
+                for port_name, port in data_inputs.items():
+                    pin_col = list(_get_pin_color(port.port_type))
+                    with dpg.group(horizontal=True, parent=parent):
                         dpg.add_text(f"  {port_name}", color=pin_col)
-                        dpg.add_text(f"= {val}", color=list(TEXT))
 
-            # Outputs
+            # ── Outputs (read-only with live values) ──────────────────
             if node.outputs:
-                dpg.add_separator(parent="inspector_content")
-                dpg.add_text("Outputs", parent="inspector_content", color=list(TEXT_DIM))
+                dpg.add_separator(parent=parent)
+                dpg.add_text("Outputs", parent=parent, color=list(TEXT_DIM))
                 for port_name, port in node.outputs.items():
                     if port_name == "__terminal__":
                         continue
-                    pin_col = list(PIN_COLORS.get(port.port_type, (160, 160, 180, 255)))
+                    pin_col = list(_get_pin_color(port.port_type))
                     result_val = "-"
                     if node_id in self._last_outputs and port_name in self._last_outputs[node_id]:
                         raw = self._last_outputs[node_id][port_name]
@@ -744,24 +858,36 @@ class NodeApp(
                         elif hasattr(raw, "shape"):
                             result_val = f"shape={list(raw.shape)} dtype={getattr(raw, 'dtype', '?')}"
                         else:
-                            result_val = str(raw)
-                    with dpg.group(horizontal=True, parent="inspector_content"):
+                            result_val = _summarise(raw)
+                    with dpg.group(horizontal=True, parent=parent):
                         dpg.add_text(f"  {port_name}", color=pin_col)
                         dpg.add_text(f"= {result_val}", color=list(ACCENT))
 
-            # Per-instance custom UI — opt-in via BaseNode.inspector_ui override.
-            # Runs after the standard readout so node-specific widgets (action
-            # buttons, previews, file pickers, etc.) appear at the bottom.
+            # Per-instance custom UI
             try:
                 node.inspector_ui("inspector_content", self)
             except Exception as ui_exc:
-                dpg.add_separator(parent="inspector_content")
+                dpg.add_separator(parent=parent)
                 dpg.add_text(f"[inspector_ui error] {ui_exc}",
-                             parent="inspector_content",
-                             color=[255, 120, 120, 255])
+                             parent=parent, color=[255, 120, 120, 255])
 
         except Exception as exc:
             print(f"[Inspector] Error: {exc}")
+
+    def _on_inspector_changed(self, key: tuple[str, str]) -> None:
+        """Sync inspector widget value back to node + update canvas summary."""
+        self._on_input_changed(key)
+        # Refresh the compact config summary on the canvas node
+        node_id = key[0]
+        node = self.graph.get_node(node_id)
+        if node is None:
+            return
+        summary_tag = f"cfg_summary_{node_id}"
+        try:
+            if dpg.does_item_exist(summary_tag):
+                dpg.set_value(summary_tag, self._config_summary(node))
+        except Exception:
+            pass
 
     # -- Selection handler -------------------------------------------------
 
