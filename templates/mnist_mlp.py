@@ -1,36 +1,33 @@
 """MNIST MLP classifier — the hello-world of deep learning.
 
-Loads MNIST, flattens 28x28 images to 784 vectors, runs a 2-layer MLP, and
-trains with cross-entropy loss. Set epochs/lr/optimizer in the Training Panel
-(right sidebar) and click Start.
+Marker-based architecture: the graph contains zero data-loading nodes. An A
+marker injects the image batch at training time, the MLP runs, and a B
+marker marks the logits as the training target. All dataset config
+(mnist/cifar/whatever path, batch_size, shuffle) lives in the Training
+Panel.
 
-New architecture: 4 nodes, zero legacy adapters, zero cross-canvas wires.
-
-    MNIST Dataset ── x ──→ Flatten → Linear+ReLU → Linear ──→ Train Output
-                  └─ label  (auto-discovered by panel for loss computation)
-                  └─ dataloader  (auto-discovered by panel for batch iteration)
+    Data In (A:x) → Flatten → Linear+ReLU → Linear → Data Out (B:logits)
 """
 from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
 LABEL = "MNIST Classifier (MLP)"
-DESCRIPTION = "Hello-world MLP on MNIST. 4 nodes, no legacy adapters."
+DESCRIPTION = "Hello-world MLP on MNIST. Marker-based — dataset lives in the panel."
 
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.dataset        import DatasetNode
+    from nodes.pytorch.input_marker   import InputMarkerNode
     from nodes.pytorch.flatten        import FlattenNode
     from nodes.pytorch.linear         import LinearNode
-    from nodes.pytorch.train_output   import TrainOutputNode
+    from nodes.pytorch.train_marker   import TrainMarkerNode
 
     pos = grid(step_x=240)
     positions: dict[str, tuple[int, int]] = {}
 
-    mnist = DatasetNode()
-    mnist.inputs["path"].default_value = "mnist"
-    mnist.inputs["batch_size"].default_value = 64
-    graph.add_node(mnist); positions[mnist.id] = pos()
+    data_in = InputMarkerNode()
+    data_in.inputs["modality"].default_value = "x"
+    graph.add_node(data_in); positions[data_in.id] = pos()
 
     flat = FlattenNode()
     graph.add_node(flat); positions[flat.id] = pos()
@@ -47,12 +44,13 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     h2.inputs["activation"].default_value   = "none"
     graph.add_node(h2); positions[h2.id] = pos()
 
-    target = TrainOutputNode()
-    graph.add_node(target); positions[target.id] = pos()
+    data_out = TrainMarkerNode()
+    data_out.inputs["kind"].default_value = "logits"
+    data_out.inputs["target"].default_value = "label"
+    graph.add_node(data_out); positions[data_out.id] = pos()
 
-    # Wire: dataset.x → flatten → linear → linear → train output
-    graph.add_connection(mnist.id, "x",          flat.id,   "tensor_in")
-    graph.add_connection(flat.id,  "tensor_out", h1.id,     "tensor_in")
-    graph.add_connection(h1.id,    "tensor_out", h2.id,     "tensor_in")
-    graph.add_connection(h2.id,    "tensor_out", target.id, "tensor_in")
+    graph.add_connection(data_in.id, "tensor",     flat.id,     "tensor_in")
+    graph.add_connection(flat.id,    "tensor_out", h1.id,       "tensor_in")
+    graph.add_connection(h1.id,      "tensor_out", h2.id,       "tensor_in")
+    graph.add_connection(h2.id,      "tensor_out", data_out.id, "tensor_in")
     return positions

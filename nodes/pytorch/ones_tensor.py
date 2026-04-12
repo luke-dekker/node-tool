@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class OnesTensorNode(BaseNode):
     type_name   = "pt_ones_tensor"
     label       = "Ones Tensor"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Create a ones tensor with the given shape"
 
     def _setup_ports(self):

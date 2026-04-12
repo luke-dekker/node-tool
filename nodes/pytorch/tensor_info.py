@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorInfoNode(BaseNode):
     type_name   = "pt_tensor_info"
     label       = "Tensor Info"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Return detailed tensor info as string"
 
     def _setup_ports(self):

@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorTransposeNode(BaseNode):
     type_name   = "pt_tensor_transpose"
     label       = "Transpose"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "tensor.transpose(dim0, dim1). Swap two dimensions."
 
     def _setup_ports(self):

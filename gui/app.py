@@ -397,6 +397,9 @@ class NodeApp(
         if pos is None:
             pos = self._next_pos()
         self.add_node_to_editor(node, pos)
+        if node.type_name in ("pt_input_marker", "pt_train_marker"):
+            if hasattr(self, "_rebuild_dataset_panel"):
+                self._rebuild_dataset_panel()
         return node
 
     def delete_selected(self) -> None:
@@ -488,6 +491,9 @@ class NodeApp(
                     dpg.delete_item(node_tag)
             except Exception:
                 pass
+
+        if node_tags and hasattr(self, "_rebuild_dataset_panel"):
+            self._rebuild_dataset_panel()
 
     # -- Link callbacks ----------------------------------------------------
 
@@ -742,6 +748,17 @@ class NodeApp(
                     with dpg.group(horizontal=True, parent="inspector_content"):
                         dpg.add_text(f"  {port_name}", color=pin_col)
                         dpg.add_text(f"= {result_val}", color=list(ACCENT))
+
+            # Per-instance custom UI — opt-in via BaseNode.inspector_ui override.
+            # Runs after the standard readout so node-specific widgets (action
+            # buttons, previews, file pickers, etc.) appear at the bottom.
+            try:
+                node.inspector_ui("inspector_content", self)
+            except Exception as ui_exc:
+                dpg.add_separator(parent="inspector_content")
+                dpg.add_text(f"[inspector_ui error] {ui_exc}",
+                             parent="inspector_content",
+                             color=[255, 120, 120, 255])
 
         except Exception as exc:
             print(f"[Inspector] Error: {exc}")

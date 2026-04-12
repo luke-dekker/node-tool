@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorSplitNode(BaseNode):
     type_name   = "pt_tensor_split"
     label       = "Split"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "torch.split(tensor, split_size, dim). Returns first two chunks (chunk_0, chunk_1)."
 
     def _setup_ports(self):

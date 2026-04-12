@@ -16,32 +16,28 @@ from nodes.pytorch.conv2d import Conv2dNode
 from nodes.pytorch.maxpool2d import MaxPool2dNode
 from nodes.pytorch.avgpool2d import AvgPool2dNode
 from nodes.pytorch.batchnorm2d import BatchNorm2dNode
+from nodes.pytorch.adaptive_avgpool2d import AdaptiveAvgPool2dNode
+from nodes.pytorch.layer_norm import LayerNormNode
+from nodes.pytorch.multihead_attention import MultiheadAttentionNode
+from nodes.pytorch.transformer_encoder_layer import TransformerEncoderLayerNode
+from nodes.pytorch.positional_encoding import PositionalEncodingNode
 
 # Losses
-from nodes.pytorch.mse_loss import MSELossNode
-from nodes.pytorch.cross_entropy_loss import CrossEntropyLossNode
-from nodes.pytorch.bce_loss import BCELossNode
-from nodes.pytorch.bce_logits_loss import BCEWithLogitsNode
-from nodes.pytorch.l1_loss import L1LossNode
+from nodes.pytorch.mse_loss import LossFnNode
 from nodes.pytorch.loss_compute import LossComputeNode
 
 # Optimizers
-from nodes.pytorch.adam import AdamNode
-from nodes.pytorch.sgd import SGDNode
-from nodes.pytorch.adamw import AdamWNode
+from nodes.pytorch.adam import OptimizerNode
 
 # Schedulers
-from nodes.pytorch.step_lr import StepLRNode
-from nodes.pytorch.multistep_lr import MultiStepLRNode
-from nodes.pytorch.exponential_lr import ExponentialLRNode
-from nodes.pytorch.cosine_lr import CosineAnnealingLRNode
-from nodes.pytorch.reduce_lr_plateau import ReduceLROnPlateauNode
+from nodes.pytorch.step_lr import LRSchedulerNode
 
 # Training
-from nodes.pytorch.train_output import TrainOutputNode
+from nodes.pytorch.input_marker import InputMarkerNode
+from nodes.pytorch.train_marker import TrainMarkerNode
 
-# Datasets — universal node handles all formats
-from nodes.pytorch.dataset import DatasetNode
+# Datasets
+from nodes.pytorch.streaming_buffer import StreamingBufferNode
 
 # Dataset transforms
 from nodes.pytorch.apply_transform import ApplyTransformNode
@@ -61,9 +57,7 @@ from nodes.pytorch.mel_spectrogram import MelSpectrogramTransformNode
 from nodes.pytorch.hf_tokenizer_transform import HFTokenizerTransformNode
 
 # Tensor data / ops
-from nodes.pytorch.rand_tensor import RandTensorNode
-from nodes.pytorch.zeros_tensor import ZerosTensorNode
-from nodes.pytorch.ones_tensor import OnesTensorNode
+from nodes.pytorch.tensor_create import TensorCreateNode
 from nodes.pytorch.tensor_from_list import TensorFromListNode
 from nodes.pytorch.tensor_shape import TensorShapeNode
 from nodes.pytorch.tensor_info import TensorInfoNode
@@ -75,19 +69,16 @@ from nodes.pytorch.print_tensor import PrintTensorNode
 from nodes.pytorch.tensor_cat import TensorCatNode
 from nodes.pytorch.tensor_stack import TensorStackNode
 from nodes.pytorch.tensor_split import TensorSplitNode
-from nodes.pytorch.tensor_reshape import TensorReshapeNode
-from nodes.pytorch.tensor_unsqueeze import TensorUnsqueezeNode
-from nodes.pytorch.tensor_squeeze import TensorSqueezeNode
+from nodes.pytorch.tensor_shape_op import TensorShapeOpNode
 from nodes.pytorch.tensor_transpose import TensorTransposeNode
 from nodes.pytorch.tensor_permute import TensorPermuteNode
 from nodes.pytorch.tensor_einsum import TensorEinsumNode
+from nodes.pytorch.tensor_mux import TensorMuxNode
 
 # Recurrent
-from nodes.pytorch.rnn_layer import RNNLayerNode
-from nodes.pytorch.gru_layer import GRULayerNode
-from nodes.pytorch.lstm_layer import LSTMLayerNode
-from nodes.pytorch.rnn_forward import RNNForwardNode
-from nodes.pytorch.lstm_forward import LSTMForwardNode
+from nodes.pytorch.rnn import RNNNode
+from nodes.pytorch.lstm import LSTMNode
+from nodes.pytorch.gru import GRUNode
 from nodes.pytorch.pack_sequence import PackSequenceNode
 from nodes.pytorch.unpack_sequence import UnpackSequenceNode
 from nodes.pytorch.reshape_for_loss import ReshapeForLossNode
@@ -110,15 +101,11 @@ from nodes.pytorch.load_model import LoadModelNode
 from nodes.pytorch.apply_module import ApplyModuleNode
 from nodes.pytorch.gate import GateNode
 from nodes.pytorch.class_module_import import ClassModuleImportNode
-from nodes.pytorch.model_info_persist import ModelInfoPersistNode
 
 # Backbones
-from nodes.pytorch.resnet18 import ResNet18Node
-from nodes.pytorch.resnet50 import ResNet50Node
-from nodes.pytorch.mobilenet_v3 import MobileNetV3Node
-from nodes.pytorch.efficientnet_b0 import EfficientNetB0Node
+from nodes.pytorch.pretrained_backbone import PretrainedBackboneNode
 from nodes.pytorch.freeze_backbone import FreezeLayersNode, FreezeBackboneNode
-from nodes.pytorch.model_info import ModelInfoNode
+from nodes.pytorch.model_info_persist import ModelInfoNode
 from nodes.pytorch.freeze_named_layers import FreezeNamedLayersNode
 
 # VAE/AE per-layer building blocks
@@ -128,9 +115,6 @@ from nodes.pytorch.vae_loss import VAELossNode
 from nodes.pytorch.latent_sampler import LatentSamplerNode
 
 # Visualization
-from nodes.pytorch.viz_tensor import PlotTensorNode
+from nodes.pytorch.tensor_viz import TensorVizNode
 from nodes.pytorch.viz_training_curve import PlotTrainingCurveNode
-from nodes.pytorch.viz_tensor_hist import TensorHistogramNode
-from nodes.pytorch.viz_tensor_scatter import TensorScatterNode
-from nodes.pytorch.viz_show_image import ShowImageNode
 from nodes.pytorch.viz_weight_hist import WeightHistogramNode

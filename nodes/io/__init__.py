@@ -9,3 +9,4 @@ from nodes.io.http_post import HTTPPostNode
 from nodes.io.mqtt_publish import MQTTPublishNode
 from nodes.io.websocket_send import WebSocketSendNode
 from nodes.io.ros_publish import ROSPublishNode
+from nodes.io.webcam import WebcamCaptureNode

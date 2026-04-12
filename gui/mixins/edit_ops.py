@@ -89,14 +89,71 @@ class EditOpsMixin:
         self._log(f"Pasted {len(id_map)} node(s)")
 
     def _filter_palette(self, text: str) -> None:
-        text = text.lower().strip()
+        from gui.constants import PALETTE_W
+        query = text.lower().strip()
+        tree_tag = "palette_tree_group"
+        results_tag = "palette_search_results_group"
+
+        if dpg.does_item_exist(results_tag):
+            for child in dpg.get_item_children(results_tag, 1) or []:
+                dpg.delete_item(child)
+
+        if not query:
+            if dpg.does_item_exist(tree_tag):
+                dpg.show_item(tree_tag)
+            if dpg.does_item_exist(results_tag):
+                dpg.hide_item(results_tag)
+            return
+
+        if dpg.does_item_exist(tree_tag):
+            dpg.hide_item(tree_tag)
+        if not dpg.does_item_exist(results_tag):
+            return
+        dpg.show_item(results_tag)
+
+        scored: list[tuple[int, str, type]] = []
         for type_name, cls in NODE_REGISTRY.items():
-            btn_tag = f"palette_btn_{type_name}"
-            if dpg.does_item_exist(btn_tag):
-                if not text or text in type_name.lower() or text in cls.label.lower():
-                    dpg.show_item(btn_tag)
-                else:
-                    dpg.hide_item(btn_tag)
+            label = (getattr(cls, "label", "") or type_name).lower()
+            tn = type_name.lower()
+            cat = (getattr(cls, "category", "") or "").lower()
+            sub = (getattr(cls, "subcategory", "") or "").lower()
+            if label == query or tn == query:
+                score = 1000
+            elif label.startswith(query) or tn.startswith(query):
+                score = 500
+            elif query in label:
+                score = 200
+            elif query in tn:
+                score = 100
+            elif query in sub:
+                score = 50
+            elif query in cat:
+                score = 30
+            else:
+                continue
+            scored.append((score, type_name, cls))
+
+        scored.sort(key=lambda x: (-x[0], x[1]))
+
+        if not scored:
+            dpg.add_text("No matching nodes", color=[140, 140, 140], parent=results_tag)
+            return
+
+        theme = getattr(self, "_palette_btn_theme", None)
+        for _score, type_name, cls in scored[:60]:
+            category = getattr(cls, "category", "") or ""
+            sub = getattr(cls, "subcategory", "") or ""
+            trail = f"  —  {category}/{sub}" if sub else (f"  —  {category}" if category else "")
+            btn = dpg.add_button(
+                label=f"{cls.label}{trail}",
+                width=PALETTE_W - 24,
+                callback=lambda s, a, u: self.spawn_node(u),
+                user_data=type_name,
+                parent=results_tag,
+            )
+            if theme is not None:
+                dpg.bind_item_theme(btn, theme)
+            dpg.add_spacer(height=1, parent=results_tag)
 
     def _process_requests(self) -> None:
         if self._undo_requested:
@@ -119,33 +176,29 @@ class EditOpsMixin:
             self._paste_nodes()
 
     def _build_demo_graph(self) -> None:
-        """Pre-populate with a classification demo using the universal DatasetNode.
+        """Pre-populate with a classification demo using markers.
 
-        Generates a tiny synthetic dataset on disk (20 images + labels) and wires:
-        Dataset → Flatten → Linear+ReLU → Linear → TrainOutput. Shows the
-        recommended workflow with the new architecture — zero legacy nodes.
+        Data In (A:x) → Flatten → Linear+ReLU → Linear → Data Out (B:logits).
+        Set the dataset path in the Training panel to train.
         """
-        self._ensure_demo_classify_data()
-
-        from nodes.pytorch.dataset      import DatasetNode
-        from nodes.pytorch.flatten       import FlattenNode
-        from nodes.pytorch.linear        import LinearNode
-        from nodes.pytorch.train_output  import TrainOutputNode
-        from templates._helpers          import grid
+        from nodes.pytorch.input_marker import InputMarkerNode
+        from nodes.pytorch.flatten      import FlattenNode
+        from nodes.pytorch.linear       import LinearNode
+        from nodes.pytorch.train_marker import TrainMarkerNode
+        from templates._helpers         import grid
 
         pos = grid(step_x=240)
         positions: dict[str, tuple[int, int]] = {}
 
-        ds = DatasetNode()
-        ds.inputs["path"].default_value      = "demo_data/classify"
-        ds.inputs["batch_size"].default_value = 8
-        self.graph.add_node(ds); positions[ds.id] = pos()
+        data_in = InputMarkerNode()
+        data_in.inputs["modality"].default_value = "x"
+        self.graph.add_node(data_in); positions[data_in.id] = pos()
 
         flat = FlattenNode()
         self.graph.add_node(flat); positions[flat.id] = pos()
 
         h1 = LinearNode()
-        h1.inputs["in_features"].default_value  = 192  # 8*8*3 flattened
+        h1.inputs["in_features"].default_value  = 192
         h1.inputs["out_features"].default_value = 32
         h1.inputs["activation"].default_value   = "relu"
         self.graph.add_node(h1); positions[h1.id] = pos()
@@ -156,14 +209,15 @@ class EditOpsMixin:
         head.inputs["activation"].default_value   = "none"
         self.graph.add_node(head); positions[head.id] = pos()
 
-        target = TrainOutputNode()
-        self.graph.add_node(target); positions[target.id] = pos()
+        data_out = TrainMarkerNode()
+        data_out.inputs["kind"].default_value = "logits"
+        data_out.inputs["target"].default_value = "label"
+        self.graph.add_node(data_out); positions[data_out.id] = pos()
 
-        # Wire: dataset.image → flatten → linear → linear → train output
-        self.graph.add_connection(ds.id,   "image",      flat.id,   "tensor_in")
-        self.graph.add_connection(flat.id,  "tensor_out", h1.id,     "tensor_in")
-        self.graph.add_connection(h1.id,    "tensor_out", head.id,   "tensor_in")
-        self.graph.add_connection(head.id,  "tensor_out", target.id, "tensor_in")
+        self.graph.add_connection(data_in.id, "tensor",     flat.id,     "tensor_in")
+        self.graph.add_connection(flat.id,    "tensor_out", h1.id,       "tensor_in")
+        self.graph.add_connection(h1.id,      "tensor_out", head.id,     "tensor_in")
+        self.graph.add_connection(head.id,    "tensor_out", data_out.id, "tensor_in")
 
         # Build DPG visuals
         for node_id, node in self.graph.nodes.items():

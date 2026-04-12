@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class RandomVFlipTransformNode(BaseNode):
     type_name   = "pt_random_vflip_transform"
     label       = "Random V Flip"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Randomly flip image vertically with probability p."
 

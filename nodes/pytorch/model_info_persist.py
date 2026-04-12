@@ -1,15 +1,15 @@
-"""Model Info (persistence) node."""
+"""Model Info node — prints model summary + param counts."""
 from __future__ import annotations
 from typing import Any
 from core.node import BaseNode, PortType
 
 
-class ModelInfoPersistNode(BaseNode):
+class ModelInfoNode(BaseNode):
     """Display model architecture summary and parameter count."""
-    type_name   = "pt_model_info_persist"
+    type_name   = "pt_model_info"
     label       = "Model Info"
-    category    = "Analyze"
-    subcategory = "Models"
+    category    = "Models"
+    subcategory = "Inspect"
     description = "Print model architecture and total parameter count."
 
     def _setup_ports(self) -> None:

@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class RandomCropTransformNode(BaseNode):
     type_name   = "pt_random_crop_transform"
     label       = "Random Crop"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Randomly crop image to size with optional padding."
 

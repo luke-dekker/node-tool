@@ -8,7 +8,9 @@ class LowPassFilterNode(BaseNode):
     """First-order exponential low-pass filter."""
     type_name   = "rob_lowpass"
     label       = "Low Pass Filter"
-    category    = "Signal"
+    category    = "Robotics"
+    subcategory = "Robotics"
+    subcategory = "Signal"
     description = "Smooth noisy data. alpha=0.1 is heavy filtering, alpha=0.9 is light."
 
     def __init__(self):
@@ -38,7 +40,8 @@ class MovingAverageNode(BaseNode):
     """Windowed moving average — smooth signal with configurable window size."""
     type_name   = "rob_moving_avg"
     label       = "Moving Average"
-    category    = "Signal"
+    category    = "Robotics"
+    subcategory = "Signal"
     description = "Sliding window mean. Window=10 averages the last 10 values."
 
     def __init__(self):
@@ -68,7 +71,8 @@ class DerivativeNode(BaseNode):
     """Numerical derivative — velocity from position (or any rate of change)."""
     type_name   = "rob_derivative"
     label       = "Derivative"
-    category    = "Signal"
+    category    = "Robotics"
+    subcategory = "Signal"
     description = "dx/dt — numerical differentiation. First call returns 0."
 
     def __init__(self):
@@ -95,7 +99,8 @@ class IntegratorNode(BaseNode):
     """Numerical integrator — position from velocity (trapezoidal rule)."""
     type_name   = "rob_integrator"
     label       = "Integrator"
-    category    = "Signal"
+    category    = "Robotics"
+    subcategory = "Signal"
     description = "Accumulate value * dt over time. Trapezoidal rule."
 
     def __init__(self):
@@ -124,7 +129,8 @@ class KalmanFilter1DNode(BaseNode):
     """1D Kalman filter — estimate true state from noisy measurements."""
     type_name   = "rob_kalman1d"
     label       = "Kalman Filter 1D"
-    category    = "Signal"
+    category    = "Robotics"
+    subcategory = "Signal"
     description = (
         "1D Kalman filter. Estimates position from noisy position measurements. "
         "process_noise: how much the state changes per step. "

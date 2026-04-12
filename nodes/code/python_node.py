@@ -25,8 +25,8 @@ _GLOBALS = {k: v for k, v in
 class PythonNode(BaseNode):
     type_name = "python"
     label = "Python"
-    category = "Python"
-    subcategory = "Code"
+    category = "Core"
+    subcategory = ""
     description = "Run Python. Inputs: a, b, c (any type). Write: result = <expression>"
 
     def _setup_ports(self):

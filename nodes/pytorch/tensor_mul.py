@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorMulNode(BaseNode):
     type_name   = "pt_tensor_mul"
     label       = "Tensor Mul"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Element-wise multiplication of two tensors"
 
     def _setup_ports(self):

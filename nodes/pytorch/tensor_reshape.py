@@ -13,8 +13,8 @@ from core.node import BaseNode, PortType
 class TensorReshapeNode(BaseNode):
     type_name   = "pt_tensor_reshape"
     label       = "Reshape"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "tensor.reshape(shape). Enter shape as comma-separated ints, e.g. '32,-1' or '2,3,4'. Use -1 for inferred dim. For sequence loss prep, see Reshape For Loss."
 
     def _setup_ports(self):

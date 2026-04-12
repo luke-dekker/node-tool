@@ -17,7 +17,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pandas.pd_drop_na              import PdDropNaNode
     from nodes.pandas.pd_xy_split             import PdXYSplitNode
     from nodes.sklearn.sk_train_test_split    import SkTrainTestSplitNode
-    from nodes.sklearn.sk_standard_scaler     import SkStandardScalerNode
+    from nodes.sklearn.sk_preprocessor        import SkScalerNode
     from nodes.sklearn.sk_linear_regression   import SkLinearRegressionNode
     from nodes.sklearn.sk_predict             import SkPredictNode
     from nodes.sklearn.sk_r2_score            import SkR2ScoreNode
@@ -41,7 +41,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     split.inputs["random_state"].default_value = 42
     graph.add_node(split); positions[split.id] = pos()
 
-    scaler = SkStandardScalerNode()
+    scaler = SkScalerNode()
     graph.add_node(scaler); positions[scaler.id] = pos()
 
     lr = SkLinearRegressionNode()

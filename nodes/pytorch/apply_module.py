@@ -19,7 +19,7 @@ class ApplyModuleNode(BaseNode):
     type_name   = "pt_apply_module"
     label       = "Apply Module"
     category    = "Layers"
-    subcategory = "Bridges"
+    subcategory = "Utility"
     description = (
         "Apply a wired MODULE to a tensor — bridges backbone/model nodes into "
         "the tensor_in/tensor_out flow expected by training graphs."

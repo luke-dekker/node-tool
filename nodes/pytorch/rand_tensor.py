@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class RandTensorNode(BaseNode):
     type_name   = "pt_rand_tensor"
     label       = "Rand Tensor"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Create a random tensor with the given shape"
 
     def _setup_ports(self):

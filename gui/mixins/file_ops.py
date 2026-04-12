@@ -194,6 +194,8 @@ class FileOpsMixin:
                     )
             self._save_path = None  # template is unsaved by definition
             self._log(f"Template loaded: {label or 'unnamed'}")
+            if hasattr(self, "_rebuild_dataset_panel"):
+                self._rebuild_dataset_panel()
         except Exception as e:
             import traceback
             self._log(f"Template load failed: {traceback.format_exc()}")

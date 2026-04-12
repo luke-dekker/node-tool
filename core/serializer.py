@@ -47,10 +47,12 @@ class Serializer:
         data = json.loads(Path(path).read_text())
         graph = Graph()
         positions = {}
+        skipped: list[str] = []
         for nd in data["nodes"]:
             cls_ = NODE_REGISTRY.get(nd["type_name"])
             if cls_ is None:
-                raise KeyError(f"Unknown node type: {nd['type_name']}")
+                skipped.append(nd["type_name"])
+                continue
             node = cls_()
             node.id = nd["id"]
             for k, v in nd.get("inputs", {}).items():

@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class CenterCropTransformNode(BaseNode):
     type_name   = "pt_center_crop_transform"
     label       = "Center Crop"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Crop the center of an image to size x size."
 

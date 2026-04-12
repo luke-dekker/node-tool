@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class RandomHFlipTransformNode(BaseNode):
     type_name   = "pt_random_hflip_transform"
     label       = "Random H Flip"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Randomly flip image horizontally with probability p."
 

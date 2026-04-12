@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorEinsumNode(BaseNode):
     type_name   = "pt_tensor_einsum"
     label       = "Einsum"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "torch.einsum(equation, t1, t2). E.g. 'ij,jk->ik' for matmul, 'bij,bjk->bik' for batched."
 
     def _setup_ports(self):

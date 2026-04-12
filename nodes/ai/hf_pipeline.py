@@ -7,8 +7,8 @@ from core.node import BaseNode, PortType
 class HFPipelineNode(BaseNode):
     type_name   = "ai_hf_pipeline"
     label       = "HF Pipeline"
-    category    = "AI"
-    subcategory = "HuggingFace"
+    category    = "Models"
+    subcategory = "AI"
     description = (
         "High-level HuggingFace pipeline for inference. "
         "Good for quick inference without building a full graph. "

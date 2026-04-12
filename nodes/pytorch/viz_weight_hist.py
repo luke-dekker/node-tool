@@ -32,8 +32,8 @@ def _fig(figsize=(5, 3.5)):
 class WeightHistogramNode(BaseNode):
     type_name   = "pt_viz_weight_hist"
     label       = "Weight Histogram"
-    category    = "PyTorch"
-    subcategory = "Plots"
+    category    = "Visualization"
+    subcategory = ""
     description = "Histogram of all trainable parameter values in a model."
 
     def _setup_ports(self) -> None:

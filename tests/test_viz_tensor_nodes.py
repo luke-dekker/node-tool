@@ -18,13 +18,13 @@ def _has_pil():
 skip_pil = pytest.mark.skipif(not _has_pil(), reason="PIL not installed")
 
 
-# ── PlotTensorNode ─────────────────────────────────────────────────────────────
+# ── TensorVizNode — heatmap mode ──────────────────────────────────────────────
 
 @skip_pil
 def test_plot_tensor_2d():
-    from nodes.pytorch.viz import PlotTensorNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     t = torch.rand(8, 8)
-    result = PlotTensorNode().execute({"tensor": t, "title": "Test", "cmap": "viridis"})
+    result = TensorVizNode().execute({"mode": "heatmap", "tensor": t, "title": "Test", "cmap": "viridis"})
     assert result["image"] is not None
     assert isinstance(result["image"], np.ndarray)
     assert result["image"].ndim == 3  # H,W,C
@@ -32,15 +32,15 @@ def test_plot_tensor_2d():
 
 @skip_pil
 def test_plot_tensor_higher_rank_sliced():
-    from nodes.pytorch.viz import PlotTensorNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     t = torch.rand(3, 8, 8)  # should take first slice → 8x8
-    result = PlotTensorNode().execute({"tensor": t, "title": "3D", "cmap": "plasma"})
+    result = TensorVizNode().execute({"mode": "heatmap", "tensor": t, "title": "3D", "cmap": "plasma"})
     assert result["image"] is not None
 
 
 def test_plot_tensor_none():
-    from nodes.pytorch.viz import PlotTensorNode
-    result = PlotTensorNode().execute({"tensor": None, "title": "", "cmap": "viridis"})
+    from nodes.pytorch.tensor_viz import TensorVizNode
+    result = TensorVizNode().execute({"mode": "heatmap", "tensor": None, "title": "", "cmap": "viridis"})
     assert result["image"] is None
 
 
@@ -73,30 +73,30 @@ def test_training_curve_none():
     assert result["image"] is None
 
 
-# ── TensorHistogramNode ────────────────────────────────────────────────────────
+# ── TensorVizNode — histogram mode ────────────────────────────────────────────
 
 @skip_pil
 def test_tensor_histogram():
-    from nodes.pytorch.viz import TensorHistogramNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     t = torch.randn(100)
-    result = TensorHistogramNode().execute({"tensor": t, "bins": 20, "title": "Hist", "color": "cyan"})
+    result = TensorVizNode().execute({"mode": "histogram", "tensor": t, "bins": 20, "title": "Hist", "color": "cyan"})
     assert result["image"] is not None
 
 
 def test_tensor_histogram_none():
-    from nodes.pytorch.viz import TensorHistogramNode
-    result = TensorHistogramNode().execute({"tensor": None, "bins": 20, "title": "", "color": "cyan"})
+    from nodes.pytorch.tensor_viz import TensorVizNode
+    result = TensorVizNode().execute({"mode": "histogram", "tensor": None, "bins": 20, "title": "", "color": "cyan"})
     assert result["image"] is None
 
 
-# ── TensorScatterNode ──────────────────────────────────────────────────────────
+# ── TensorVizNode — scatter mode ──────────────────────────────────────────────
 
 @skip_pil
 def test_tensor_scatter_points():
-    from nodes.pytorch.viz import TensorScatterNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     pts = torch.rand(50, 2)
-    result = TensorScatterNode().execute({
-        "points": pts, "x": None, "y": None, "labels": None,
+    result = TensorVizNode().execute({
+        "mode": "scatter", "points": pts, "x": None, "y": None, "labels": None,
         "title": "Scatter", "alpha": 0.8
     })
     assert result["image"] is not None
@@ -104,11 +104,11 @@ def test_tensor_scatter_points():
 
 @skip_pil
 def test_tensor_scatter_xy():
-    from nodes.pytorch.viz import TensorScatterNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     x = torch.rand(30)
     y = torch.rand(30)
-    result = TensorScatterNode().execute({
-        "points": None, "x": x, "y": y, "labels": None,
+    result = TensorVizNode().execute({
+        "mode": "scatter", "points": None, "x": x, "y": y, "labels": None,
         "title": "XY", "alpha": 0.7
     })
     assert result["image"] is not None
@@ -116,54 +116,54 @@ def test_tensor_scatter_xy():
 
 @skip_pil
 def test_tensor_scatter_with_labels():
-    from nodes.pytorch.viz import TensorScatterNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     pts = torch.rand(40, 2)
     labels = torch.randint(0, 3, (40,))
-    result = TensorScatterNode().execute({
-        "points": pts, "x": None, "y": None, "labels": labels,
+    result = TensorVizNode().execute({
+        "mode": "scatter", "points": pts, "x": None, "y": None, "labels": labels,
         "title": "Coloured", "alpha": 0.7
     })
     assert result["image"] is not None
 
 
 def test_tensor_scatter_none():
-    from nodes.pytorch.viz import TensorScatterNode
-    result = TensorScatterNode().execute({
-        "points": None, "x": None, "y": None, "labels": None,
+    from nodes.pytorch.tensor_viz import TensorVizNode
+    result = TensorVizNode().execute({
+        "mode": "scatter", "points": None, "x": None, "y": None, "labels": None,
         "title": "", "alpha": 0.7
     })
     assert result["image"] is None
 
 
-# ── ShowImageNode ──────────────────────────────────────────────────────────────
+# ── TensorVizNode — image mode ────────────────────────────────────────────────
 
 @skip_pil
 def test_show_image_chw():
-    from nodes.pytorch.viz import ShowImageNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     t = torch.rand(3, 32, 32)  # CHW colour
-    result = ShowImageNode().execute({"tensor": t, "title": "RGB"})
+    result = TensorVizNode().execute({"mode": "image", "tensor": t, "title": "RGB"})
     assert result["image"] is not None
 
 
 @skip_pil
 def test_show_image_grayscale():
-    from nodes.pytorch.viz import ShowImageNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     t = torch.rand(1, 28, 28)  # 1-channel CHW
-    result = ShowImageNode().execute({"tensor": t, "title": "Gray"})
+    result = TensorVizNode().execute({"mode": "image", "tensor": t, "title": "Gray"})
     assert result["image"] is not None
 
 
 @skip_pil
 def test_show_image_2d():
-    from nodes.pytorch.viz import ShowImageNode
+    from nodes.pytorch.tensor_viz import TensorVizNode
     t = torch.rand(28, 28)  # bare 2D
-    result = ShowImageNode().execute({"tensor": t, "title": "2D"})
+    result = TensorVizNode().execute({"mode": "image", "tensor": t, "title": "2D"})
     assert result["image"] is not None
 
 
 def test_show_image_none():
-    from nodes.pytorch.viz import ShowImageNode
-    result = ShowImageNode().execute({"tensor": None, "title": ""})
+    from nodes.pytorch.tensor_viz import TensorVizNode
+    result = TensorVizNode().execute({"mode": "image", "tensor": None, "title": ""})
     assert result["image"] is None
 
 
@@ -191,9 +191,8 @@ def test_weight_histogram_none():
 def test_pt_viz_nodes_registered():
     from nodes import NODE_REGISTRY
     expected = [
-        "pt_viz_tensor_heatmap", "pt_viz_training_curve",
-        "pt_viz_tensor_hist", "pt_viz_tensor_scatter",
-        "pt_viz_show_image", "pt_viz_weight_hist",
+        "pt_tensor_viz", "pt_viz_training_curve",
+        "pt_viz_weight_hist",
     ]
     for tn in expected:
         assert tn in NODE_REGISTRY, f"{tn} not in registry"

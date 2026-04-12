@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class ArgmaxNode(BaseNode):
     type_name   = "pt_argmax"
     label       = "Argmax"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "torch.argmax(tensor, dim)"
 
     def _setup_ports(self):

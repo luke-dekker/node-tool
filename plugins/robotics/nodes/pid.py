@@ -15,7 +15,9 @@ from core.node import BaseNode, PortType
 class PIDControllerNode(BaseNode):
     type_name   = "rob_pid"
     label       = "PID Controller"
-    category    = "Control"
+    category    = "Robotics"
+    subcategory = "Robotics"
+    subcategory = "Control"
     description = (
         "Classic PID controller with anti-windup. Each graph execution is "
         "one control tick. Internal state persists across ticks."
@@ -96,7 +98,8 @@ class PIDControllerNode(BaseNode):
 class BangBangControllerNode(BaseNode):
     type_name   = "rob_bangbang"
     label       = "Bang-Bang"
-    category    = "Control"
+    category    = "Robotics"
+    subcategory = "Control"
     description = "On/off controller with hysteresis. Output is high or low."
 
     def _setup_ports(self) -> None:
@@ -122,7 +125,8 @@ class BangBangControllerNode(BaseNode):
 class RampGeneratorNode(BaseNode):
     type_name   = "rob_ramp"
     label       = "Ramp Generator"
-    category    = "Control"
+    category    = "Robotics"
+    subcategory = "Control"
     description = "Smoothly ramp toward a target value at a configurable rate per tick."
 
     def __init__(self):

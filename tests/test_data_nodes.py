@@ -34,8 +34,8 @@ def test_np_dot():
     assert abs(r["result"] - 32.0) < 1e-6
 
 def test_np_none_guard():
-    from nodes.numpy import NpMeanNode
-    r = NpMeanNode().execute({"array": None, "axis": -99})
+    from nodes.numpy import NpReduceNode
+    r = NpReduceNode().execute({"array": None, "Op": "mean", "axis": -99})
     assert r["result"] is None
 
 # ── Pandas ─────────────────────────────────────────────────────────────────
@@ -77,9 +77,9 @@ def test_sk_train_test_split():
     assert len(r["X_train"]) == 80
     assert len(r["X_test"]) == 20
 
-def test_sk_logistic_regression():
+def test_sk_classifier():
     from nodes.pandas import PdMakeSampleNode, PdXYSplitNode
-    from nodes.sklearn import SkTrainTestSplitNode, SkLogisticRegressionNode, SkPredictNode, SkAccuracyNode
+    from nodes.sklearn import SkTrainTestSplitNode, SkClassifierNode, SkPredictNode, SkAccuracyNode
     df = PdMakeSampleNode().execute({"rows": 200, "cols": 4, "seed": 0})["df"]
     split = PdXYSplitNode().execute({"df": df, "label_col": "label"})
     tt = SkTrainTestSplitNode().execute({"X": split["X"], "y": split["y"], "test_size": 0.2, "random_state": 42})
@@ -88,7 +88,7 @@ def test_sk_logistic_regression():
     X_test  = tt["X_test"].values  if hasattr(tt["X_test"],  "values") else tt["X_test"]
     y_train = tt["y_train"].values if hasattr(tt["y_train"], "values") else tt["y_train"]
     y_test  = tt["y_test"].values  if hasattr(tt["y_test"],  "values") else tt["y_test"]
-    model_r = SkLogisticRegressionNode().execute({"X_train": X_train, "y_train": y_train, "max_iter": 1000})
+    model_r = SkClassifierNode().execute({"algorithm": "logistic_regression", "X_train": X_train, "y_train": y_train, "max_iter": 1000})
     preds = SkPredictNode().execute({"model": model_r["model"], "X": X_test})
     acc = SkAccuracyNode().execute({"y_true": y_test, "y_pred": preds["predictions"]})
     assert acc["accuracy"] > 0.4  # random data, just check it runs

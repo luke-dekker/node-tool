@@ -1,10 +1,21 @@
-"""Multi-modal classification — audio + image fusion with loss-as-output."""
+"""Multi-modal classification — audio + image fusion with loss-as-output.
+
+Marker-based architecture: the graph contains zero data-loading nodes. Three A
+markers inject audio, image, and label batches at training time; per-modality
+encoders fuse their outputs; cross-entropy loss is computed in the graph; and a
+B marker marks the loss as the training output. All dataset config lives in the
+Training Panel.
+
+    Data In (A:audio) → Linear → ─┐
+    Data In (A:image) → Flatten → Linear → ─┤ TensorCat → Linear → LossCompute → Data Out (B:loss)
+    Data In (A:label) ──────────────────────────────────────────────────────────↗ (target)
+"""
 from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
 LABEL = "Multi-Modal Classification"
-DESCRIPTION = "Audio + image fusion with per-modality encoders, concat, loss-as-output."
+DESCRIPTION = "Audio + image fusion with per-modality encoders, concat, loss-as-output. Marker-based — dataset lives in the panel."
 
 DEMO_DIR = "demo_data/multimodal_full"
 
@@ -26,18 +37,23 @@ def _ensure_data():
     with open(f"{DEMO_DIR}/samples.csv","w") as f: f.write("\n".join(rows))
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    _ensure_data()
-    from nodes.pytorch.dataset       import DatasetNode
+    from nodes.pytorch.input_marker  import InputMarkerNode
     from nodes.pytorch.linear        import LinearNode
     from nodes.pytorch.flatten       import FlattenNode
     from nodes.pytorch.tensor_cat    import TensorCatNode
     from nodes.pytorch.loss_compute  import LossComputeNode
-    from nodes.pytorch.train_output  import TrainOutputNode
+    from nodes.pytorch.train_marker  import TrainMarkerNode
 
     pos = grid(step_x=220); positions = {}
 
-    ds = DatasetNode(); ds.inputs["path"].default_value=DEMO_DIR; ds.inputs["batch_size"].default_value=8
-    graph.add_node(ds); positions[ds.id] = pos(col=0, row=2)
+    audio_in = InputMarkerNode(); audio_in.inputs["modality"].default_value = "audio"
+    graph.add_node(audio_in); positions[audio_in.id] = pos(col=0, row=1)
+
+    image_in = InputMarkerNode(); image_in.inputs["modality"].default_value = "image"
+    graph.add_node(image_in); positions[image_in.id] = pos(col=0, row=3)
+
+    label_in = InputMarkerNode(); label_in.inputs["modality"].default_value = "label"
+    graph.add_node(label_in); positions[label_in.id] = pos(col=0, row=5)
 
     a1 = LinearNode(); a1.inputs["in_features"].default_value=64; a1.inputs["out_features"].default_value=16; a1.inputs["activation"].default_value="relu"
     graph.add_node(a1); positions[a1.id] = pos(col=1, row=1)
@@ -55,13 +71,13 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     loss = LossComputeNode(); loss.inputs["loss_type"].default_value="cross_entropy"
     graph.add_node(loss); positions[loss.id] = pos(col=5, row=2)
 
-    target = TrainOutputNode(); target.inputs["loss_is_output"].default_value=True
-    graph.add_node(target); positions[target.id] = pos(col=6, row=2)
+    data_out = TrainMarkerNode(); data_out.inputs["kind"].default_value="loss"
+    graph.add_node(data_out); positions[data_out.id] = pos(col=6, row=2)
 
-    graph.add_connection(ds.id,"audio",a1.id,"tensor_in")
-    graph.add_connection(ds.id,"image",img_flat.id,"tensor_in"); graph.add_connection(img_flat.id,"tensor_out",i1.id,"tensor_in")
+    graph.add_connection(audio_in.id,"tensor",a1.id,"tensor_in")
+    graph.add_connection(image_in.id,"tensor",img_flat.id,"tensor_in"); graph.add_connection(img_flat.id,"tensor_out",i1.id,"tensor_in")
     graph.add_connection(a1.id,"tensor_out",fuse.id,"t1"); graph.add_connection(i1.id,"tensor_out",fuse.id,"t2")
     graph.add_connection(fuse.id,"tensor",head.id,"tensor_in")
-    graph.add_connection(head.id,"tensor_out",loss.id,"pred"); graph.add_connection(ds.id,"label",loss.id,"target")
-    graph.add_connection(loss.id,"loss",target.id,"tensor_in")
+    graph.add_connection(head.id,"tensor_out",loss.id,"pred"); graph.add_connection(label_in.id,"tensor",loss.id,"target")
+    graph.add_connection(loss.id,"loss",data_out.id,"tensor_in")
     return positions

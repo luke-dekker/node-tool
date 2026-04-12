@@ -7,8 +7,8 @@ from core.node import BaseNode, PortType
 class OllamaEmbedNode(BaseNode):
     type_name   = "ai_ollama_embed"
     label       = "Ollama Embed"
-    category    = "AI"
-    subcategory = "Ollama"
+    category    = "Models"
+    subcategory = "AI"
     description = (
         "Get an embedding vector from a local Ollama model. "
         "Returns a 1-D numpy array. Requires Ollama running (ollama.com)."

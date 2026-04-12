@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class ApplyTransformNode(BaseNode):
     type_name   = "pt_apply_transform"
     label       = "Apply Transform"
-    category    = "Datasets"
-    subcategory = "Loader"
+    category    = "Data"
+    subcategory = "Splits"
     description = "Wrap a Dataset so that transform is applied to every sample's first element (e.g. image)."
 
     def _setup_ports(self):

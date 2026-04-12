@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class ToTensorTransformNode(BaseNode):
     type_name   = "pt_to_tensor_transform"
     label       = "To Tensor"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Convert PIL image or numpy array to a FloatTensor (torchvision.transforms.ToTensor)."
 

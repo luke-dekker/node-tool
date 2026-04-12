@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class PrintTensorNode(BaseNode):
     type_name   = "pt_print_tensor"
     label       = "Print Tensor"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Log tensor shape to terminal and pass through"
 
     def _setup_ports(self):

@@ -60,9 +60,18 @@ class GraphAsModule(nn.Module):
 
         # Prime all layer nodes so their internal nn.Modules exist.
         # Running the graph once (under no_grad) triggers the lazy _get_layer() calls.
+        # Cache the resulting outputs — injection-point nodes get their execute()
+        # skipped during training forwards, so non-overridden outputs (dataset
+        # metadata like vocab_size, task_id, etc.) need to survive from the
+        # priming run so they keep flowing into downstream nodes.
+        self._primed_outputs: dict[str, dict[str, Any]] = {}
         with torch.no_grad():
             try:
-                graph.execute()
+                primed, _ = graph.execute()
+                if isinstance(primed, dict):
+                    self._primed_outputs = {
+                        nid: dict(vals) for nid, vals in primed.items()
+                    }
             except Exception:
                 pass
 
@@ -109,50 +118,78 @@ class GraphAsModule(nn.Module):
     def _batch_to_port_values(self, batch: Any) -> dict[tuple[str, str], Any]:
         """Map `batch` onto {(injection_node_id, port_name): tensor}.
 
-        Injection points are discovered by looking for nodes that have BOTH
-        a DATALOADER output port AND x/label tensor output ports — these are
-        the new-style dataset nodes that serve as both data sources and
-        injection points. Legacy BatchInput nodes are also supported for
-        backward compat.
+        Two injection-point flavors are supported:
+          1. Input markers (pt_input_marker) — each marker emits one tensor
+             on its "tensor" output port, keyed by its `modality` input.
+             Preferred path for new-style templates.
+          2. Legacy dataset nodes (DATALOADER + x/label outputs) — the whole
+             batch dict is splayed across the dataset node's output ports by
+             column name, with an "x" fallback for templates that wire the
+             legacy `x` port. Kept so DatasetNode-based templates keep
+             working during the marker migration.
 
-        The batch is unpacked as:
-          - dict with 'data': multimodal collate format → per-modality tensors
+        Batch shape handling:
+          - dict with 'data' key: legacy multimodal collate format
+          - plain dict {col: tensor}: DatasetNode's _collate_manifest output
           - (x, y) tuple: standard classification batch
           - single tensor: unsupervised / autoencoder
         """
         from core.port_types import PortType, PortTypeRegistry
         overrides: dict[tuple[str, str], Any] = {}
 
-        # Find injection points: dataset nodes with DATALOADER + TENSOR outputs,
-        # OR legacy BatchInput nodes
-        injection_nodes: list[str] = []
+        # ── Discover injection points ────────────────────────────────────
+        marker_nodes: list[str] = []      # new-style: pt_input_marker
+        legacy_nodes: list[str] = []      # old-style: dataset node / batch_input
         for nid, n in self.graph.nodes.items():
-            if n.type_name == "batch_input":
-                injection_nodes.append(nid)
+            if n.type_name == "pt_input_marker":
+                marker_nodes.append(nid)
                 continue
-            # New-style: any node with a DATALOADER output + x/label TENSOR outputs
+            if n.type_name == "batch_input":
+                legacy_nodes.append(nid)
+                continue
             has_dl = any(p.port_type == PortType.DATALOADER for p in n.outputs.values())
             has_x  = "x" in n.outputs and n.outputs["x"].port_type == PortType.TENSOR
             if has_dl and has_x:
-                injection_nodes.append(nid)
+                legacy_nodes.append(nid)
 
-        if not injection_nodes:
+        if not marker_nodes and not legacy_nodes:
             return overrides
 
-        # Parse the batch into a dict of {port_name: tensor}
+        # ── Parse the batch into a flat {col_name: tensor} dict ──────────
         port_values: dict[str, Any] = {}
         if isinstance(batch, dict) and "data" in batch:
             for port, val in batch["data"].items():
                 port_values[port] = val
             port_values["label"] = batch.get("label")
+        elif isinstance(batch, dict):
+            for port, val in batch.items():
+                port_values[port] = val
+            # Synthesize "x" for legacy nodes that wire the universal port
+            if "x" not in port_values:
+                for key in ("observation.state", "observation", "features", "input"):
+                    if key in batch:
+                        port_values["x"] = batch[key]
+                        break
+            if "x" not in port_values:
+                for col, val in batch.items():
+                    if col != "label":
+                        port_values["x"] = val
+                        break
         elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
             port_values["x"] = batch[0]
             port_values["label"] = batch[1]
         else:
             port_values["x"] = batch
 
-        # Apply to every injection node — only override ports that exist on the node
-        for nid in injection_nodes:
+        # ── Marker path: each marker pulls one column by modality ───────
+        for nid in marker_nodes:
+            node = self.graph.nodes[nid]
+            modality = str(node.inputs["modality"].default_value or "x")
+            if modality in port_values:
+                overrides[(nid, "tensor")] = port_values[modality]
+
+        # ── Legacy path: splay all columns across the dataset node ──────
+        for nid in legacy_nodes:
             node = self.graph.nodes[nid]
             for port_name, val in port_values.items():
                 if port_name in node.outputs:
@@ -172,18 +209,29 @@ class GraphAsModule(nn.Module):
             for c in self.graph.connections
         }
 
-        # Pre-populate stored with any override values so downstream lookups see them
+        # Seed injection-point nodes with their primed (pre-override) outputs
+        # so non-overridden ports (dataset metadata like vocab_size) still flow
+        # through when execute() is skipped. Only injection nodes are seeded —
+        # every other node re-runs execute() from scratch with gradients on.
+        injected_nids = {nid for (nid, _port) in overrides.keys()}
+        for nid in injected_nids:
+            primed = self._primed_outputs.get(nid)
+            if primed:
+                stored[nid] = dict(primed)
+
+        # Apply override values on top so downstream lookups see current-batch tensors
         for (nid, port), val in overrides.items():
             stored.setdefault(nid, {})[port] = val
 
         for node_id in order:
             node = self.graph.nodes[node_id]
 
-            # If this node is an injection point (BatchInput or dataset node)
-            # and its outputs are already overridden with batch tensors,
-            # skip its execute() — stored[node_id] already holds the values.
+            # If this node is an injection point (marker, BatchInput, or
+            # dataset node) and its outputs are already overridden with
+            # batch tensors, skip its execute() — stored[node_id] already
+            # holds the values.
             if node_id in stored and (
-                node.type_name == "batch_input"
+                node.type_name in ("pt_input_marker", "batch_input")
                 or ("x" in node.outputs and any(
                     p.port_type == PortType.DATALOADER for p in node.outputs.values()
                 ))

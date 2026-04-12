@@ -22,65 +22,66 @@ def test_linear_node_tensor_out():
 
 
 def test_rand_tensor_node():
-    from nodes.pytorch import RandTensorNode
+    from nodes.pytorch.tensor_create import TensorCreateNode
     import torch
-    result = RandTensorNode().execute({"shape": "2,3", "requires_grad": False})
+    result = TensorCreateNode().execute({"fill": "rand", "shape": "2,3", "requires_grad": False})
     assert isinstance(result["tensor"], torch.Tensor)
     assert list(result["tensor"].shape) == [2, 3]
 
 
-def test_mse_loss():
-    from nodes.pytorch import MSELossNode
+def test_loss_fn_node():
+    from nodes.pytorch import LossFnNode
     import torch.nn as nn
-    result = MSELossNode().execute({"reduction": "mean"})
+    result = LossFnNode().execute({"loss_type": "mse", "reduction": "mean"})
     assert isinstance(result["loss_fn"], nn.MSELoss)
+    result = LossFnNode().execute({"loss_type": "cross_entropy", "reduction": "mean"})
+    assert isinstance(result["loss_fn"], nn.CrossEntropyLoss)
 
 
-def test_adam_none_guard():
-    from nodes.pytorch import AdamNode
-    result = AdamNode().execute({"model": None, "lr": 0.001, "weight_decay": 0.0})
+def test_optimizer_none_guard():
+    from nodes.pytorch import OptimizerNode
+    result = OptimizerNode().execute({"model": None, "optimizer_type": "adam",
+                                      "lr": 0.001, "weight_decay": 0.0, "momentum": 0.9})
     assert result["optimizer"] is None
 
 
-def test_step_lr_node():
-    import torch.nn as nn, torch.optim as optim
-    from nodes.pytorch import AdamNode, StepLRNode
+def test_optimizer_node():
+    import torch.nn as nn
+    from nodes.pytorch import OptimizerNode
     model = nn.Linear(4, 2)
-    opt = AdamNode().execute({"model": model, "lr": 0.01, "weight_decay": 0.0})["optimizer"]
-    result = StepLRNode().execute({"optimizer": opt, "step_size": 5, "gamma": 0.5})
+    result = OptimizerNode().execute({"model": model, "optimizer_type": "adam",
+                                      "lr": 0.01, "weight_decay": 0.0, "momentum": 0.9})
+    assert result["optimizer"] is not None
+
+
+def test_lr_scheduler_node():
+    import torch.nn as nn
+    from nodes.pytorch import OptimizerNode, LRSchedulerNode
+    model = nn.Linear(4, 2)
+    opt = OptimizerNode().execute({"model": model, "optimizer_type": "adam",
+                                   "lr": 0.01, "weight_decay": 0.0, "momentum": 0.9})["optimizer"]
+    result = LRSchedulerNode().execute({"optimizer": opt, "scheduler_type": "step",
+                                        "step_size": 5, "gamma": 0.5,
+                                        "milestones": "30,60", "T_max": 10,
+                                        "eta_min": 0.0, "mode": "min",
+                                        "factor": 0.1, "patience": 10})
     from torch.optim.lr_scheduler import StepLR
     assert isinstance(result["scheduler"], StepLR)
 
 
-def test_step_lr_none_guard():
-    from nodes.pytorch import StepLRNode
-    result = StepLRNode().execute({"optimizer": None, "step_size": 5, "gamma": 0.1})
+def test_lr_scheduler_none_guard():
+    from nodes.pytorch import LRSchedulerNode
+    result = LRSchedulerNode().execute({"optimizer": None, "scheduler_type": "step",
+                                        "step_size": 5, "gamma": 0.1,
+                                        "milestones": "", "T_max": 10,
+                                        "eta_min": 0.0, "mode": "min",
+                                        "factor": 0.1, "patience": 10})
     assert result["scheduler"] is None
 
 
-def test_cosine_annealing_node():
-    import torch.nn as nn, torch.optim as optim
-    from nodes.pytorch import AdamNode, CosineAnnealingLRNode
-    model = nn.Linear(2, 1)
-    opt = AdamNode().execute({"model": model, "lr": 0.01, "weight_decay": 0.0})["optimizer"]
-    result = CosineAnnealingLRNode().execute({"optimizer": opt, "T_max": 10, "eta_min": 1e-6})
-    from torch.optim.lr_scheduler import CosineAnnealingLR
-    assert isinstance(result["scheduler"], CosineAnnealingLR)
-
-
-def test_reduce_lr_plateau_node():
-    import torch.nn as nn, torch.optim as optim
-    from nodes.pytorch import AdamNode, ReduceLROnPlateauNode
-    model = nn.Linear(2, 1)
-    opt = AdamNode().execute({"model": model, "lr": 0.01, "weight_decay": 0.0})["optimizer"]
-    result = ReduceLROnPlateauNode().execute({"optimizer": opt, "mode": "min",
-                                              "factor": 0.1, "patience": 5})
-    from torch.optim.lr_scheduler import ReduceLROnPlateau
-    assert isinstance(result["scheduler"], ReduceLROnPlateau)
-
-
 def test_tensor_info():
-    from nodes.pytorch import TensorInfoNode, RandTensorNode
-    tensor = RandTensorNode().execute({"shape": "3,4", "requires_grad": False})["tensor"]
+    from nodes.pytorch import TensorInfoNode
+    from nodes.pytorch.tensor_create import TensorCreateNode
+    tensor = TensorCreateNode().execute({"fill": "rand", "shape": "3,4", "requires_grad": False})["tensor"]
     info = TensorInfoNode().execute({"tensor": tensor})["info"]
     assert "3" in info and "4" in info

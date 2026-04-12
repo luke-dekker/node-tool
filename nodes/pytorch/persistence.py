@@ -7,8 +7,7 @@ from nodes.pytorch.export_onnx import ExportONNXNode
 from nodes.pytorch.save_full_model import SaveFullModelNode
 from nodes.pytorch.pretrained_block import PretrainedBlockNode
 from nodes.pytorch.load_model import LoadModelNode
-# The original persistence.py had ModelInfoNode with type_name "pt_model_info_persist"
-from nodes.pytorch.model_info_persist import ModelInfoPersistNode as ModelInfoNode
+from nodes.pytorch.model_info_persist import ModelInfoNode
 
 __all__ = [
     "SaveWeightsNode", "LoadWeightsNode", "SaveCheckpointNode", "LoadCheckpointNode",

@@ -15,7 +15,9 @@ class SensorSimulatorNode(BaseNode):
     """Generate synthetic sensor data — sine, noise, step, ramp — for testing."""
     type_name   = "rob_sensor_sim"
     label       = "Sensor Simulator"
-    category    = "Sensors"
+    category    = "Robotics"
+    subcategory = "Robotics"
+    subcategory = "Sensors"
     description = (
         "Generate synthetic sensor data for testing control loops. "
         "Modes: sine, noise, step, ramp, constant."
@@ -75,7 +77,8 @@ class EncoderNode(BaseNode):
     """Rotary encoder — converts tick counts to angle and velocity."""
     type_name   = "rob_encoder"
     label       = "Encoder"
-    category    = "Sensors"
+    category    = "Robotics"
+    subcategory = "Sensors"
     description = "Rotary encoder: raw counts → angle (deg) and velocity (deg/s)."
 
     def __init__(self):
@@ -108,7 +111,8 @@ class DistanceSensorNode(BaseNode):
     """Ultrasonic/LIDAR distance reading with min/max range filtering."""
     type_name   = "rob_distance"
     label       = "Distance Sensor"
-    category    = "Sensors"
+    category    = "Robotics"
+    subcategory = "Sensors"
     description = "Range sensor with min/max filtering. Out-of-range → None."
 
     def _setup_ports(self) -> None:
@@ -131,7 +135,8 @@ class AnalogSensorNode(BaseNode):
     """Generic analog sensor — voltage to physical value with scaling."""
     type_name   = "rob_analog"
     label       = "Analog Sensor"
-    category    = "Sensors"
+    category    = "Robotics"
+    subcategory = "Sensors"
     description = "Voltage → scaled physical value. value = (voltage - offset) * scale"
 
     def _setup_ports(self) -> None:

@@ -7,20 +7,15 @@ import pytest
 def test_save_load_roundtrip():
     from core.graph import Graph
     from core.serializer import Serializer
-    from nodes.math import MathNode
-    from nodes.data import ConstNode
+    from nodes.code.python_node import PythonNode
 
     graph = Graph()
-    a = ConstNode()
-    a.inputs["Type"].default_value = "float"
-    a.inputs["Value"].default_value = "7.0"
-    b = ConstNode()
-    b.inputs["Type"].default_value = "float"
-    b.inputs["Value"].default_value = "3.0"
-    add = MathNode()  # default Op="add"
+    a = PythonNode(); a.inputs["code"].default_value = "result = 7.0"
+    b = PythonNode(); b.inputs["code"].default_value = "result = 3.0"
+    add = PythonNode(); add.inputs["code"].default_value = "result = a + b"
     graph.add_node(a); graph.add_node(b); graph.add_node(add)
-    graph.add_connection(a.id, "Value", add.id, "A")
-    graph.add_connection(b.id, "Value", add.id, "B")
+    graph.add_connection(a.id, "result", add.id, "a")
+    graph.add_connection(b.id, "result", add.id, "b")
 
     positions = {a.id: [10, 20], b.id: [10, 80], add.id: [200, 50]}
 
@@ -33,8 +28,9 @@ def test_save_load_roundtrip():
         assert len(graph2.nodes) == 3
         assert len(graph2.connections) == 2
         outputs, _ = graph2.execute()
-        math_node = next(n for n in graph2.nodes.values() if n.type_name == "math")
-        assert outputs[math_node.id]["Result"] == 10.0
+        add_node = next(n for n in graph2.nodes.values()
+                        if n.inputs["code"].default_value == "result = a + b")
+        assert outputs[add_node.id]["result"] == 10.0
     finally:
         os.unlink(path)
 
@@ -49,7 +45,7 @@ def test_unknown_type_raises():
         }, f)
         path = f.name
     try:
-        with pytest.raises(KeyError):
-            Serializer.load(path)
+        graph, _ = Serializer.load(path)
+        assert "nonexistent_xyz" not in [n.type_name for n in graph.nodes.values()]
     finally:
         os.unlink(path)

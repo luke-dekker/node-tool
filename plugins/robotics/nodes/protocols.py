@@ -27,7 +27,7 @@ class FrameBuilderNode(BaseNode):
     """Build a framed serial packet from fields."""
     type_name   = "rob_frame_build"
     label       = "Frame Builder"
-    category    = "Control"
+    category    = "IO"
     subcategory = "Serial"
     description = (
         "Build a framed packet: [header] [length] [command] [payload] [crc8]. "
@@ -75,7 +75,7 @@ class FrameParserNode(BaseNode):
     """Parse a framed serial packet into fields."""
     type_name   = "rob_frame_parse"
     label       = "Frame Parser"
-    category    = "Control"
+    category    = "IO"
     subcategory = "Serial"
     description = (
         "Parse a framed packet: [header] [length] [command] [payload] [crc8]. "
@@ -133,33 +133,3 @@ class FrameParserNode(BaseNode):
         return {"command": cmd, "payload": payload, "valid": True, "error": ""}
 
 
-class MapValueNode(BaseNode):
-    """Map a value from one range to another (like Arduino's map())."""
-    type_name   = "rob_map_value"
-    label       = "Map Value"
-    category    = "Signal"
-    description = "Map a value from [in_min, in_max] to [out_min, out_max]. Like Arduino's map()."
-
-    def _setup_ports(self) -> None:
-        self.add_input("value",   PortType.FLOAT, 0.0)
-        self.add_input("in_min",  PortType.FLOAT, 0.0)
-        self.add_input("in_max",  PortType.FLOAT, 1023.0)
-        self.add_input("out_min", PortType.FLOAT, 0.0)
-        self.add_input("out_max", PortType.FLOAT, 255.0)
-        self.add_input("clamp",   PortType.BOOL, True)
-        self.add_output("result", PortType.FLOAT)
-
-    def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        val = float(inputs.get("value") or 0)
-        i0  = float(inputs.get("in_min") or 0)
-        i1  = float(inputs.get("in_max") or 1023)
-        o0  = float(inputs.get("out_min") or 0)
-        o1  = float(inputs.get("out_max") or 255)
-        if abs(i1 - i0) < 1e-9:
-            result = o0
-        else:
-            result = (val - i0) / (i1 - i0) * (o1 - o0) + o0
-        if bool(inputs.get("clamp", True)):
-            lo, hi = min(o0, o1), max(o0, o1)
-            result = max(lo, min(hi, result))
-        return {"result": result}

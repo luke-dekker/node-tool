@@ -6,7 +6,7 @@ from typing import Type
 from core.node import BaseNode
 
 # Import all node subpackages to trigger registration
-from nodes import math, logic, string, data, numpy, pandas, sklearn, scipy, viz, code
+from nodes import numpy, pandas, sklearn, scipy, viz, code
 from nodes import pytorch, io, ai
 
 # Import individual pytorch node modules (shims forward to individual files)
@@ -31,10 +31,6 @@ def _discover(module) -> None:
                 and obj.type_name != "base"):
             NODE_REGISTRY[obj.type_name] = obj
 
-_discover(math)
-_discover(logic)
-_discover(string)
-_discover(data)
 _discover(numpy)
 _discover(pandas)
 _discover(sklearn)
@@ -75,11 +71,9 @@ _discover(subgraphs)
 #   - TrainingConfig, MultimodalTrainingConfig → panel + TrainOutput
 #   - DataLoader, DataLoaderInfo, DatasetInfo, SampleBatch → universal DatasetNode
 #   - GaussianNoise → GateNode (noise mode)
-#   - Legacy single-type const/cast nodes → ConstNode, CastNode
 # Keep: Dataset (universal — handles built-in benchmarks, local folders, HF repos).
 # Keep: TrainOutput, Gate, LossCompute, ApplyModule (new arch).
 # Keep: FreezeLayersNode, FreezeNamedLayersNode (useful experiment controls).
-# Keep: ConstNode, CastNode, PreviewNode, ImageInputNode (consolidated v5).
 # Remove: everything replaced by the new architecture.
 _OBSOLETE = {
     # Legacy training adapters — replaced by panel + TrainOutput
@@ -97,6 +91,8 @@ _OBSOLETE = {
     "to_float", "to_int", "to_bool", "to_string",
     # Old forward pass node
     "pt_forward_pass",
+    # Replaced by markers — dataset config lives in the panel now
+    "pt_dataset", "pt_train_output",
 }
 for _tn in _OBSOLETE:
     NODE_REGISTRY.pop(_tn, None)
@@ -119,14 +115,11 @@ except Exception as _exc:
 
 # Grouped by category for the palette
 CATEGORY_ORDER = [
-    # Core ML workflow (built-in)
-    "Datasets", "Layers", "Models", "Training", "AI", "Analyze",
-    # General compute
-    "Python", "NumPy", "Pandas", "Sklearn", "SciPy",
-    # Reusable building blocks
+    "Core", "Layers", "Models", "Training", "Tensor Ops",
+    "Data", "Visualization",
+    "NumPy", "Pandas", "Sklearn", "SciPy",
     "Subgraphs",
-    # Output
-    "IO",
+    "IO", "Robotics",
 ]
 
 # Merge plugin-registered categories into the order list (after built-in ones)

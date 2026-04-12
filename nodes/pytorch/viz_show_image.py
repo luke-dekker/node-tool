@@ -46,8 +46,8 @@ def _fig(figsize=(5, 3.5)):
 class ShowImageNode(BaseNode):
     type_name   = "pt_viz_show_image"
     label       = "Show Image"
-    category    = "PyTorch"
-    subcategory = "Plots"
+    category    = "Visualization"
+    subcategory = ""
     description = (
         "Display an image tensor (C,H,W) or (H,W,C) or (H,W). "
         "Values auto-normalised to [0,1]."

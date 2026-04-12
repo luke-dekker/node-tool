@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorStackNode(BaseNode):
     type_name   = "pt_tensor_stack"
     label       = "Stack"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "torch.stack([t1, t2, t3, t4], dim). Stacks tensors along a NEW dimension."
 
     def _setup_ports(self):

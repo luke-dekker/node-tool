@@ -1,13 +1,7 @@
 from nodes.sklearn.sk_train_test_split import SkTrainTestSplitNode
-from nodes.sklearn.sk_standard_scaler import SkStandardScalerNode
-from nodes.sklearn.sk_minmax_scaler import SkMinMaxScalerNode
-from nodes.sklearn.sk_label_encoder import SkLabelEncoderNode
-from nodes.sklearn.sk_onehot_encoder import SkOneHotEncoderNode
+from nodes.sklearn.sk_preprocessor import SkScalerNode, SkEncoderNode
 from nodes.sklearn.sk_linear_regression import SkLinearRegressionNode
-from nodes.sklearn.sk_logistic_regression import SkLogisticRegressionNode
-from nodes.sklearn.sk_random_forest import SkRandomForestNode
-from nodes.sklearn.sk_svc import SkSVCNode
-from nodes.sklearn.sk_gradient_boosting import SkGradientBoostingNode
+from nodes.sklearn.sk_classifier import SkClassifierNode
 from nodes.sklearn.sk_kmeans import SkKMeansNode
 from nodes.sklearn.sk_pca import SkPCANode
 from nodes.sklearn.sk_predict import SkPredictNode

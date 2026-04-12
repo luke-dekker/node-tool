@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TrainValTestSplitNode(BaseNode):
     type_name   = "pt_train_val_test_split"
     label       = "Train / Val / Test Split"
-    category    = "Datasets"
-    subcategory = "Loader"
+    category    = "Data"
+    subcategory = "Splits"
     description = "Split a Dataset into train, validation, and test subsets."
 
     def _setup_ports(self):

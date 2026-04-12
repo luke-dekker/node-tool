@@ -46,8 +46,8 @@ def _fig(figsize=(5, 3.5)):
 class TensorScatterNode(BaseNode):
     type_name   = "pt_viz_tensor_scatter"
     label       = "Tensor Scatter"
-    category    = "PyTorch"
-    subcategory = "Plots"
+    category    = "Visualization"
+    subcategory = ""
     description = (
         "Scatter plot. Pass a (N,2) tensor to 'points', or separate 1-D "
         "tensors to 'x' and 'y'. Optionally colour by 'labels'."

@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class ColorJitterTransformNode(BaseNode):
     type_name   = "pt_color_jitter_transform"
     label       = "Color Jitter"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Randomly change brightness, contrast, saturation, hue."
 

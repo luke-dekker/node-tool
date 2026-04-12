@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class SoftmaxOpNode(BaseNode):
     type_name   = "pt_softmax_op"
     label       = "Softmax Op"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "torch.softmax(tensor, dim) — functional op"
 
     def _setup_ports(self):

@@ -1,26 +1,40 @@
-"""MNIST VAE — per-layer VAE with loss-as-output. Every layer visible."""
+"""MNIST VAE — per-layer VAE with loss-as-output. Every layer visible.
+
+Marker-based architecture: the graph contains zero data-loading nodes. An A
+marker injects the image batch at training time; the VAE encodes, samples, and
+decodes; reconstruction loss is computed against the flattened input (not an
+external label); and a B marker marks the combined VAE loss as the training
+output. All dataset config lives in the Training Panel.
+
+    Data In (A:x) → Flatten → Encoder → μ/logvar → Reparameterize → Decoder
+                                                                          ↓
+                                              VAELoss ← KL ← μ/logvar
+                                              VAELoss ← BCE(recon, flat_input)
+                                                  ↓
+                                           Data Out (B:loss)
+"""
 from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
 LABEL = "MNIST VAE (Image Generator)"
-DESCRIPTION = "Per-layer VAE with loss computed in the graph via LossCompute + KL + VAELoss."
+DESCRIPTION = "Per-layer VAE with loss computed in the graph via LossCompute + KL + VAELoss. Marker-based — dataset lives in the panel."
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.dataset          import DatasetNode
-    from nodes.pytorch.flatten          import FlattenNode
-    from nodes.pytorch.linear           import LinearNode
-    from nodes.pytorch.reparameterize   import ReparameterizeNode
-    from nodes.pytorch.kl_divergence    import KLDivergenceNode
-    from nodes.pytorch.loss_compute     import LossComputeNode
-    from nodes.pytorch.vae_loss         import VAELossNode
-    from nodes.pytorch.train_output     import TrainOutputNode
+    from nodes.pytorch.input_marker      import InputMarkerNode
+    from nodes.pytorch.flatten           import FlattenNode
+    from nodes.pytorch.linear            import LinearNode
+    from nodes.pytorch.reparameterize    import ReparameterizeNode
+    from nodes.pytorch.kl_divergence     import KLDivergenceNode
+    from nodes.pytorch.loss_compute      import LossComputeNode
+    from nodes.pytorch.vae_loss          import VAELossNode
+    from nodes.pytorch.train_marker      import TrainMarkerNode
 
     LATENT = 16
     pos = grid(step_x=200); positions = {}
 
-    mnist = DatasetNode(); mnist.inputs["path"].default_value = "mnist"; mnist.inputs["batch_size"].default_value = 128
-    graph.add_node(mnist); positions[mnist.id] = pos(col=0, row=2)
+    data_in = InputMarkerNode(); data_in.inputs["modality"].default_value = "x"
+    graph.add_node(data_in); positions[data_in.id] = pos(col=0, row=2)
 
     flat = FlattenNode(); graph.add_node(flat); positions[flat.id] = pos(col=1, row=2)
 
@@ -47,10 +61,10 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     graph.add_node(rl); positions[rl.id] = pos(col=9, row=1)
     kl = KLDivergenceNode(); graph.add_node(kl); positions[kl.id] = pos(col=9, row=3)
     vl = VAELossNode(); graph.add_node(vl); positions[vl.id] = pos(col=10, row=2)
-    target = TrainOutputNode(); target.inputs["loss_is_output"].default_value=True
-    graph.add_node(target); positions[target.id] = pos(col=11, row=2)
+    data_out = TrainMarkerNode(); data_out.inputs["kind"].default_value="loss"
+    graph.add_node(data_out); positions[data_out.id] = pos(col=11, row=2)
 
-    graph.add_connection(mnist.id,"x",flat.id,"tensor_in")
+    graph.add_connection(data_in.id,"tensor",flat.id,"tensor_in")
     graph.add_connection(flat.id,"tensor_out",enc1.id,"tensor_in"); graph.add_connection(enc1.id,"tensor_out",enc2.id,"tensor_in")
     graph.add_connection(enc2.id,"tensor_out",mu.id,"tensor_in"); graph.add_connection(enc2.id,"tensor_out",lv.id,"tensor_in")
     graph.add_connection(mu.id,"tensor_out",repar.id,"mu"); graph.add_connection(lv.id,"tensor_out",repar.id,"log_var")
@@ -58,5 +72,5 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     graph.add_connection(dec3.id,"tensor_out",rl.id,"pred"); graph.add_connection(flat.id,"tensor_out",rl.id,"target")
     graph.add_connection(mu.id,"tensor_out",kl.id,"mu"); graph.add_connection(lv.id,"tensor_out",kl.id,"log_var")
     graph.add_connection(rl.id,"loss",vl.id,"recon_loss"); graph.add_connection(kl.id,"kl_loss",vl.id,"kl_loss")
-    graph.add_connection(vl.id,"loss",target.id,"tensor_in")
+    graph.add_connection(vl.id,"loss",data_out.id,"tensor_in")
     return positions

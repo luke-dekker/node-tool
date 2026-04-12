@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class MelSpectrogramTransformNode(BaseNode):
     type_name   = "pt_mel_spectrogram_transform"
     label       = "Mel Spectrogram"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Convert raw audio waveform to mel spectrogram (torchaudio)."
 

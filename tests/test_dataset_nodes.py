@@ -53,7 +53,7 @@ def test_grayscale_transform():
 def test_registry_has_dataset_nodes():
     from nodes import NODE_REGISTRY
     # Universal DatasetNode replaces all specialized dataset nodes
-    expected = ["pt_dataset", "pt_train_val_split", "pt_train_val_test_split",
+    expected = ["pt_train_val_split", "pt_train_val_test_split",
                 "pt_compose_transforms", "pt_to_tensor_transform",
                 "pt_resize_transform", "pt_normalize_transform",
                 "pt_apply_transform"]

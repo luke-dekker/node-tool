@@ -30,7 +30,7 @@ class GateNode(BaseNode):
     type_name   = "pt_gate"
     label       = "Gate"
     category    = "Layers"
-    subcategory = "Bridges"
+    subcategory = "Utility"
     description = (
         "Training experiment control. Modes: pass (normal), zeros (ablation), "
         "noise (corruption), detach (block gradients). Wire between layers "

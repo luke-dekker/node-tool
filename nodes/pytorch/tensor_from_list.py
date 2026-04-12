@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorFromListNode(BaseNode):
     type_name   = "pt_tensor_from_list"
     label       = "Tensor From List"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Create a tensor from comma-separated float values"
 
     def _setup_ports(self):

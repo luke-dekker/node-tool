@@ -32,8 +32,8 @@ def _fig(figsize=(5, 3.5)):
 class PlotTrainingCurveNode(BaseNode):
     type_name   = "pt_viz_training_curve"
     label       = "Training Curve"
-    category    = "PyTorch"
-    subcategory = "Plots"
+    category    = "Visualization"
+    subcategory = ""
     description = "Plot train (and optional val) loss list vs epochs."
 
     def _setup_ports(self) -> None:

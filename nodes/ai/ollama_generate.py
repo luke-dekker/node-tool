@@ -7,8 +7,8 @@ from core.node import BaseNode, PortType
 class OllamaGenerateNode(BaseNode):
     type_name   = "ai_ollama_generate"
     label       = "Ollama Generate"
-    category    = "AI"
-    subcategory = "Ollama"
+    category    = "Models"
+    subcategory = "AI"
     description = (
         "Call a local Ollama model. "
         "Requires Ollama running (ollama.com)."

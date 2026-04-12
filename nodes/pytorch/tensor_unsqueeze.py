@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorUnsqueezeNode(BaseNode):
     type_name   = "pt_tensor_unsqueeze"
     label       = "Unsqueeze"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "tensor.unsqueeze(dim). Inserts a size-1 dimension at position dim."
 
     def _setup_ports(self):

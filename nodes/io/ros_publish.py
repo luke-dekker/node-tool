@@ -32,8 +32,8 @@ class ROSPublishNode(BaseNode):
     """Publish a Float32MultiArray message to a ROS2 topic."""
     type_name   = "io_ros_publish"
     label       = "ROS2 Publish"
-    category    = "IO"
-    subcategory = "Network"
+    category    = "Robotics"
+    subcategory = "Comm"
     description = (
         "Publish tensor/list data as std_msgs/Float32MultiArray to a ROS2 topic. "
         "Requires a ROS2 installation and sourced environment."

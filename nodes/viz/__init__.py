@@ -4,7 +4,7 @@ from core.node import BaseNode
 from core.node import PortType
 import numpy as np
 
-CATEGORY = "Analyze"
+CATEGORY = "Visualization"
 
 
 class _VizBase(BaseNode):
@@ -399,4 +399,4 @@ class VizImageGridNode(_VizBase):
 from core.node import BaseNode as _BN
 for _n, _c in list(globals().items()):
     if isinstance(_c, type) and issubclass(_c, _BN) and _c is not _BN:
-        _c.subcategory = "Charts"
+        _c.subcategory = ""

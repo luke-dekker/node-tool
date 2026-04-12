@@ -131,5 +131,19 @@ class BaseNode(ABC):
         """Override to provide Python code export. Returns (imports, lines)."""
         return [], [f"# [{self.label}]: export not supported"]
 
+    def inspector_ui(self, parent: str, app) -> None:
+        """Optional: draw custom DearPyGui widgets for this node instance.
+
+        Called by the Inspector panel after the default port/output readout,
+        each time this node is selected. `parent` is the dpg container tag to
+        attach widgets to; `app` is the main `App` for graph access and
+        `_log`. State should live on `self` (the node instance), not in
+        widget tags — widgets are rebuilt on every re-selection.
+
+        Default: no-op. Nodes that want action buttons, live previews, or
+        richer controls than ports can provide override this.
+        """
+        return None
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} id={self.id[:8]}>"

@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class ZerosTensorNode(BaseNode):
     type_name   = "pt_zeros_tensor"
     label       = "Zeros Tensor"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Create a zeros tensor with the given shape"
 
     def _setup_ports(self):

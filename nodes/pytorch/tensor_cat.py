@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorCatNode(BaseNode):
     type_name   = "pt_tensor_cat"
     label       = "Concatenate"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "torch.cat([t1, t2, t3, t4], dim). Concatenates up to 4 tensors along dim."
 
     def _setup_ports(self):

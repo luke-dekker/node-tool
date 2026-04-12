@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class NormalizeTransformNode(BaseNode):
     type_name   = "pt_normalize_transform"
     label       = "Normalize"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Normalize tensor with mean and std. Enter comma-separated values per channel, e.g. '0.485,0.456,0.406'."
 

@@ -46,8 +46,8 @@ def _fig(figsize=(5, 3.5)):
 class PlotTensorNode(BaseNode):
     type_name   = "pt_viz_tensor_heatmap"
     label       = "Plot Tensor"
-    category    = "PyTorch"
-    subcategory = "Plots"
+    category    = "Visualization"
+    subcategory = ""
     description = "Heatmap of a 2-D tensor (or first 2-D slice of higher-rank tensors)."
 
     def _setup_ports(self) -> None:

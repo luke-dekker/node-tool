@@ -9,7 +9,9 @@ class ForwardKinematics2DNode(BaseNode):
     """2-link planar arm FK: joint angles → end effector (x, y)."""
     type_name   = "rob_fk_2d"
     label       = "FK 2-Link"
-    category    = "Kinematics"
+    category    = "Robotics"
+    subcategory = "Robotics"
+    subcategory = "Kinematics"
     description = (
         "Forward kinematics for a 2-link planar arm. "
         "Joint angles (degrees) → end effector position (x, y)."
@@ -43,7 +45,8 @@ class InverseKinematics2DNode(BaseNode):
     """2-link planar arm IK: target (x, y) → joint angles."""
     type_name   = "rob_ik_2d"
     label       = "IK 2-Link"
-    category    = "Kinematics"
+    category    = "Robotics"
+    subcategory = "Kinematics"
     description = (
         "Inverse kinematics for a 2-link planar arm. "
         "Target (x, y) → joint angles (degrees). Returns elbow-up solution."
@@ -81,7 +84,8 @@ class TransformNode(BaseNode):
     """Apply 2D rotation + translation to a point."""
     type_name   = "rob_transform_2d"
     label       = "Transform 2D"
-    category    = "Kinematics"
+    category    = "Robotics"
+    subcategory = "Kinematics"
     description = "Rotate and translate a 2D point: (x', y') = R(angle) * (x, y) + (tx, ty)."
 
     def _setup_ports(self) -> None:

@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class ResizeTransformNode(BaseNode):
     type_name   = "pt_resize_transform"
     label       = "Resize"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Resize image to (height, width)."
 

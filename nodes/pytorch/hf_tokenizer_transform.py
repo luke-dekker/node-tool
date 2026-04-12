@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class HFTokenizerTransformNode(BaseNode):
     type_name   = "pt_hf_tokenizer_transform"
     label       = "HF Tokenizer"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Tokenize text using a HuggingFace tokenizer (e.g. 'bert-base-uncased'). Outputs a callable transform."
 

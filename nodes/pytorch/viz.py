@@ -1,12 +1,18 @@
-"""Re-export shim — individual viz node files are the source of truth."""
-from nodes.pytorch.viz_tensor import PlotTensorNode
+"""Re-export shim — TensorVizNode is the source of truth for tensor viz.
+
+Old per-mode class names kept as aliases for backward compatibility.
+"""
+from nodes.pytorch.tensor_viz import TensorVizNode
 from nodes.pytorch.viz_training_curve import PlotTrainingCurveNode
-from nodes.pytorch.viz_tensor_hist import TensorHistogramNode
-from nodes.pytorch.viz_tensor_scatter import TensorScatterNode
-from nodes.pytorch.viz_show_image import ShowImageNode
 from nodes.pytorch.viz_weight_hist import WeightHistogramNode
 
+# Backward-compat aliases
+PlotTensorNode = TensorVizNode
+TensorHistogramNode = TensorVizNode
+TensorScatterNode = TensorVizNode
+ShowImageNode = TensorVizNode
+
 __all__ = [
-    "PlotTensorNode", "PlotTrainingCurveNode", "TensorHistogramNode",
-    "TensorScatterNode", "ShowImageNode", "WeightHistogramNode",
+    "TensorVizNode", "PlotTrainingCurveNode", "WeightHistogramNode",
+    "PlotTensorNode", "TensorHistogramNode", "TensorScatterNode", "ShowImageNode",
 ]

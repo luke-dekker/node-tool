@@ -124,7 +124,6 @@ class PollingMixin:
         except Exception:
             pass
         try:
-            # Code tab has a button row above the text area, leave room for it
             dpg.set_item_height("code_scroll", content_h)
             dpg.set_item_height("code_text", content_h - 38)
             dpg.set_item_width("code_text", content_w)
@@ -135,6 +134,19 @@ class PollingMixin:
             dpg.set_item_height("terminal_text", content_h - 10)
         except Exception:
             pass
+        # Training tab — 3-column layout fills available width
+        try:
+            col_w = max(120, (content_w - 20) * 2 // 5)  # plot gets 40%
+            col_rest = max(120, (content_w - 20 - col_w) // 2)  # data + ctrl split remainder
+            dpg.set_item_height("train_scroll", content_h)
+            dpg.set_item_width("train_col_plot", col_w)
+            dpg.set_item_height("train_col_plot", content_h - 10)
+            dpg.set_item_width("train_col_data", col_rest)
+            dpg.set_item_height("train_col_data", content_h - 10)
+            dpg.set_item_width("train_col_ctrl", col_rest)
+            dpg.set_item_height("train_col_ctrl", content_h - 10)
+        except Exception:
+            pass
 
     def _poll_layout(self) -> None:
         """Reanchor all panels to the viewport edges whenever the viewport or terminal is resized."""
@@ -143,19 +155,15 @@ class PollingMixin:
             vh = dpg.get_viewport_client_height()
         except Exception:
             return
-        try:
-            _, term_h = dpg.get_item_rect_size("TerminalWindow")
-            term_h = max(80, term_h)
-        except Exception:
-            term_h = TERMINAL_H
+        term_h = TERMINAL_H
 
         key = (vw, vh, term_h)
         if key == self._layout_last:
             return
         self._layout_last = key
 
-        MENU_H   = 20
-        BOTTOM   = 4           # uniform margin from viewport bottom
+        MENU_H   = 38
+        BOTTOM   = 4
         usable_h = vh - MENU_H - BOTTOM
         center_x = PALETTE_W + 4
         center_w = max(200, vw - PALETTE_W - INSPECTOR_W - 8)
@@ -165,6 +173,7 @@ class PollingMixin:
 
         # Palette — full left column
         try:
+            dpg.set_item_pos("PaletteWindow", [0, MENU_H])
             dpg.set_item_height("PaletteWindow", usable_h)
         except Exception:
             pass
@@ -182,25 +191,30 @@ class PollingMixin:
             dpg.set_item_height("TerminalWindow", term_h)
         except Exception:
             pass
-        # Right column — inspector + training fill to same bottom edge
+        # Right column — single tabbed panel (Inspector + Training tabs)
         try:
-            training_h_actual = 380
-            insp_h = max(180, usable_h - training_h_actual - 4)
-            training_h_final = usable_h - insp_h - 4
             dpg.set_item_pos("InspectorWindow", [right_x, MENU_H])
-            dpg.set_item_height("InspectorWindow", insp_h)
-            try:
-                dpg.set_item_height("inspector_content", insp_h - 60)
-            except Exception:
-                pass
-            training_y = MENU_H + insp_h + 4
-            dpg.set_item_pos("TrainingWindow", [right_x, training_y])
-            dpg.set_item_height("TrainingWindow", training_h_final)
+            dpg.set_item_width("InspectorWindow", INSPECTOR_W)
+            dpg.set_item_height("InspectorWindow", usable_h)
         except Exception:
             pass
 
+    _last_marker_groups: set = set()
+
+    def _poll_marker_groups(self) -> None:
+        """Rebuild dataset panel when marker groups change."""
+        current = set()
+        for n in self.graph.nodes.values():
+            if n.type_name in ("pt_input_marker", "pt_train_marker"):
+                current.add(str(n.inputs["group"].default_value or "task_1"))
+        if current != self._last_marker_groups:
+            self._last_marker_groups = current
+            if hasattr(self, "_rebuild_dataset_panel"):
+                self._rebuild_dataset_panel()
+
     def _poll_training(self) -> None:
         """Called each frame — drain training events, update UI."""
+        self._poll_marker_groups()
         lines = self._training_ctrl.poll()
         for line in lines:
             self._log(line)

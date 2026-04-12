@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorAddNode(BaseNode):
     type_name   = "pt_tensor_add"
     label       = "Tensor Add"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Element-wise addition of two tensors"
 
     def _setup_ports(self):

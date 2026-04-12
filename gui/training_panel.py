@@ -191,6 +191,10 @@ class TrainingController:
                                 labels = labels.to(device)
                             dev_batch = {"data": dev_data, "label": labels,
                                          "present": batch.get("present", [])}
+                        elif isinstance(batch, dict):
+                            dev_batch = {k: (v.to(device) if hasattr(v, "to") else v)
+                                         for k, v in batch.items()}
+                            labels = dev_batch.get("label")
                         elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
                             dev_batch = (batch[0].to(device), batch[1].to(device))
                             labels = dev_batch[1]
@@ -237,6 +241,10 @@ class TrainingController:
                                 if hasattr(labels_v, "to"):
                                     labels_v = labels_v.to(device)
                                 dev_b = {"data": dev_data, "label": labels_v}
+                            elif isinstance(batch, dict):
+                                dev_b = {k: (v.to(device) if hasattr(v, "to") else v)
+                                         for k, v in batch.items()}
+                                labels_v = dev_b.get("label")
                             else:
                                 dev_b = batch.to(device) if hasattr(batch, "to") else batch
                                 labels_v = None

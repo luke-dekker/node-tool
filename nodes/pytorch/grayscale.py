@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class GrayscaleTransformNode(BaseNode):
     type_name   = "pt_grayscale_transform"
     label       = "Grayscale"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Convert image to grayscale. num_output_channels: 1 or 3."
 

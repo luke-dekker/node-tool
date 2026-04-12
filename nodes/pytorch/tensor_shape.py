@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorShapeNode(BaseNode):
     type_name   = "pt_tensor_shape"
     label       = "Tensor Shape"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "Return tensor shape as string"
 
     def _setup_ports(self):

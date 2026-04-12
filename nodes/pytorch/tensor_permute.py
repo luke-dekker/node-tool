@@ -6,8 +6,8 @@ from core.node import BaseNode, PortType
 class TensorPermuteNode(BaseNode):
     type_name   = "pt_tensor_permute"
     label       = "Permute"
-    category    = "Analyze"
-    subcategory = "Tensors"
+    category    = "Tensor Ops"
+    subcategory = ""
     description = "tensor.permute(dims). Reorder all dimensions. Enter as comma-separated ints, e.g. '0,2,1'."
 
     def _setup_ports(self):

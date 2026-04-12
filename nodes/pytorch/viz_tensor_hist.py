@@ -46,8 +46,8 @@ def _fig(figsize=(5, 3.5)):
 class TensorHistogramNode(BaseNode):
     type_name   = "pt_viz_tensor_hist"
     label       = "Tensor Histogram"
-    category    = "PyTorch"
-    subcategory = "Plots"
+    category    = "Visualization"
+    subcategory = ""
     description = "Histogram of all values in a tensor — useful for weight/activation analysis."
 
     def _setup_ports(self) -> None:

@@ -7,8 +7,8 @@ from core.node import BaseNode, PortType
 class AgnoAgentNode(BaseNode):
     type_name   = "ai_agno_agent"
     label       = "Agno Agent"
-    category    = "AI"
-    subcategory = "Agno"
+    category    = "Models"
+    subcategory = "AI"
     description = (
         "Call an Agno agent or team. "
         "Requires an Agno FastAPI server (github.com/agno-agi/agno)."

@@ -6,7 +6,7 @@ from core.node import BaseNode, PortType
 class ComposeTransformsNode(BaseNode):
     type_name   = "pt_compose_transforms"
     label       = "Compose Transforms"
-    category    = "Datasets"
+    category    = "Data"
     subcategory = "Transforms"
     description = "Chain up to 6 transforms into one."
 

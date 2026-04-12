@@ -229,7 +229,8 @@ def test_registry_has_per_layer_blocks():
     from nodes import NODE_REGISTRY
     expected = ["pt_reparameterize", "pt_kl_divergence", "pt_vae_loss",
                 "pt_latent_sampler", "pt_freeze_named_layers",
-                "pt_loss_compute", "pt_gate", "pt_train_output", "pt_dataset"]
+                "pt_loss_compute", "pt_gate",
+                "pt_input_marker", "pt_train_marker"]
     for tn in expected:
         assert tn in NODE_REGISTRY, f"Missing: {tn}"
 
