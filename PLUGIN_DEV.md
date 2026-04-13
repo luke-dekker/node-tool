@@ -115,3 +115,10 @@ def test_my_node():
 3. **One concept per node.** A node that does too much should be split.
 4. **`type_name` must be globally unique.** Prefix with your domain to avoid collisions.
 5. **The graph IS the model.** No hidden state, no side-channel data. Everything flows through ports.
+6. **No GUI imports in nodes.** Nodes must work headlessly — no `dearpygui`, no `godot`. Both frontends render nodes from the same data.
+7. **Port types must match.** Connections enforce type compatibility. INT cannot connect to DATAFRAME. Use correct types, or ANY for pass-through.
+8. **Run the tests.** `python -m pytest tests/ -q` must pass before merging.
+
+## Further Reading
+
+See **CONTRIBUTING.md** for the full architecture overview, stability contract, RPC API reference, and plugin review checklist.
