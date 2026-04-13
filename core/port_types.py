@@ -103,6 +103,19 @@ class PortTypeRegistry:
     def all_types(cls) -> dict[str, PortTypeInfo]:
         return dict(cls._types)
 
+    @classmethod
+    def can_connect(cls, from_type: str, to_type: str) -> bool:
+        """Check whether an output of from_type can connect to an input of to_type.
+
+        Rules:
+        - ANY connects to/from anything
+        - Exact match always allowed
+        - Otherwise rejected — no implicit int→dataframe etc.
+        """
+        if from_type == "ANY" or to_type == "ANY":
+            return True
+        return from_type == to_type
+
 
 # ── Coercion helpers for base types ──────────────────────────────────────────
 

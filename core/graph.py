@@ -102,7 +102,8 @@ class Graph:
 
     def add_connection(self, from_node_id: str, from_port: str,
                        to_node_id: str, to_port: str) -> Connection | None:
-        """Add a connection. Returns None if it would create a cycle or ports don't exist."""
+        """Add a connection. Returns None if it would create a cycle, ports
+        don't exist, or port types are incompatible."""
         from_node = self.nodes.get(from_node_id)
         to_node = self.nodes.get(to_node_id)
         if from_node is None or to_node is None:
@@ -110,6 +111,12 @@ class Graph:
         if from_port not in from_node.outputs:
             return None
         if to_port not in to_node.inputs:
+            return None
+
+        # Type compatibility check
+        out_type = from_node.outputs[from_port].port_type
+        in_type = to_node.inputs[to_port].port_type
+        if not PortTypeRegistry.can_connect(out_type, in_type):
             return None
 
         # Remove any existing connection to the same input port

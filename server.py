@@ -164,12 +164,22 @@ class NodeToolServer:
 
     def connect(self, params: dict) -> dict:
         """Connect two ports."""
+        from_node = self.graph.get_node(params["from_node"])
+        to_node = self.graph.get_node(params["to_node"])
         conn = self.graph.add_connection(
             params["from_node"], params["from_port"],
             params["to_node"], params["to_port"],
         )
         if conn is None:
-            raise ValueError("Connection failed (cycle or invalid)")
+            # Provide specific failure reason
+            if from_node and to_node:
+                out_type = from_node.outputs.get(params["from_port"])
+                in_type = to_node.inputs.get(params["to_port"])
+                if out_type and in_type:
+                    raise ValueError(
+                        f"Cannot connect {out_type.port_type} -> {in_type.port_type} "
+                        f"(incompatible types)")
+            raise ValueError("Connection failed (cycle, missing port, or type mismatch)")
         return {"ok": True}
 
     def disconnect(self, params: dict) -> dict:
@@ -242,6 +252,44 @@ class NodeToolServer:
         self._last_outputs = {}
         return {"ok": True}
 
+    def save_graph(self, params: dict) -> dict:
+        """Save the graph to a JSON file."""
+        path = params.get("path", "")
+        if not path:
+            raise ValueError("No path provided")
+        from core.serializer import Serializer
+        # Collect positions from params or use empty dict
+        positions = params.get("positions", {})
+        # Convert positions from {id: [x,y]} to {id: (x,y)}
+        pos_tuples = {k: tuple(v) for k, v in positions.items()}
+        Serializer.save(self.graph, pos_tuples, path)
+        return {"ok": True, "path": path, "nodes": len(self.graph.nodes)}
+
+    def load_graph(self, params: dict) -> dict:
+        """Load a graph from a JSON file. Replaces the current graph."""
+        path = params.get("path", "")
+        if not path:
+            raise ValueError("No path provided")
+        from core.serializer import Serializer
+        graph, positions = Serializer.load(path)
+        self.graph = graph
+        self._last_outputs = {}
+        # Build full response with all nodes and connections
+        nodes = {}
+        for nid, node in graph.nodes.items():
+            nodes[nid] = self._node_to_dict(node)
+        connections = []
+        for conn in graph.connections:
+            connections.append({
+                "from_node": conn.from_node_id,
+                "from_port": conn.from_port,
+                "to_node": conn.to_node_id,
+                "to_port": conn.to_port,
+            })
+        # Convert positions back to {id: [x,y]}
+        pos_out = {k: list(v) for k, v in positions.items()}
+        return {"nodes": nodes, "connections": connections, "positions": pos_out}
+
     def export_code(self, params: dict) -> dict:
         """Export the graph as a Python script."""
         try:
@@ -264,6 +312,8 @@ class NodeToolServer:
         "get_graph": "get_graph",
         "execute": "execute",
         "clear": "clear",
+        "save_graph": "save_graph",
+        "load_graph": "load_graph",
         "export_code": "export_code",
     }
 
@@ -324,8 +374,25 @@ async def handler(websocket):
 
 
 async def main(host: str, port: int):
-    print(f"[NodeTool Server] Listening on ws://{host}:{port}")
+    # Report plugin loading status
+    try:
+        from nodes import _plugin_ctx
+        if _plugin_ctx:
+            print(f"[NodeTool Server] Plugins loaded: {len(_plugin_ctx.node_classes)} plugin nodes, "
+                  f"{len(_plugin_ctx.panels)} panels")
+        else:
+            print("[NodeTool Server] No plugins loaded")
+    except Exception:
+        print("[NodeTool Server] Plugin context not available")
+
+    # Report port types
+    all_types = PortTypeRegistry.all_types()
+    print(f"[NodeTool Server] {len(all_types)} port types registered: "
+          f"{', '.join(sorted(all_types.keys()))}")
+
     print(f"[NodeTool Server] {len(NODE_REGISTRY)} nodes registered")
+    print(f"[NodeTool Server] Listening on ws://{host}:{port}")
+    print(f"[NodeTool Server] RPC methods: {', '.join(sorted(NodeToolServer._METHODS.keys()))}")
     async with serve(handler, host, port):
         await asyncio.Future()  # run forever
 

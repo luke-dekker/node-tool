@@ -7,7 +7,7 @@
 config/name="NodeTool"
 config/description="Visual node-based ML model builder"
 run/main_scene="res://scenes/main.tscn"
-config/features=PackedStringArray("4.4")
+config/features=PackedStringArray("4.4", "Forward Plus")
 
 [display]
 
