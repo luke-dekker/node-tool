@@ -65,6 +65,16 @@ def main():
 
     # Find and launch Godot
     godot_path = args.godot or find_godot()
+    # Verify the path actually points to a file (not a directory)
+    if godot_path and os.path.isdir(godot_path):
+        # Look for an exe inside the directory (common when extracted from zip)
+        for f in os.listdir(godot_path):
+            if f.lower().endswith(".exe") and "godot" in f.lower():
+                godot_path = os.path.join(godot_path, f)
+                break
+    if godot_path and not os.path.isfile(godot_path):
+        print(f"[Launcher] Path is not a file: {godot_path}")
+        godot_path = None
     if godot_path is None:
         print("[Launcher] Could not find Godot executable.")
         print("[Launcher] Install Godot 4.4+ and either:")
