@@ -290,6 +290,66 @@ class NodeToolServer:
         pos_out = {k: list(v) for k, v in positions.items()}
         return {"nodes": nodes, "connections": connections, "positions": pos_out}
 
+    def get_marker_groups(self, params: dict) -> dict:
+        """Discover training marker groups from the graph.
+
+        Scans for InputMarker (A) and TrainMarker (B) nodes, returns groups
+        with their modalities so the frontend can build dataset config widgets.
+        """
+        groups: dict[str, dict] = {}
+        for node in self.graph.nodes.values():
+            if node.type_name == "pt_input_marker":
+                g = str(node.inputs["group"].default_value or "task_1")
+                m = str(node.inputs["modality"].default_value or "x")
+                if g not in groups:
+                    groups[g] = {"modalities": [], "has_output": False}
+                groups[g]["modalities"].append(m)
+            elif node.type_name == "pt_train_marker":
+                g = str(node.inputs["group"].default_value or "task_1")
+                if g not in groups:
+                    groups[g] = {"modalities": [], "has_output": False}
+                groups[g]["has_output"] = True
+        return {"groups": groups}
+
+    def get_templates(self, params: dict) -> dict:
+        """Return available graph templates."""
+        try:
+            from templates import get_templates
+            result = []
+            for label, description, builder in get_templates():
+                result.append({"label": label, "description": description})
+            return {"templates": result}
+        except Exception as exc:
+            return {"templates": [], "error": str(exc)}
+
+    def load_template(self, params: dict) -> dict:
+        """Load a template by label, replacing the current graph."""
+        label = params.get("label", "")
+        try:
+            from templates import get_templates
+            for t_label, t_desc, builder in get_templates():
+                if t_label == label:
+                    self.graph = Graph()
+                    self._last_outputs = {}
+                    positions = builder(self.graph)
+                    # Return full graph state
+                    nodes = {}
+                    for nid, node in self.graph.nodes.items():
+                        nodes[nid] = self._node_to_dict(node)
+                    connections = []
+                    for conn in self.graph.connections:
+                        connections.append({
+                            "from_node": conn.from_node_id,
+                            "from_port": conn.from_port,
+                            "to_node": conn.to_node_id,
+                            "to_port": conn.to_port,
+                        })
+                    pos_out = {k: list(v) for k, v in positions.items()} if positions else {}
+                    return {"nodes": nodes, "connections": connections, "positions": pos_out}
+            raise ValueError(f"Template not found: {label}")
+        except Exception as exc:
+            raise ValueError(f"Template load failed: {exc}")
+
     def export_code(self, params: dict) -> dict:
         """Export the graph as a Python script."""
         try:
@@ -315,6 +375,9 @@ class NodeToolServer:
         "save_graph": "save_graph",
         "load_graph": "load_graph",
         "export_code": "export_code",
+        "get_marker_groups": "get_marker_groups",
+        "get_templates": "get_templates",
+        "load_template": "load_template",
     }
 
     def dispatch(self, method: str, params: dict) -> Any:

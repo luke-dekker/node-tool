@@ -37,6 +37,9 @@ var _nodes: Dictionary = {}       # python node_id -> GraphNode
 var _name_to_id: Dictionary = {}  # GraphNode.name -> python node_id
 var _spawn_count := 0
 var _inspector_node_id: String = ""
+var _save_path: String = ""
+var _templates_menu: PopupMenu
+var _template_labels: Array = []  # ordered list of template labels
 
 
 func _ready() -> void:
@@ -83,27 +86,58 @@ func _build_ui() -> void:
 	add_child(root)
 
 	# ── Menu bar ─────────────────────────────────────────────────────
-	var menu := HBoxContainer.new()
-	menu.custom_minimum_size.y = 36
-	root.add_child(menu)
+	var menu_row := HBoxContainer.new()
+	menu_row.custom_minimum_size.y = 32
+	root.add_child(menu_row)
+
+	var menu_bar := MenuBar.new()
+	menu_row.add_child(menu_bar)
+
+	# File menu
+	var file_menu := PopupMenu.new()
+	file_menu.name = "File"
+	file_menu.add_item("New", 0)
+	file_menu.add_separator()
+	file_menu.add_item("Open Graph...", 1)
+	file_menu.add_item("Save Graph", 2)
+	file_menu.add_item("Save Graph As...", 3)
+	file_menu.add_separator()
+	# Templates submenu
+	var templates_menu := PopupMenu.new()
+	templates_menu.name = "Templates"
+	file_menu.add_child(templates_menu)
+	file_menu.add_submenu_node_item("Templates", templates_menu)
+	templates_menu.id_pressed.connect(_on_template_selected)
+	file_menu.add_separator()
+	file_menu.add_item("Export .py", 4)
+	file_menu.id_pressed.connect(_on_file_menu)
+	menu_bar.add_child(file_menu)
+
+	# Action buttons
+	var btn_spacer := Control.new()
+	btn_spacer.custom_minimum_size.x = 16
+	menu_row.add_child(btn_spacer)
 
 	var run_btn := Button.new()
 	run_btn.text = "  Run Graph  "
 	run_btn.pressed.connect(_on_run_pressed)
-	menu.add_child(run_btn)
+	menu_row.add_child(run_btn)
 
 	var clear_btn := Button.new()
 	clear_btn.text = "  Clear All  "
 	clear_btn.pressed.connect(_on_clear_pressed)
-	menu.add_child(clear_btn)
+	menu_row.add_child(clear_btn)
 
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	menu.add_child(spacer)
+	menu_row.add_child(spacer)
 
 	status_label = Label.new()
 	status_label.text = "Starting..."
-	menu.add_child(status_label)
+	menu_row.add_child(status_label)
+
+	# Store references for later
+	_templates_menu = templates_menu
 
 	# ── Main content: palette | (graph + terminal) | inspector ───────
 	var hsplit := HSplitContainer.new()
@@ -361,16 +395,14 @@ func server_rpc(method: String, params: Dictionary, callback: Callable = Callabl
 
 
 func _handle_message(raw: String) -> void:
-	_log("[DEBUG] Received %d bytes" % raw.length())
 	var parsed = JSON.parse_string(raw)
 	if parsed == null:
-		_log("[ERROR] Invalid JSON from server (first 200 chars): %s" % raw.substr(0, 200))
+		_log("[ERROR] Invalid JSON from server")
 		return
 	var msg: Dictionary = parsed
 	var id = msg.get("id")
 	if id is float:
 		id = int(id)
-	_log("[DEBUG] Message id=%s has_error=%s has_result=%s" % [str(id), str(msg.has("error")), str(msg.has("result"))])
 	if msg.has("error"):
 		var err = msg["error"]
 		_log("[Error] %s" % str(err.get("message", err)))
@@ -380,10 +412,7 @@ func _handle_message(raw: String) -> void:
 	if id != null and _pending.has(id):
 		var cb: Callable = _pending[id]
 		_pending.erase(id)
-		_log("[DEBUG] Calling callback for id=%s" % str(id))
 		cb.call(msg.get("result", {}))
-	else:
-		_log("[DEBUG] No pending callback for id=%s (pending keys: %s)" % [str(id), str(_pending.keys())])
 
 
 func _log(text: String) -> void:
@@ -395,14 +424,14 @@ func _log(text: String) -> void:
 # ── Registry / Palette ───────────────────────────────────────────────
 
 func _on_registry_received(result: Dictionary) -> void:
-	_log("[DEBUG] _on_registry_received called, result keys: %s" % str(result.keys()))
 	registry = result.get("categories", {})
 	category_order = result.get("category_order", [])
 	var total := 0
 	for cat in registry:
 		total += registry[cat].size()
-	_log("Registry loaded: %d categories, %d nodes" % [registry.size(), total])
+	_log("Registry: %d categories, %d nodes" % [registry.size(), total])
 	_build_palette()
+	_fetch_templates()
 
 
 func _build_palette() -> void:
@@ -437,6 +466,9 @@ func _on_palette_btn(type_name: String) -> void:
 	_rpc("add_node", {"type_name": type_name}, func(result: Dictionary):
 		_add_graph_node(result)
 		_log("Added: %s" % result.get("label", type_name))
+		# Refresh dataset panel if a marker was added
+		if type_name.begins_with("pt_input_marker") or type_name.begins_with("pt_train_marker"):
+			_refresh_dataset_panel()
 	)
 
 
@@ -449,7 +481,7 @@ func _on_search_changed(text: String) -> void:
 
 # ── Graph Node Management ────────────────────────────────────────────
 
-func _add_graph_node(node_data: Dictionary) -> void:
+func _add_graph_node(node_data: Dictionary, pos_arr: Array = []) -> void:
 	var node_id: String = node_data["id"]
 	var gn := GraphNode.new()
 	gn.title = node_data.get("label", "Node")
@@ -457,10 +489,13 @@ func _add_graph_node(node_data: Dictionary) -> void:
 	gn.set_meta("node_id", node_id)
 	gn.set_meta("node_data", node_data)
 
-	# Stagger position
-	var px := 300 + (_spawn_count % 4) * 240
-	var py := 100 + (_spawn_count / 4) * 160 + (_spawn_count % 4) * 30
-	gn.position_offset = Vector2(px, py)
+	# Position: use provided or stagger
+	if pos_arr.size() >= 2:
+		gn.position_offset = Vector2(float(pos_arr[0]), float(pos_arr[1]))
+	else:
+		var px := 300 + (_spawn_count % 4) * 240
+		var py := 100 + (_spawn_count / 4) * 160 + (_spawn_count % 4) * 30
+		gn.position_offset = Vector2(px, py)
 	_spawn_count += 1
 
 	# Config summary (no port, just text)
@@ -694,6 +729,207 @@ func _get_input_port_name(node_name: StringName, port_idx: int) -> String:
 	return ""
 
 
+# ── File Menu ─────────────────────────────────────────────────────────
+
+func _on_file_menu(id: int) -> void:
+	match id:
+		0: _file_new()
+		1: _file_open()
+		2: _file_save()
+		3: _file_save_as()
+		4: _on_export_pressed()
+
+
+func _file_new() -> void:
+	_on_clear_pressed()
+	_save_path = ""
+	_log("New graph")
+
+
+func _file_open() -> void:
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.filters = PackedStringArray(["*.json ; Graph files"])
+	fd.file_selected.connect(func(path: String):
+		_rpc("load_graph", {"path": path}, func(result: Dictionary):
+			# Clear canvas
+			node_graph.clear_connections()
+			for gn in _nodes.values():
+				if is_instance_valid(gn):
+					gn.queue_free()
+			_nodes.clear()
+			_name_to_id.clear()
+			_spawn_count = 0
+			# Rebuild from loaded data
+			var positions: Dictionary = result.get("positions", {})
+			var nodes_data: Dictionary = result.get("nodes", {})
+			for nid in nodes_data:
+				var nd: Dictionary = nodes_data[nid]
+				_add_graph_node(nd, positions.get(nid, []))
+			# Rebuild connections
+			for conn in result.get("connections", []):
+				var from_gn_name := _id_to_gn_name(conn["from_node"])
+				var to_gn_name := _id_to_gn_name(conn["to_node"])
+				var from_port := _output_name_to_idx(conn["from_node"], conn["from_port"])
+				var to_port := _input_name_to_idx(conn["to_node"], conn["to_port"])
+				if from_gn_name != "" and to_gn_name != "" and from_port >= 0 and to_port >= 0:
+					node_graph.connect_node(from_gn_name, from_port, to_gn_name, to_port)
+			_save_path = path
+			_log("Loaded: %s (%d nodes)" % [path, nodes_data.size()])
+			_refresh_dataset_panel()
+		)
+		fd.queue_free()
+	)
+	fd.canceled.connect(func(): fd.queue_free())
+	add_child(fd)
+	fd.popup_centered(Vector2i(700, 500))
+
+
+func _file_save() -> void:
+	if _save_path.is_empty():
+		_file_save_as()
+		return
+	_do_save(_save_path)
+
+
+func _file_save_as() -> void:
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.filters = PackedStringArray(["*.json ; Graph files"])
+	fd.file_selected.connect(func(path: String):
+		_save_path = path
+		_do_save(path)
+		fd.queue_free()
+	)
+	fd.canceled.connect(func(): fd.queue_free())
+	add_child(fd)
+	fd.popup_centered(Vector2i(700, 500))
+
+
+func _do_save(path: String) -> void:
+	# Collect positions from canvas
+	var positions := {}
+	for nid in _nodes:
+		var gn: GraphNode = _nodes[nid]
+		if is_instance_valid(gn):
+			positions[nid] = [gn.position_offset.x, gn.position_offset.y]
+	_rpc("save_graph", {"path": path, "positions": positions}, func(result: Dictionary):
+		_log("Saved: %s (%d nodes)" % [path, result.get("nodes", 0)])
+	)
+
+
+# ── Templates ────────────────────────────────────────────────────────
+
+func _fetch_templates() -> void:
+	_rpc("get_templates", {}, func(result: Dictionary):
+		_template_labels.clear()
+		_templates_menu.clear()
+		var templates: Array = result.get("templates", [])
+		for i in range(templates.size()):
+			var t: Dictionary = templates[i]
+			_templates_menu.add_item(t.get("label", "?"), i)
+			_template_labels.append(t.get("label", "?"))
+		_log("Templates: %d available" % templates.size())
+	)
+
+
+func _on_template_selected(id: int) -> void:
+	if id < 0 or id >= _template_labels.size():
+		return
+	var label: String = _template_labels[id]
+	_log("Loading template: %s" % label)
+	_rpc("load_template", {"label": label}, func(result: Dictionary):
+		# Clear canvas
+		node_graph.clear_connections()
+		for gn in _nodes.values():
+			if is_instance_valid(gn):
+				gn.queue_free()
+		_nodes.clear()
+		_name_to_id.clear()
+		_spawn_count = 0
+		# Rebuild
+		var positions: Dictionary = result.get("positions", {})
+		var nodes_data: Dictionary = result.get("nodes", {})
+		for nid in nodes_data:
+			var nd: Dictionary = nodes_data[nid]
+			_add_graph_node(nd, positions.get(nid, []))
+		for conn in result.get("connections", []):
+			var from_gn := _id_to_gn_name(conn["from_node"])
+			var to_gn := _id_to_gn_name(conn["to_node"])
+			var fp := _output_name_to_idx(conn["from_node"], conn["from_port"])
+			var tp := _input_name_to_idx(conn["to_node"], conn["to_port"])
+			if from_gn != "" and to_gn != "" and fp >= 0 and tp >= 0:
+				node_graph.connect_node(from_gn, fp, to_gn, tp)
+		_log("Template loaded: %s (%d nodes)" % [label, nodes_data.size()])
+		_refresh_dataset_panel()
+	)
+
+
+# ── Dataset Panel (dynamic from markers) ─────────────────────────────
+
+func _refresh_dataset_panel() -> void:
+	_rpc("get_marker_groups", {}, func(result: Dictionary):
+		var groups: Dictionary = result.get("groups", {})
+		# Clear dataset box
+		for child in train_dataset_box.get_children():
+			child.queue_free()
+		if groups.is_empty():
+			var hint := Label.new()
+			hint.text = "Add Data In (A) marker nodes to configure datasets,\nor load a template from File > Templates."
+			hint.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+			hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+			train_dataset_box.add_child(hint)
+			return
+		for group_name in groups:
+			var group: Dictionary = groups[group_name]
+			var mods: Array = group.get("modalities", [])
+			var mods_str: String = ", ".join(mods) if mods.size() > 0 else "?"
+			# Group header
+			var hdr := Label.new()
+			hdr.text = "[%s] %s" % [group_name, mods_str]
+			hdr.add_theme_color_override("font_color", Color(0.7, 0.7, 1.0))
+			train_dataset_box.add_child(hdr)
+			# Path
+			var path_row := HBoxContainer.new()
+			train_dataset_box.add_child(path_row)
+			var path_lbl := Label.new()
+			path_lbl.text = "path"
+			path_lbl.custom_minimum_size.x = 40
+			path_row.add_child(path_lbl)
+			var path_edit := LineEdit.new()
+			path_edit.placeholder_text = "mnist, cifar10, /path/to/data..."
+			path_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			path_edit.name = "ds_%s_path" % group_name
+			path_row.add_child(path_edit)
+			# Batch + split
+			var bs_row := HBoxContainer.new()
+			train_dataset_box.add_child(bs_row)
+			var batch_lbl := Label.new()
+			batch_lbl.text = "batch"
+			batch_lbl.custom_minimum_size.x = 40
+			bs_row.add_child(batch_lbl)
+			var batch_spin := SpinBox.new()
+			batch_spin.min_value = 1
+			batch_spin.max_value = 4096
+			batch_spin.value = 32
+			batch_spin.name = "ds_%s_batch" % group_name
+			bs_row.add_child(batch_spin)
+			var split_lbl := Label.new()
+			split_lbl.text = "split"
+			bs_row.add_child(split_lbl)
+			var split_opt := OptionButton.new()
+			split_opt.add_item("train")
+			split_opt.add_item("test")
+			split_opt.add_item("val")
+			split_opt.name = "ds_%s_split" % group_name
+			bs_row.add_child(split_opt)
+			# Separator between groups
+			train_dataset_box.add_child(HSeparator.new())
+	)
+
+
 # ── Actions ──────────────────────────────────────────────────────────
 
 func _on_run_pressed() -> void:
@@ -761,6 +997,38 @@ func _on_train_start() -> void:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+func _id_to_gn_name(node_id: String) -> String:
+	"""Map Python node_id to the GraphNode name on the canvas."""
+	var gn = _nodes.get(node_id)
+	if gn and is_instance_valid(gn):
+		return gn.name
+	return ""
+
+
+func _output_name_to_idx(node_id: String, port_name: String) -> int:
+	"""Map output port name to its visual slot index."""
+	var gn = _nodes.get(node_id)
+	if gn == null:
+		return -1
+	var data: Dictionary = gn.get_meta("node_data", {})
+	var keys: Array = data.get("outputs", {}).keys()
+	return keys.find(port_name)
+
+
+func _input_name_to_idx(node_id: String, port_name: String) -> int:
+	"""Map data input port name to its visual slot index."""
+	var gn = _nodes.get(node_id)
+	if gn == null:
+		return -1
+	var data: Dictionary = gn.get_meta("node_data", {})
+	var inputs: Dictionary = data.get("inputs", {})
+	var data_ports: Array = []
+	for pname in inputs:
+		if not inputs[pname].get("editable", false):
+			data_ports.append(pname)
+	return data_ports.find(port_name)
+
 
 func _color_from_array(arr: Array) -> Color:
 	return Color(
