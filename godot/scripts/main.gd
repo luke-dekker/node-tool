@@ -30,7 +30,9 @@ var _inspector_node_id: String = ""
 
 func _ready() -> void:
 	_build_ui()
-	# Connect to Python server
+	# Connect to Python server — increase buffer for large registry payload (~150KB)
+	ws.inbound_buffer_size = 1 * 1024 * 1024  # 1 MB
+	ws.max_queued_packets = 256
 	var err := ws.connect_to_url(SERVER_URL)
 	if err != OK:
 		_log("[ERROR] Failed to initiate WebSocket connection")
