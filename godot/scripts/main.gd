@@ -172,7 +172,7 @@ func _rpc(method: String, params: Dictionary, callback: Callable = Callable()) -
 	ws.send_text(JSON.stringify(msg))
 
 
-func rpc(method: String, params: Dictionary, callback: Callable = Callable()) -> void:
+func server_rpc(method: String, params: Dictionary, callback: Callable = Callable()) -> void:
 	_rpc(method, params, callback)
 
 
@@ -448,8 +448,8 @@ func _set_input(node_id: String, port_name: String, value) -> void:
 
 func _on_connection_request(from_node: StringName, from_port: int, to_node: StringName, to_port: int) -> void:
 	node_graph.connect_node(from_node, from_port, to_node, to_port)
-	var from_id := _name_to_id.get(str(from_node), "")
-	var to_id := _name_to_id.get(str(to_node), "")
+	var from_id: String = str(_name_to_id.get(str(from_node), ""))
+	var to_id: String = str(_name_to_id.get(str(to_node), ""))
 	if from_id.is_empty() or to_id.is_empty():
 		return
 	var from_port_name := _get_output_port_name(from_node, from_port)
@@ -464,8 +464,8 @@ func _on_connection_request(from_node: StringName, from_port: int, to_node: Stri
 
 func _on_disconnection_request(from_node: StringName, from_port: int, to_node: StringName, to_port: int) -> void:
 	node_graph.disconnect_node(from_node, from_port, to_node, to_port)
-	var from_id := _name_to_id.get(str(from_node), "")
-	var to_id := _name_to_id.get(str(to_node), "")
+	var from_id: String = str(_name_to_id.get(str(from_node), ""))
+	var to_id: String = str(_name_to_id.get(str(to_node), ""))
 	if from_id.is_empty() or to_id.is_empty():
 		return
 	var from_port_name := _get_output_port_name(from_node, from_port)
