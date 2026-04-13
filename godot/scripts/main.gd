@@ -186,6 +186,8 @@ func _handle_message(raw: String) -> void:
 		return
 	var msg: Dictionary = parsed
 	var id = msg.get("id")
+	if id is float:
+		id = int(id)
 	_log("[DEBUG] Message id=%s has_error=%s has_result=%s" % [str(id), str(msg.has("error")), str(msg.has("result"))])
 	if msg.has("error"):
 		var err = msg["error"]
