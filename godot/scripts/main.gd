@@ -179,12 +179,14 @@ func server_rpc(method: String, params: Dictionary, callback: Callable = Callabl
 
 
 func _handle_message(raw: String) -> void:
+	_log("[DEBUG] Received %d bytes" % raw.length())
 	var parsed = JSON.parse_string(raw)
 	if parsed == null:
-		_log("[ERROR] Invalid JSON from server")
+		_log("[ERROR] Invalid JSON from server (first 200 chars): %s" % raw.substr(0, 200))
 		return
 	var msg: Dictionary = parsed
 	var id = msg.get("id")
+	_log("[DEBUG] Message id=%s has_error=%s has_result=%s" % [str(id), str(msg.has("error")), str(msg.has("result"))])
 	if msg.has("error"):
 		var err = msg["error"]
 		_log("[Error] %s" % str(err.get("message", err)))
@@ -194,7 +196,10 @@ func _handle_message(raw: String) -> void:
 	if id != null and _pending.has(id):
 		var cb: Callable = _pending[id]
 		_pending.erase(id)
+		_log("[DEBUG] Calling callback for id=%s" % str(id))
 		cb.call(msg.get("result", {}))
+	else:
+		_log("[DEBUG] No pending callback for id=%s (pending keys: %s)" % [str(id), str(_pending.keys())])
 
 
 func _log(text: String) -> void:
@@ -206,6 +211,7 @@ func _log(text: String) -> void:
 # ── Registry / Palette ───────────────────────────────────────────────
 
 func _on_registry_received(result: Dictionary) -> void:
+	_log("[DEBUG] _on_registry_received called, result keys: %s" % str(result.keys()))
 	registry = result.get("categories", {})
 	category_order = result.get("category_order", [])
 	var total := 0
