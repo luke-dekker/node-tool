@@ -1,0 +1,75 @@
+[gd_scene load_steps=4 format=3 uid="uid://main"]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/node_graph.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/inspector.gd" id="3"]
+
+[node name="Main" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="MenuBar" type="HBoxContainer" parent="."]
+custom_minimum_size = Vector2(0, 36)
+
+[node name="RunBtn" type="Button" parent="MenuBar"]
+custom_minimum_size = Vector2(100, 0)
+text = "Run Graph"
+
+[node name="ClearBtn" type="Button" parent="MenuBar"]
+custom_minimum_size = Vector2(100, 0)
+text = "Clear All"
+
+[node name="Spacer" type="Control" parent="MenuBar"]
+size_flags_horizontal = 3
+
+[node name="StatusLabel" type="Label" parent="MenuBar"]
+text = "Connecting..."
+
+[node name="HSplit" type="HSplitContainer" parent="."]
+size_flags_vertical = 3
+split_offset = 220
+
+[node name="Palette" type="VBoxContainer" parent="HSplit"]
+custom_minimum_size = Vector2(220, 0)
+
+[node name="SearchBox" type="LineEdit" parent="HSplit/Palette"]
+placeholder_text = "Search nodes..."
+
+[node name="PaletteScroll" type="ScrollContainer" parent="HSplit/Palette"]
+size_flags_vertical = 3
+
+[node name="PaletteList" type="VBoxContainer" parent="HSplit/Palette/PaletteScroll"]
+size_flags_horizontal = 3
+
+[node name="CenterRight" type="HSplitContainer" parent="HSplit"]
+size_flags_horizontal = 3
+split_offset = -310
+
+[node name="CenterVSplit" type="VSplitContainer" parent="HSplit/CenterRight"]
+size_flags_horizontal = 3
+split_offset = -250
+
+[node name="NodeGraph" type="GraphEdit" parent="HSplit/CenterRight/CenterVSplit"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+minimap_enabled = true
+minimap_opacity = 0.6
+right_disconnects = true
+script = ExtResource("2")
+
+[node name="Terminal" type="TabContainer" parent="HSplit/CenterRight/CenterVSplit"]
+custom_minimum_size = Vector2(0, 200)
+
+[node name="Output" type="RichTextLabel" parent="HSplit/CenterRight/CenterVSplit/Terminal"]
+scroll_following = true
+
+[node name="Inspector" type="ScrollContainer" parent="HSplit/CenterRight"]
+custom_minimum_size = Vector2(310, 0)
+
+[node name="InspectorContent" type="VBoxContainer" parent="HSplit/CenterRight/Inspector"]
+size_flags_horizontal = 3
+script = ExtResource("3")
