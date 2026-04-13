@@ -14,8 +14,19 @@ var status_label: Label
 var node_graph: GraphEdit
 var palette_list: VBoxContainer
 var terminal: RichTextLabel
+var code_text: RichTextLabel
 var search_box: LineEdit
 var inspector_box: VBoxContainer
+# Training tab widgets
+var train_status_label: Label
+var train_epoch_label: Label
+var train_loss_label: Label
+var train_epochs_spin: SpinBox
+var train_lr_spin: SpinBox
+var train_optim_btn: OptionButton
+var train_loss_btn: OptionButton
+var train_device_btn: OptionButton
+var train_dataset_box: VBoxContainer
 
 # Node registry cache from Python
 var registry: Dictionary = {}
@@ -137,15 +148,186 @@ func _build_ui() -> void:
 	node_graph.disconnection_request.connect(_on_disconnection_request)
 	center_vsplit.add_child(node_graph)
 
-	# Terminal
+	# Bottom panel — Output, Code, Training tabs
 	var term_tabs := TabContainer.new()
-	term_tabs.custom_minimum_size.y = 180
+	term_tabs.custom_minimum_size.y = 200
 	center_vsplit.add_child(term_tabs)
 
+	# ── Output tab ───────────────────────────────────────────────
 	terminal = RichTextLabel.new()
 	terminal.name = "Output"
 	terminal.scroll_following = true
 	term_tabs.add_child(terminal)
+
+	# ── Code tab ─────────────────────────────────────────────────
+	var code_panel := VBoxContainer.new()
+	code_panel.name = "Code"
+	term_tabs.add_child(code_panel)
+
+	var code_btns := HBoxContainer.new()
+	code_panel.add_child(code_btns)
+	var export_btn := Button.new()
+	export_btn.text = "Export .py"
+	export_btn.pressed.connect(_on_export_pressed)
+	code_btns.add_child(export_btn)
+	var copy_btn := Button.new()
+	copy_btn.text = "Copy"
+	copy_btn.pressed.connect(func(): DisplayServer.clipboard_set(code_text.get_parsed_text()))
+	code_btns.add_child(copy_btn)
+
+	var code_scroll := ScrollContainer.new()
+	code_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	code_panel.add_child(code_scroll)
+	code_text = RichTextLabel.new()
+	code_text.text = "# Run the graph to generate code preview."
+	code_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	code_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	code_text.selection_enabled = true
+	code_scroll.add_child(code_text)
+
+	# ── Training tab (3-column layout) ───────────────────────────
+	var train_panel := HBoxContainer.new()
+	train_panel.name = "Training"
+	term_tabs.add_child(train_panel)
+
+	# Left column: status + loss info
+	var train_left := VBoxContainer.new()
+	train_left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	train_left.size_flags_stretch_ratio = 0.4
+	train_panel.add_child(train_left)
+
+	var status_row := HBoxContainer.new()
+	train_left.add_child(status_row)
+	var dot := Label.new()
+	dot.text = "*"
+	dot.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	status_row.add_child(dot)
+	train_status_label = Label.new()
+	train_status_label.text = "Idle"
+	train_status_label.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	status_row.add_child(train_status_label)
+
+	train_epoch_label = Label.new()
+	train_epoch_label.text = "Epoch 0 / 0"
+	train_left.add_child(train_epoch_label)
+	train_loss_label = Label.new()
+	train_loss_label.text = "Best loss  —"
+	train_left.add_child(train_loss_label)
+
+	# Placeholder for loss plot (future: use Godot chart addon or draw)
+	var plot_placeholder := Label.new()
+	plot_placeholder.text = "[Loss plot — coming soon]"
+	plot_placeholder.add_theme_color_override("font_color", Color(0.4, 0.4, 0.5))
+	plot_placeholder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	train_left.add_child(plot_placeholder)
+
+	# Center column: dataset config
+	var train_center := VBoxContainer.new()
+	train_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	train_center.size_flags_stretch_ratio = 0.3
+	train_panel.add_child(train_center)
+
+	var ds_header := Label.new()
+	ds_header.text = "Datasets"
+	ds_header.add_theme_color_override("font_color", Color(0.7, 0.7, 1.0))
+	train_center.add_child(ds_header)
+	train_center.add_child(HSeparator.new())
+	train_dataset_box = VBoxContainer.new()
+	train_center.add_child(train_dataset_box)
+	var ds_hint := Label.new()
+	ds_hint.text = "Load a template to configure datasets."
+	ds_hint.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	ds_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	train_dataset_box.add_child(ds_hint)
+
+	# Right column: hyperparams + controls
+	var train_right := VBoxContainer.new()
+	train_right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	train_right.size_flags_stretch_ratio = 0.3
+	train_panel.add_child(train_right)
+
+	# Epochs
+	var ep_row := HBoxContainer.new()
+	train_right.add_child(ep_row)
+	var ep_lbl := Label.new()
+	ep_lbl.text = "epochs"
+	ep_lbl.custom_minimum_size.x = 60
+	ep_row.add_child(ep_lbl)
+	train_epochs_spin = SpinBox.new()
+	train_epochs_spin.min_value = 1
+	train_epochs_spin.max_value = 10000
+	train_epochs_spin.value = 10
+	train_epochs_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ep_row.add_child(train_epochs_spin)
+
+	# Learning rate
+	var lr_row := HBoxContainer.new()
+	train_right.add_child(lr_row)
+	var lr_lbl := Label.new()
+	lr_lbl.text = "lr"
+	lr_lbl.custom_minimum_size.x = 60
+	lr_row.add_child(lr_lbl)
+	train_lr_spin = SpinBox.new()
+	train_lr_spin.min_value = 0.0000001
+	train_lr_spin.max_value = 1.0
+	train_lr_spin.step = 0.0001
+	train_lr_spin.value = 0.001
+	train_lr_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lr_row.add_child(train_lr_spin)
+
+	# Optimizer
+	var opt_row := HBoxContainer.new()
+	train_right.add_child(opt_row)
+	var opt_lbl := Label.new()
+	opt_lbl.text = "optim"
+	opt_lbl.custom_minimum_size.x = 60
+	opt_row.add_child(opt_lbl)
+	train_optim_btn = OptionButton.new()
+	for o in ["adam", "adamw", "sgd", "rmsprop"]:
+		train_optim_btn.add_item(o)
+	train_optim_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	opt_row.add_child(train_optim_btn)
+
+	# Loss
+	var loss_row := HBoxContainer.new()
+	train_right.add_child(loss_row)
+	var loss_lbl := Label.new()
+	loss_lbl.text = "loss"
+	loss_lbl.custom_minimum_size.x = 60
+	loss_row.add_child(loss_lbl)
+	train_loss_btn = OptionButton.new()
+	for l in ["crossentropy", "mse", "bce", "bcewithlogits", "l1"]:
+		train_loss_btn.add_item(l)
+	train_loss_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	loss_row.add_child(train_loss_btn)
+
+	# Device
+	var dev_row := HBoxContainer.new()
+	train_right.add_child(dev_row)
+	var dev_lbl := Label.new()
+	dev_lbl.text = "device"
+	dev_lbl.custom_minimum_size.x = 60
+	dev_row.add_child(dev_lbl)
+	train_device_btn = OptionButton.new()
+	for d in ["cpu", "cuda", "cuda:0", "cuda:1"]:
+		train_device_btn.add_item(d)
+	train_device_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dev_row.add_child(train_device_btn)
+
+	# Control buttons
+	train_right.add_child(HSeparator.new())
+	var ctrl_row := HBoxContainer.new()
+	train_right.add_child(ctrl_row)
+	var start_btn := Button.new()
+	start_btn.text = "Start"
+	start_btn.pressed.connect(_on_train_start)
+	ctrl_row.add_child(start_btn)
+	var pause_btn := Button.new()
+	pause_btn.text = "Pause"
+	ctrl_row.add_child(pause_btn)
+	var stop_btn := Button.new()
+	stop_btn.text = "Stop"
+	ctrl_row.add_child(stop_btn)
 
 	# Right: Inspector
 	var inspector_scroll := ScrollContainer.new()
@@ -545,6 +727,36 @@ func _on_clear_pressed() -> void:
 		_name_to_id.clear()
 		_spawn_count = 0
 		_log("Graph cleared")
+	)
+
+
+func _on_export_pressed() -> void:
+	_log("--- Exporting code ---")
+	_rpc("export_code", {}, func(result: Dictionary):
+		var code: String = result.get("code", "# Export failed")
+		code_text.clear()
+		code_text.append_text(code)
+		_log("Code exported (%d chars)" % code.length())
+	)
+
+
+func _on_train_start() -> void:
+	_log("--- Starting training ---")
+	train_status_label.text = "Running"
+	train_status_label.add_theme_color_override("font_color", Color(0.3, 0.8, 0.5))
+	_rpc("train_start", {
+		"epochs": int(train_epochs_spin.value),
+		"lr": train_lr_spin.value,
+		"optimizer": train_optim_btn.get_item_text(train_optim_btn.selected),
+		"loss": train_loss_btn.get_item_text(train_loss_btn.selected),
+		"device": train_device_btn.get_item_text(train_device_btn.selected),
+	}, func(result: Dictionary):
+		if result.has("error"):
+			_log("[Train Error] %s" % str(result["error"]))
+			train_status_label.text = "Error"
+			train_status_label.add_theme_color_override("font_color", Color(0.9, 0.35, 0.35))
+		else:
+			_log("[Train] %s" % result.get("message", "Started"))
 	)
 
 

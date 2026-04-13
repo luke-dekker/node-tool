@@ -242,6 +242,15 @@ class NodeToolServer:
         self._last_outputs = {}
         return {"ok": True}
 
+    def export_code(self, params: dict) -> dict:
+        """Export the graph as a Python script."""
+        try:
+            from core.exporter import export_graph
+            code = export_graph(self.graph)
+            return {"code": code}
+        except Exception as exc:
+            return {"code": f"# Export failed: {exc}"}
+
     # ── Dispatch ─────────────────────────────────────────────────────────
 
     _METHODS: dict[str, str] = {
@@ -255,6 +264,7 @@ class NodeToolServer:
         "get_graph": "get_graph",
         "execute": "execute",
         "clear": "clear",
+        "export_code": "export_code",
     }
 
     def dispatch(self, method: str, params: dict) -> Any:
