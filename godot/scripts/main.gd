@@ -509,6 +509,7 @@ func _add_graph_node(node_data: Dictionary, pos_arr: Array = []) -> void:
 				config_parts.append(str(val))
 	if config_parts.size() > 0:
 		var summary := Label.new()
+		summary.name = "cfg_summary"
 		summary.text = ", ".join(config_parts.slice(0, 5))
 		summary.add_theme_color_override("font_color", Color(0.55, 0.55, 0.63))
 		summary.add_theme_font_size_override("font_size", 11)
@@ -669,6 +670,24 @@ func _show_inspector(node_data: Dictionary, node_id: String) -> void:
 
 func _set_input(node_id: String, port_name: String, value) -> void:
 	_rpc("set_input", {"node_id": node_id, "port_name": port_name, "value": value})
+	# Update local node_data so the inspector shows the new value on revisit
+	var gn = _nodes.get(node_id)
+	if gn and is_instance_valid(gn):
+		var data: Dictionary = gn.get_meta("node_data", {})
+		if data.has("inputs") and data["inputs"].has(port_name):
+			data["inputs"][port_name]["default_value"] = value
+			gn.set_meta("node_data", data)
+		# Also update the config summary on the canvas node
+		var summary_parts: PackedStringArray = []
+		for pname in data.get("inputs", {}):
+			var port: Dictionary = data["inputs"][pname]
+			if port.get("editable", false):
+				var val = port.get("default_value")
+				if val != null and str(val) != "" and str(val) != "false" and str(val) != "False" and str(val) != "0":
+					summary_parts.append(str(val))
+		var summary_node = gn.find_child("cfg_summary", false, false)
+		if summary_node and summary_node is Label:
+			summary_node.text = ", ".join(summary_parts.slice(0, 5))
 
 
 # ── Connections ──────────────────────────────────────────────────────
