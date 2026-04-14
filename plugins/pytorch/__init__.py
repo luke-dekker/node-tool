@@ -38,7 +38,7 @@ def register(ctx: PluginContext) -> None:
         "Datasets", "Layers", "Models", "Training", "AI", "Analyze",
     ])
 
-    # The Training Panel is registered via the existing GUI mixin system
-    # (gui/mixins/training.py + gui/mixins/layout.py). In a future refactor
-    # it would be registered here as:
-    # ctx.register_panel("Training", build_training_panel)
+    # Training panel — the DPG version still uses the layout mixin, but
+    # registering here lets the Godot frontend discover it via RPC.
+    # The builder is a no-op on the Python side; Godot has its own builder.
+    ctx.register_panel("Training", lambda parent, app: None)

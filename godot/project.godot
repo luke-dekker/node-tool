@@ -13,8 +13,9 @@ config/features=PackedStringArray("4.4", "Forward Plus")
 
 window/size/viewport_width=1600
 window/size/viewport_height=950
-window/stretch/mode="canvas_items"
+window/stretch/mode="disabled"
 
 [rendering]
 
 renderer/rendering_method="forward_plus"
+environment/defaults/default_clear_color=Color(0.047, 0.055, 0.078, 1)

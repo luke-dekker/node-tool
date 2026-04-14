@@ -359,6 +359,16 @@ class NodeToolServer:
         except Exception as exc:
             return {"code": f"# Export failed: {exc}"}
 
+    def get_plugin_panels(self, params: dict) -> dict:
+        """Return the list of registered plugin panel names."""
+        try:
+            from nodes import _plugin_ctx
+            if _plugin_ctx:
+                return {"panels": [label for label, _builder in _plugin_ctx.panels]}
+        except Exception:
+            pass
+        return {"panels": []}
+
     # ── Dispatch ─────────────────────────────────────────────────────────
 
     _METHODS: dict[str, str] = {
@@ -378,6 +388,7 @@ class NodeToolServer:
         "get_marker_groups": "get_marker_groups",
         "get_templates": "get_templates",
         "load_template": "load_template",
+        "get_plugin_panels": "get_plugin_panels",
     }
 
     def dispatch(self, method: str, params: dict) -> Any:

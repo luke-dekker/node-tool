@@ -4,6 +4,31 @@ extends Control
 
 const SERVER_URL := "ws://127.0.0.1:9800"
 
+# ── Dark theme palette (matches DPG version) ─────────────────────────
+const BG_DARK    := Color(0.047, 0.055, 0.078)   # canvas / deepest
+const BG_MID     := Color(0.078, 0.090, 0.122)   # window bg
+const BG_LIGHT   := Color(0.110, 0.125, 0.165)   # frame bg (inputs)
+const BG_RAISED  := Color(0.133, 0.153, 0.204)   # hovered / raised
+const BG_HEADER  := Color(0.094, 0.110, 0.149)   # section header bar
+const ACCENT     := Color(0.345, 0.769, 0.961)   # primary cyan
+const ACCENT_DIM := Color(0.216, 0.471, 0.627)
+const TXT        := Color(0.878, 0.894, 0.933)
+const TXT_DIM    := Color(0.518, 0.557, 0.635)
+const TXT_BRIGHT := Color(0.980, 0.988, 1.000)
+const BORDER_COL := Color(0.173, 0.204, 0.282, 0.78)
+const OK_GREEN   := Color(0.314, 0.784, 0.510)
+const ERR_RED    := Color(0.922, 0.353, 0.353)
+
+const CATEGORY_COLORS := {
+	"Python":  Color(0.392, 0.706, 0.314),
+	"PyTorch": Color(0.863, 0.353, 0.118),
+	"NumPy":   Color(0.275, 0.510, 0.784),
+	"Pandas":  Color(0.549, 0.392, 0.784),
+	"Sklearn": Color(0.902, 0.549, 0.157),
+	"SciPy":   Color(0.235, 0.706, 0.510),
+	"Viz":     Color(0.863, 0.235, 0.471),
+}
+
 var ws := WebSocketPeer.new()
 var _connected := false
 var _req_id := 0
@@ -40,6 +65,9 @@ var _inspector_node_id: String = ""
 var _save_path: String = ""
 var _templates_menu: PopupMenu
 var _template_labels: Array = []  # ordered list of template labels
+var _term_tabs: TabContainer       # bottom panel tab bar
+# Plugin panel builders: panel_name -> Callable(parent: TabContainer)
+var _panel_builders: Dictionary = {}
 
 
 func _ready() -> void:
@@ -77,18 +105,217 @@ func _process(_delta: float) -> void:
 			_log("Disconnected from server")
 
 
+# ── Dark Theme ───────────────────────────────────────────────────────
+
+func _create_dark_theme() -> Theme:
+	var t := Theme.new()
+
+	# Default font color
+	t.set_color("font_color", "Label", TXT)
+	t.set_color("font_color", "Button", TXT)
+	t.set_color("font_hover_color", "Button", TXT_BRIGHT)
+	t.set_color("font_pressed_color", "Button", ACCENT)
+	t.set_color("font_color", "LineEdit", TXT)
+	t.set_color("font_placeholder_color", "LineEdit", TXT_DIM)
+	t.set_color("font_color", "CheckBox", TXT)
+	t.set_color("font_color", "OptionButton", TXT)
+	t.set_color("font_color", "SpinBox", TXT)
+	t.set_color("font_color", "MenuBar", TXT)
+	t.set_color("font_color", "PopupMenu", TXT)
+	t.set_color("font_hover_color", "PopupMenu", TXT_BRIGHT)
+	t.set_color("font_color", "TabContainer", TXT_DIM)
+	t.set_color("font_selected_color", "TabContainer", TXT_BRIGHT)
+	t.set_color("font_hovered_color", "TabContainer", ACCENT)
+
+	# Panels / backgrounds
+	var panel_bg := _flat_box(BG_MID)
+	t.set_stylebox("panel", "Panel", panel_bg)
+	t.set_stylebox("panel", "PanelContainer", panel_bg)
+	t.set_stylebox("panel", "TabContainer", _flat_box(BG_MID, 0, 0))
+
+	# Tab bar styles
+	var tab_selected := _flat_box(BG_LIGHT, 4, 2)
+	tab_selected.border_color = ACCENT
+	tab_selected.border_width_bottom = 2
+	var tab_unselected := _flat_box(BG_DARK, 4, 2)
+	var tab_hovered := _flat_box(BG_RAISED, 4, 2)
+	t.set_stylebox("tab_selected", "TabContainer", tab_selected)
+	t.set_stylebox("tab_unselected", "TabContainer", tab_unselected)
+	t.set_stylebox("tab_hovered", "TabContainer", tab_hovered)
+	t.set_stylebox("tab_selected", "TabBar", tab_selected)
+	t.set_stylebox("tab_unselected", "TabBar", tab_unselected)
+	t.set_stylebox("tab_hovered", "TabBar", tab_hovered)
+	t.set_stylebox("tabbar_background", "TabContainer", _flat_box(BG_DARK, 0, 0))
+
+	# Buttons
+	var btn_normal := _flat_box(BG_LIGHT, 5, 4)
+	btn_normal.border_color = BORDER_COL
+	btn_normal.border_width_bottom = 1
+	btn_normal.border_width_top = 1
+	btn_normal.border_width_left = 1
+	btn_normal.border_width_right = 1
+	var btn_hover := _flat_box(BG_RAISED, 5, 4)
+	btn_hover.border_color = ACCENT_DIM
+	btn_hover.border_width_bottom = 1
+	btn_hover.border_width_top = 1
+	btn_hover.border_width_left = 1
+	btn_hover.border_width_right = 1
+	var btn_pressed := _flat_box(Color(0.16, 0.20, 0.28), 5, 4)
+	btn_pressed.border_color = ACCENT
+	btn_pressed.border_width_bottom = 1
+	btn_pressed.border_width_top = 1
+	btn_pressed.border_width_left = 1
+	btn_pressed.border_width_right = 1
+	t.set_stylebox("normal", "Button", btn_normal)
+	t.set_stylebox("hover", "Button", btn_hover)
+	t.set_stylebox("pressed", "Button", btn_pressed)
+	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+
+	# LineEdit
+	var le_normal := _flat_box(BG_DARK, 4, 4)
+	le_normal.border_color = BORDER_COL
+	le_normal.border_width_bottom = 1
+	le_normal.border_width_top = 1
+	le_normal.border_width_left = 1
+	le_normal.border_width_right = 1
+	var le_focus := _flat_box(BG_DARK, 4, 4)
+	le_focus.border_color = ACCENT_DIM
+	le_focus.border_width_bottom = 1
+	le_focus.border_width_top = 1
+	le_focus.border_width_left = 1
+	le_focus.border_width_right = 1
+	t.set_stylebox("normal", "LineEdit", le_normal)
+	t.set_stylebox("focus", "LineEdit", le_focus)
+
+	# OptionButton
+	t.set_stylebox("normal", "OptionButton", btn_normal)
+	t.set_stylebox("hover", "OptionButton", btn_hover)
+	t.set_stylebox("pressed", "OptionButton", btn_pressed)
+	t.set_stylebox("focus", "OptionButton", StyleBoxEmpty.new())
+
+	# PopupMenu
+	var popup_bg := _flat_box(Color(0.063, 0.071, 0.102), 4, 4)
+	popup_bg.border_color = BORDER_COL
+	popup_bg.border_width_bottom = 1
+	popup_bg.border_width_top = 1
+	popup_bg.border_width_left = 1
+	popup_bg.border_width_right = 1
+	t.set_stylebox("panel", "PopupMenu", popup_bg)
+	var popup_hover := _flat_box(BG_RAISED, 0, 0)
+	t.set_stylebox("hover", "PopupMenu", popup_hover)
+
+	# ScrollContainer / ScrollBar
+	var scroll_bg := _flat_box(BG_DARK, 0, 2)
+	t.set_stylebox("scroll", "VScrollBar", scroll_bg)
+	t.set_stylebox("scroll", "HScrollBar", scroll_bg)
+	var grabber := _flat_box(Color(0.19, 0.22, 0.30), 3, 0)
+	t.set_stylebox("grabber", "VScrollBar", grabber)
+	t.set_stylebox("grabber", "HScrollBar", grabber)
+	var grabber_h := _flat_box(Color(0.25, 0.29, 0.38), 3, 0)
+	t.set_stylebox("grabber_highlight", "VScrollBar", grabber_h)
+	t.set_stylebox("grabber_highlight", "HScrollBar", grabber_h)
+
+	# Separator
+	t.set_color("font_color", "HSeparator", BORDER_COL)
+	var sep := StyleBoxLine.new()
+	sep.color = BORDER_COL
+	sep.thickness = 1
+	t.set_stylebox("separator", "HSeparator", sep)
+
+	# GraphEdit
+	t.set_color("grid_major", "GraphEdit", Color(0.12, 0.14, 0.19, 0.6))
+	t.set_color("grid_minor", "GraphEdit", Color(0.09, 0.11, 0.15, 0.4))
+	var ge_panel := _flat_box(BG_DARK, 0, 0)
+	t.set_stylebox("panel", "GraphEdit", ge_panel)
+
+	# GraphNode
+	var gn_frame := _flat_box(Color(0.094, 0.110, 0.153, 0.96), 8, 6)
+	gn_frame.border_color = Color(0.20, 0.24, 0.33, 0.8)
+	gn_frame.border_width_bottom = 1
+	gn_frame.border_width_top = 1
+	gn_frame.border_width_left = 1
+	gn_frame.border_width_right = 1
+	var gn_selected := _flat_box(Color(0.110, 0.133, 0.184, 0.98), 8, 6)
+	gn_selected.border_color = ACCENT_DIM
+	gn_selected.border_width_bottom = 2
+	gn_selected.border_width_top = 2
+	gn_selected.border_width_left = 2
+	gn_selected.border_width_right = 2
+	var gn_titlebar := _flat_box(Color(0.125, 0.149, 0.204), 8, 4)
+	gn_titlebar.corner_detail = 8
+	gn_titlebar.set_corner_radius(CORNER_BOTTOM_LEFT, 0)
+	gn_titlebar.set_corner_radius(CORNER_BOTTOM_RIGHT, 0)
+	var gn_titlebar_sel := _flat_box(Color(0.157, 0.184, 0.247), 8, 4)
+	gn_titlebar_sel.corner_detail = 8
+	gn_titlebar_sel.set_corner_radius(CORNER_BOTTOM_LEFT, 0)
+	gn_titlebar_sel.set_corner_radius(CORNER_BOTTOM_RIGHT, 0)
+	t.set_stylebox("panel", "GraphNode", gn_frame)
+	t.set_stylebox("panel_selected", "GraphNode", gn_selected)
+	t.set_stylebox("titlebar", "GraphNode", gn_titlebar)
+	t.set_stylebox("titlebar_selected", "GraphNode", gn_titlebar_sel)
+	t.set_color("title_color", "GraphNode", TXT_BRIGHT)
+
+	# SpinBox inherits LineEdit — but we also style the sub-buttons
+	# RichTextLabel
+	t.set_color("default_color", "RichTextLabel", TXT)
+
+	# SplitContainer grabber area
+	t.set_constant("separation", "HSplitContainer", 4)
+	t.set_constant("separation", "VSplitContainer", 4)
+	t.set_constant("minimum_grab_thickness", "HSplitContainer", 6)
+	t.set_constant("minimum_grab_thickness", "VSplitContainer", 6)
+
+	# MenuBar
+	var mb_normal := _flat_box(BG_HEADER, 0, 0)
+	t.set_stylebox("normal", "MenuBar", mb_normal)
+	t.set_stylebox("hover", "MenuBar", _flat_box(BG_RAISED, 0, 2))
+	t.set_stylebox("pressed", "MenuBar", _flat_box(BG_LIGHT, 0, 2))
+
+	return t
+
+
+func _flat_box(color: Color, corner_r: int = 0, content_margin: int = 4) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = color
+	sb.set_corner_radius_all(corner_r)
+	sb.content_margin_left = content_margin
+	sb.content_margin_right = content_margin
+	sb.content_margin_top = content_margin
+	sb.content_margin_bottom = content_margin
+	return sb
+
+
+func _graph_node_titlebar(color: Color) -> StyleBoxFlat:
+	var sb := _flat_box(color, 8, 4)
+	sb.corner_detail = 8
+	sb.set_corner_radius(CORNER_BOTTOM_LEFT, 0)
+	sb.set_corner_radius(CORNER_BOTTOM_RIGHT, 0)
+	return sb
+
+
 # ── UI Construction ──────────────────────────────────────────────────
 
 func _build_ui() -> void:
+	# Apply dark theme to the whole scene
+	theme = _create_dark_theme()
 	# Root vertical split: menu bar on top, main content below
 	var root := VBoxContainer.new()
 	root.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	root.grow_vertical = Control.GROW_DIRECTION_BOTH
 	add_child(root)
 
 	# ── Menu bar ─────────────────────────────────────────────────────
+	var menu_bg := PanelContainer.new()
+	var menu_style := _flat_box(BG_HEADER, 0, 0)
+	menu_bg.add_theme_stylebox_override("panel", menu_style)
+	root.add_child(menu_bg)
+
 	var menu_row := HBoxContainer.new()
 	menu_row.custom_minimum_size.y = 32
-	root.add_child(menu_row)
+	menu_bg.add_child(menu_row)
 
 	var menu_bar := MenuBar.new()
 	menu_row.add_child(menu_bar)
@@ -121,11 +348,19 @@ func _build_ui() -> void:
 	var run_btn := Button.new()
 	run_btn.text = "  Run Graph  "
 	run_btn.pressed.connect(_on_run_pressed)
+	run_btn.add_theme_stylebox_override("normal", _flat_box(Color(0.18, 0.61, 0.38), 5, 6))
+	run_btn.add_theme_stylebox_override("hover", _flat_box(Color(0.22, 0.72, 0.45), 5, 6))
+	run_btn.add_theme_stylebox_override("pressed", _flat_box(Color(0.14, 0.50, 0.30), 5, 6))
+	run_btn.add_theme_color_override("font_color", TXT_BRIGHT)
 	menu_row.add_child(run_btn)
 
 	var clear_btn := Button.new()
 	clear_btn.text = "  Clear All  "
 	clear_btn.pressed.connect(_on_clear_pressed)
+	clear_btn.add_theme_stylebox_override("normal", _flat_box(Color(0.59, 0.24, 0.27), 5, 6))
+	clear_btn.add_theme_stylebox_override("hover", _flat_box(Color(0.70, 0.30, 0.33), 5, 6))
+	clear_btn.add_theme_stylebox_override("pressed", _flat_box(Color(0.48, 0.18, 0.22), 5, 6))
+	clear_btn.add_theme_color_override("font_color", TXT_BRIGHT)
 	menu_row.add_child(clear_btn)
 
 	var spacer := Control.new()
@@ -144,10 +379,24 @@ func _build_ui() -> void:
 	hsplit.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(hsplit)
 
-	# Left: Palette
+	# Left: Palette with dark background
+	var palette_bg := PanelContainer.new()
+	palette_bg.custom_minimum_size.x = 210
+	palette_bg.add_theme_stylebox_override("panel", _flat_box(BG_MID, 0, 2))
+	hsplit.add_child(palette_bg)
+
 	var palette_panel := VBoxContainer.new()
-	palette_panel.custom_minimum_size.x = 220
-	hsplit.add_child(palette_panel)
+	palette_bg.add_child(palette_panel)
+
+	# Palette header
+	var pal_header := Label.new()
+	pal_header.text = "  Nodes"
+	pal_header.add_theme_color_override("font_color", TXT_BRIGHT)
+	pal_header.add_theme_font_size_override("font_size", 14)
+	var pal_hdr_bg := PanelContainer.new()
+	pal_hdr_bg.add_theme_stylebox_override("panel", _flat_box(BG_HEADER, 0, 4))
+	pal_hdr_bg.add_child(pal_header)
+	palette_panel.add_child(pal_hdr_bg)
 
 	search_box = LineEdit.new()
 	search_box.placeholder_text = "Search nodes..."
@@ -183,20 +432,20 @@ func _build_ui() -> void:
 	center_vsplit.add_child(node_graph)
 
 	# Bottom panel — Output, Code, Training tabs
-	var term_tabs := TabContainer.new()
-	term_tabs.custom_minimum_size.y = 200
-	center_vsplit.add_child(term_tabs)
+	_term_tabs = TabContainer.new()
+	_term_tabs.custom_minimum_size.y = 200
+	center_vsplit.add_child(_term_tabs)
 
 	# ── Output tab ───────────────────────────────────────────────
 	terminal = RichTextLabel.new()
 	terminal.name = "Output"
 	terminal.scroll_following = true
-	term_tabs.add_child(terminal)
+	_term_tabs.add_child(terminal)
 
 	# ── Code tab ─────────────────────────────────────────────────
 	var code_panel := VBoxContainer.new()
 	code_panel.name = "Code"
-	term_tabs.add_child(code_panel)
+	_term_tabs.add_child(code_panel)
 
 	var code_btns := HBoxContainer.new()
 	code_panel.add_child(code_btns)
@@ -219,10 +468,70 @@ func _build_ui() -> void:
 	code_text.selection_enabled = true
 	code_scroll.add_child(code_text)
 
-	# ── Training tab (3-column layout) ───────────────────────────
+	# ── Plugin panel tabs — built on demand when server reports them ──
+	_panel_builders = {
+		"Training": _build_training_tab,
+		"Robotics": _build_robotics_tab,
+	}
+
+	# Right: Inspector with dark background
+	var inspector_bg := PanelContainer.new()
+	inspector_bg.custom_minimum_size.x = 280
+	inspector_bg.add_theme_stylebox_override("panel", _flat_box(BG_MID, 0, 2))
+	center_right.add_child(inspector_bg)
+
+	var inspector_outer := VBoxContainer.new()
+	inspector_bg.add_child(inspector_outer)
+
+	# Inspector header
+	var insp_header := Label.new()
+	insp_header.text = "  Inspector"
+	insp_header.add_theme_color_override("font_color", TXT_BRIGHT)
+	insp_header.add_theme_font_size_override("font_size", 14)
+	var insp_hdr_bg := PanelContainer.new()
+	insp_hdr_bg.add_theme_stylebox_override("panel", _flat_box(BG_HEADER, 0, 4))
+	insp_hdr_bg.add_child(insp_header)
+	inspector_outer.add_child(insp_hdr_bg)
+
+	var inspector_scroll := ScrollContainer.new()
+	inspector_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inspector_outer.add_child(inspector_scroll)
+
+	inspector_box = VBoxContainer.new()
+	inspector_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inspector_scroll.add_child(inspector_box)
+
+	var hint := Label.new()
+	hint.text = "Select a node to inspect."
+	hint.add_theme_color_override("font_color", TXT_DIM)
+	inspector_box.add_child(hint)
+
+	# Set initial split positions — palette ~220px, inspector ~300px from right
+	hsplit.split_offset = 220
+	center_right.split_offset = -300
+	center_vsplit.split_offset = -220
+
+	_log("NodeTool Godot frontend ready.")
+
+
+# ── Plugin Panel Builders ────────────────────────────────────────────
+
+func _fetch_plugin_panels() -> void:
+	_rpc("get_plugin_panels", {}, func(result: Dictionary):
+		var panels: Array = result.get("panels", [])
+		for panel_name in panels:
+			if _panel_builders.has(panel_name):
+				_panel_builders[panel_name].call()
+				_log("Panel loaded: %s" % panel_name)
+			else:
+				_log("Panel '%s' has no Godot builder — skipped" % panel_name)
+	)
+
+
+func _build_training_tab() -> void:
 	var train_panel := HBoxContainer.new()
 	train_panel.name = "Training"
-	term_tabs.add_child(train_panel)
+	_term_tabs.add_child(train_panel)
 
 	# Left column: status + loss info
 	var train_left := VBoxContainer.new()
@@ -234,11 +543,11 @@ func _build_ui() -> void:
 	train_left.add_child(status_row)
 	var dot := Label.new()
 	dot.text = "*"
-	dot.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	dot.add_theme_color_override("font_color", TXT_DIM)
 	status_row.add_child(dot)
 	train_status_label = Label.new()
 	train_status_label.text = "Idle"
-	train_status_label.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	train_status_label.add_theme_color_override("font_color", TXT_DIM)
 	status_row.add_child(train_status_label)
 
 	train_epoch_label = Label.new()
@@ -248,10 +557,9 @@ func _build_ui() -> void:
 	train_loss_label.text = "Best loss  —"
 	train_left.add_child(train_loss_label)
 
-	# Placeholder for loss plot (future: use Godot chart addon or draw)
 	var plot_placeholder := Label.new()
 	plot_placeholder.text = "[Loss plot — coming soon]"
-	plot_placeholder.add_theme_color_override("font_color", Color(0.4, 0.4, 0.5))
+	plot_placeholder.add_theme_color_override("font_color", TXT_DIM)
 	plot_placeholder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	train_left.add_child(plot_placeholder)
 
@@ -263,14 +571,14 @@ func _build_ui() -> void:
 
 	var ds_header := Label.new()
 	ds_header.text = "Datasets"
-	ds_header.add_theme_color_override("font_color", Color(0.7, 0.7, 1.0))
+	ds_header.add_theme_color_override("font_color", ACCENT)
 	train_center.add_child(ds_header)
 	train_center.add_child(HSeparator.new())
 	train_dataset_box = VBoxContainer.new()
 	train_center.add_child(train_dataset_box)
 	var ds_hint := Label.new()
 	ds_hint.text = "Load a template to configure datasets."
-	ds_hint.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	ds_hint.add_theme_color_override("font_color", TXT_DIM)
 	ds_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	train_dataset_box.add_child(ds_hint)
 
@@ -280,7 +588,6 @@ func _build_ui() -> void:
 	train_right.size_flags_stretch_ratio = 0.3
 	train_panel.add_child(train_right)
 
-	# Epochs
 	var ep_row := HBoxContainer.new()
 	train_right.add_child(ep_row)
 	var ep_lbl := Label.new()
@@ -294,7 +601,6 @@ func _build_ui() -> void:
 	train_epochs_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ep_row.add_child(train_epochs_spin)
 
-	# Learning rate
 	var lr_row := HBoxContainer.new()
 	train_right.add_child(lr_row)
 	var lr_lbl := Label.new()
@@ -309,7 +615,6 @@ func _build_ui() -> void:
 	train_lr_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lr_row.add_child(train_lr_spin)
 
-	# Optimizer
 	var opt_row := HBoxContainer.new()
 	train_right.add_child(opt_row)
 	var opt_lbl := Label.new()
@@ -322,7 +627,6 @@ func _build_ui() -> void:
 	train_optim_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	opt_row.add_child(train_optim_btn)
 
-	# Loss
 	var loss_row := HBoxContainer.new()
 	train_right.add_child(loss_row)
 	var loss_lbl := Label.new()
@@ -335,7 +639,6 @@ func _build_ui() -> void:
 	train_loss_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	loss_row.add_child(train_loss_btn)
 
-	# Device
 	var dev_row := HBoxContainer.new()
 	train_right.add_child(dev_row)
 	var dev_lbl := Label.new()
@@ -348,7 +651,6 @@ func _build_ui() -> void:
 	train_device_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dev_row.add_child(train_device_btn)
 
-	# Control buttons
 	train_right.add_child(HSeparator.new())
 	var ctrl_row := HBoxContainer.new()
 	train_right.add_child(ctrl_row)
@@ -363,21 +665,92 @@ func _build_ui() -> void:
 	stop_btn.text = "Stop"
 	ctrl_row.add_child(stop_btn)
 
-	# Right: Inspector
-	var inspector_scroll := ScrollContainer.new()
-	inspector_scroll.custom_minimum_size.x = 300
-	center_right.add_child(inspector_scroll)
 
-	inspector_box = VBoxContainer.new()
-	inspector_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	inspector_scroll.add_child(inspector_box)
+func _build_robotics_tab() -> void:
+	var rob_panel := HBoxContainer.new()
+	rob_panel.name = "Robotics"
+	_term_tabs.add_child(rob_panel)
 
-	var hint := Label.new()
-	hint.text = "Select a node to inspect."
-	hint.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
-	inspector_box.add_child(hint)
+	# Left: serial monitor
+	var rob_left := VBoxContainer.new()
+	rob_left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rob_left.size_flags_stretch_ratio = 0.5
+	rob_panel.add_child(rob_left)
 
-	_log("NodeTool Godot frontend ready.")
+	var rob_serial_hdr := Label.new()
+	rob_serial_hdr.text = "Serial Monitor"
+	rob_serial_hdr.add_theme_color_override("font_color", ACCENT)
+	rob_left.add_child(rob_serial_hdr)
+
+	var rob_port_row := HBoxContainer.new()
+	rob_left.add_child(rob_port_row)
+	var rob_port_lbl := Label.new()
+	rob_port_lbl.text = "Port"
+	rob_port_lbl.custom_minimum_size.x = 40
+	rob_port_row.add_child(rob_port_lbl)
+	var rob_port_opt := OptionButton.new()
+	rob_port_opt.add_item("(none)")
+	rob_port_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rob_port_row.add_child(rob_port_opt)
+	var rob_baud_opt := OptionButton.new()
+	for b in ["9600", "19200", "38400", "57600", "115200"]:
+		rob_baud_opt.add_item(b)
+	rob_baud_opt.select(4)
+	rob_port_row.add_child(rob_baud_opt)
+
+	var rob_btn_row := HBoxContainer.new()
+	rob_left.add_child(rob_btn_row)
+	var rob_conn_btn := Button.new()
+	rob_conn_btn.text = "Connect"
+	rob_conn_btn.pressed.connect(func(): _log("[Robotics] Serial connect not yet wired"))
+	rob_btn_row.add_child(rob_conn_btn)
+	var rob_disc_btn := Button.new()
+	rob_disc_btn.text = "Disconnect"
+	rob_disc_btn.pressed.connect(func(): _log("[Robotics] Disconnected"))
+	rob_btn_row.add_child(rob_disc_btn)
+	var rob_refresh_btn := Button.new()
+	rob_refresh_btn.text = "Refresh"
+	rob_btn_row.add_child(rob_refresh_btn)
+
+	rob_left.add_child(HSeparator.new())
+	var rob_serial_log := RichTextLabel.new()
+	rob_serial_log.text = "(serial output will appear here)"
+	rob_serial_log.add_theme_color_override("default_color", TXT_DIM)
+	rob_serial_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rob_serial_log.scroll_following = true
+	rob_left.add_child(rob_serial_log)
+
+	var rob_send_row := HBoxContainer.new()
+	rob_left.add_child(rob_send_row)
+	var rob_send_input := LineEdit.new()
+	rob_send_input.placeholder_text = "Send command..."
+	rob_send_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rob_send_row.add_child(rob_send_input)
+	var rob_send_btn := Button.new()
+	rob_send_btn.text = "Send"
+	rob_send_row.add_child(rob_send_btn)
+
+	# Right: sensor plot placeholder
+	var rob_right := VBoxContainer.new()
+	rob_right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rob_right.size_flags_stretch_ratio = 0.5
+	rob_panel.add_child(rob_right)
+
+	var rob_plot_hdr := Label.new()
+	rob_plot_hdr.text = "Live Sensor Plot"
+	rob_plot_hdr.add_theme_color_override("font_color", ACCENT)
+	rob_right.add_child(rob_plot_hdr)
+
+	var rob_plot_hint := Label.new()
+	rob_plot_hint.text = "Wire sensor nodes to see live data here."
+	rob_plot_hint.add_theme_color_override("font_color", TXT_DIM)
+	rob_right.add_child(rob_plot_hint)
+
+	var rob_plot_area := Panel.new()
+	rob_plot_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rob_plot_area.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rob_plot_area.add_theme_stylebox_override("panel", _flat_box(BG_DARK, 4, 8))
+	rob_right.add_child(rob_plot_area)
 
 
 # ── WebSocket RPC ────────────────────────────────────────────────────
@@ -432,6 +805,7 @@ func _on_registry_received(result: Dictionary) -> void:
 	_log("Registry: %d categories, %d nodes" % [registry.size(), total])
 	_build_palette()
 	_fetch_templates()
+	_fetch_plugin_panels()
 
 
 func _build_palette() -> void:
@@ -445,20 +819,40 @@ func _build_palette() -> void:
 		if nodes_arr.is_empty():
 			continue
 
+		# Category header with colored accent
+		var cat_bg := PanelContainer.new()
+		var cat_col: Color = CATEGORY_COLORS.get(cat, TXT_DIM)
+		var cat_style := _flat_box(cat_col.darkened(0.7), 3, 3)
+		cat_style.border_color = cat_col.darkened(0.3)
+		cat_style.border_width_left = 3
+		cat_bg.add_theme_stylebox_override("panel", cat_style)
 		var cat_label := Label.new()
-		cat_label.text = "  %s" % cat
-		cat_label.add_theme_color_override("font_color", Color(0.55, 0.7, 0.9))
-		palette_list.add_child(cat_label)
+		cat_label.text = cat
+		cat_label.add_theme_color_override("font_color", cat_col.lightened(0.3))
+		cat_label.add_theme_font_size_override("font_size", 13)
+		cat_bg.add_child(cat_label)
+		palette_list.add_child(cat_bg)
 
 		for node_def in nodes_arr:
 			var btn := Button.new()
-			btn.text = "    %s" % node_def["label"]
+			btn.text = "  %s" % node_def["label"]
 			btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			btn.set_meta("type_name", node_def["type_name"])
 			btn.set_meta("node_def", node_def)
 			btn.pressed.connect(_on_palette_btn.bind(node_def["type_name"]))
+			# Flat palette buttons
+			btn.add_theme_stylebox_override("normal", _flat_box(Color.TRANSPARENT, 3, 3))
+			btn.add_theme_stylebox_override("hover", _flat_box(BG_RAISED, 3, 3))
+			btn.add_theme_stylebox_override("pressed", _flat_box(BG_LIGHT, 3, 3))
+			btn.add_theme_color_override("font_color", TXT_DIM)
+			btn.add_theme_color_override("font_hover_color", TXT)
+			btn.add_theme_font_size_override("font_size", 13)
 			palette_list.add_child(btn)
 
+	# Add a small spacer at the end
+	var end_spacer := Control.new()
+	end_spacer.custom_minimum_size.y = 20
+	palette_list.add_child(end_spacer)
 	_log("Palette built")
 
 
@@ -511,7 +905,7 @@ func _add_graph_node(node_data: Dictionary, pos_arr: Array = []) -> void:
 		var summary := Label.new()
 		summary.name = "cfg_summary"
 		summary.text = ", ".join(config_parts.slice(0, 5))
-		summary.add_theme_color_override("font_color", Color(0.55, 0.55, 0.63))
+		summary.add_theme_color_override("font_color", TXT_DIM)
 		summary.add_theme_font_size_override("font_size", 11)
 		gn.add_child(summary)
 
@@ -544,6 +938,14 @@ func _add_graph_node(node_data: Dictionary, pos_arr: Array = []) -> void:
 		var idx := gn.get_child_count() - 1
 		gn.set_slot(idx, false, 0, Color.WHITE, true, 0, col)
 
+	# Apply category color to title bar
+	var cat_name: String = node_data.get("category", "")
+	if CATEGORY_COLORS.has(cat_name):
+		var cat_col: Color = CATEGORY_COLORS[cat_name]
+		gn.add_theme_stylebox_override("titlebar", _graph_node_titlebar(cat_col))
+		var sel_col := cat_col.lightened(0.15)
+		gn.add_theme_stylebox_override("titlebar_selected", _graph_node_titlebar(sel_col))
+
 	node_graph.add_child(gn)
 	_nodes[node_id] = gn
 	_name_to_id[gn.name] = node_id
@@ -568,17 +970,20 @@ func _show_inspector(node_data: Dictionary, node_id: String) -> void:
 	var title := Label.new()
 	title.text = node_data.get("label", "Node")
 	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", TXT_BRIGHT)
 	inspector_box.add_child(title)
 
+	var cat_name: String = node_data.get("category", "")
 	var cat_lbl := Label.new()
-	cat_lbl.text = node_data.get("category", "")
-	cat_lbl.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	cat_lbl.text = cat_name
+	var cat_col: Color = CATEGORY_COLORS.get(cat_name, TXT_DIM)
+	cat_lbl.add_theme_color_override("font_color", cat_col)
 	inspector_box.add_child(cat_lbl)
 
 	var desc := Label.new()
 	desc.text = node_data.get("description", "")
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD
-	desc.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+	desc.add_theme_color_override("font_color", TXT_DIM)
 	inspector_box.add_child(desc)
 
 	inspector_box.add_child(HSeparator.new())
@@ -593,7 +998,7 @@ func _show_inspector(node_data: Dictionary, node_id: String) -> void:
 		if not has_config:
 			var hdr := Label.new()
 			hdr.text = "Config"
-			hdr.add_theme_color_override("font_color", Color(0.35, 0.77, 0.96))
+			hdr.add_theme_color_override("font_color", ACCENT)
 			inspector_box.add_child(hdr)
 			has_config = true
 
@@ -657,7 +1062,7 @@ func _show_inspector(node_data: Dictionary, node_id: String) -> void:
 		inspector_box.add_child(HSeparator.new())
 		var out_hdr := Label.new()
 		out_hdr.text = "Outputs"
-		out_hdr.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+		out_hdr.add_theme_color_override("font_color", TXT_DIM)
 		inspector_box.add_child(out_hdr)
 		for pname in out_ports:
 			var col_arr: Array = out_ports[pname].get("color", [160, 160, 180, 255])
@@ -897,7 +1302,7 @@ func _refresh_dataset_panel() -> void:
 		if groups.is_empty():
 			var hint := Label.new()
 			hint.text = "Add Data In (A) marker nodes to configure datasets,\nor load a template from File > Templates."
-			hint.add_theme_color_override("font_color", Color(0.5, 0.55, 0.63))
+			hint.add_theme_color_override("font_color", TXT_DIM)
 			hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 			train_dataset_box.add_child(hint)
 			return
@@ -908,7 +1313,7 @@ func _refresh_dataset_panel() -> void:
 			# Group header
 			var hdr := Label.new()
 			hdr.text = "[%s] %s" % [group_name, mods_str]
-			hdr.add_theme_color_override("font_color", Color(0.7, 0.7, 1.0))
+			hdr.add_theme_color_override("font_color", ACCENT)
 			train_dataset_box.add_child(hdr)
 			# Path
 			var path_row := HBoxContainer.new()
@@ -998,7 +1403,7 @@ func _on_export_pressed() -> void:
 func _on_train_start() -> void:
 	_log("--- Starting training ---")
 	train_status_label.text = "Running"
-	train_status_label.add_theme_color_override("font_color", Color(0.3, 0.8, 0.5))
+	train_status_label.add_theme_color_override("font_color", OK_GREEN)
 	_rpc("train_start", {
 		"epochs": int(train_epochs_spin.value),
 		"lr": train_lr_spin.value,
@@ -1009,7 +1414,7 @@ func _on_train_start() -> void:
 		if result.has("error"):
 			_log("[Train Error] %s" % str(result["error"]))
 			train_status_label.text = "Error"
-			train_status_label.add_theme_color_override("font_color", Color(0.9, 0.35, 0.35))
+			train_status_label.add_theme_color_override("font_color", ERR_RED)
 		else:
 			_log("[Train] %s" % result.get("message", "Started"))
 	)
