@@ -37,7 +37,7 @@ def test_python_multiply():
 def test_graph_single_node():
     g = Graph()
     n = g.add_node(_const(42.0))
-    outputs, _ = g.execute()
+    outputs, _, _ = g.execute()
     assert outputs[n.id]["result"] == 42.0
 
 
@@ -48,7 +48,7 @@ def test_graph_execution():
     add = g.add_node(_py("result = a + b"))
     g.add_connection(c1.id, "result", add.id, "a")
     g.add_connection(c2.id, "result", add.id, "b")
-    outputs, _ = g.execute()
+    outputs, _, _ = g.execute()
     assert outputs[add.id]["result"] == 15.0
 
 
@@ -61,7 +61,7 @@ def test_topological_sort():
     g.add_connection(c1.id, "result", add.id, "a")
     g.add_connection(c2.id, "result", add.id, "b")
     g.add_connection(add.id, "result", mul.id, "a")
-    outputs, _ = g.execute()
+    outputs, _, _ = g.execute()
     assert outputs[add.id]["result"] == 7.0
     assert outputs[mul.id]["result"] == 14.0
 
@@ -88,7 +88,7 @@ def test_remove_node_cleans_connections():
 def test_missing_connection_uses_default():
     g = Graph()
     n = g.add_node(_py("result = (a or 7) + (b or 3)"))
-    outputs, _ = g.execute()
+    outputs, _, _ = g.execute()
     assert outputs[n.id]["result"] == 10.0
 
 
@@ -102,5 +102,5 @@ def test_long_chain():
     g.add_connection(c.id,    "result", add1.id, "a")
     g.add_connection(add1.id, "result", mul.id,  "a")
     g.add_connection(mul.id,  "result", add2.id, "a")
-    outputs, _ = g.execute()
+    outputs, _, _ = g.execute()
     assert outputs[add2.id]["result"] == 32.0

@@ -97,7 +97,7 @@ class SubgraphNode(BaseNode):
 
         # Run the inner graph
         try:
-            stored, _terminal = ig.execute()
+            stored, _terminal, _errors = ig.execute()
         except Exception as exc:
             return {ext.name: None for ext in sf.external_outputs} | {"__error__": str(exc)}
 

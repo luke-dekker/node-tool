@@ -133,6 +133,7 @@ class NodeToolServer:
                             "editable": PortTypeRegistry.is_editable(p.port_type),
                             "color": list(PortTypeRegistry.get_color(p.port_type)),
                             "choices": getattr(p, "choices", None),
+                            "description": getattr(p, "description", ""),
                         }
                         for pname, p in tmp.inputs.items()
                     },
@@ -140,6 +141,7 @@ class NodeToolServer:
                         pname: {
                             "port_type": p.port_type,
                             "color": list(PortTypeRegistry.get_color(p.port_type)),
+                            "description": getattr(p, "description", ""),
                         }
                         for pname, p in tmp.outputs.items()
                     },
@@ -228,9 +230,9 @@ class NodeToolServer:
         try:
             import torch
             with torch.no_grad():
-                outputs, terminal_lines = self.graph.execute()
+                outputs, terminal_lines, errors = self.graph.execute()
         except Exception as exc:
-            return {"error": str(exc), "terminal": []}
+            return {"error": str(exc), "terminal": [], "errors": {}}
 
         self._last_outputs = outputs
 
@@ -244,6 +246,7 @@ class NodeToolServer:
         return {
             "outputs": summaries,
             "terminal": terminal_lines,
+            "errors": errors,
         }
 
     def clear(self, params: dict) -> dict:
@@ -359,6 +362,66 @@ class NodeToolServer:
         except Exception as exc:
             return {"code": f"# Export failed: {exc}"}
 
+    def serialize_graph(self, params: dict) -> dict:
+        """Return the graph as a JSON-serializable dict (matches Serializer.save format).
+
+        Used by browser frontends that download the result rather than writing
+        to a server-side path. Positions are passed in by the client since the
+        server doesn't track them.
+        """
+        positions = params.get("positions", {})
+        nodes = []
+        for node_id, node in self.graph.nodes.items():
+            nodes.append({
+                "id": node.id,
+                "type_name": node.type_name,
+                "pos": list(positions.get(node_id, [100, 100])),
+                "inputs": {
+                    k: self._safe_value(p.default_value)
+                    for k, p in node.inputs.items()
+                },
+            })
+        connections = [
+            {
+                "from_node": c.from_node_id,
+                "from_port": c.from_port,
+                "to_node": c.to_node_id,
+                "to_port": c.to_port,
+            }
+            for c in self.graph.connections
+        ]
+        return {"version": 1, "nodes": nodes, "connections": connections}
+
+    def deserialize_graph(self, params: dict) -> dict:
+        """Replace the graph from an in-memory JSON dict (browser upload path)."""
+        data = params.get("data") or {}
+        from core.graph import Graph
+        graph = Graph()
+        positions: dict[str, list] = {}
+        for nd in data.get("nodes", []):
+            cls = NODE_REGISTRY.get(nd["type_name"])
+            if cls is None:
+                continue
+            node = cls()
+            node.id = nd["id"]
+            for k, v in nd.get("inputs", {}).items():
+                if k in node.inputs and v is not None:
+                    node.inputs[k].default_value = v
+            graph.add_node(node)
+            positions[node.id] = nd.get("pos", [100, 100])
+        for c in data.get("connections", []):
+            graph.add_connection(c["from_node"], c["from_port"],
+                                 c["to_node"], c["to_port"])
+        self.graph = graph
+        self._last_outputs = {}
+        nodes = {nid: self._node_to_dict(n) for nid, n in graph.nodes.items()}
+        conns = [
+            {"from_node": c.from_node_id, "from_port": c.from_port,
+             "to_node": c.to_node_id, "to_port": c.to_port}
+            for c in graph.connections
+        ]
+        return {"nodes": nodes, "connections": conns, "positions": positions}
+
     def get_plugin_panels(self, params: dict) -> dict:
         """Return the list of registered plugin panel names."""
         try:
@@ -389,6 +452,8 @@ class NodeToolServer:
         "get_templates": "get_templates",
         "load_template": "load_template",
         "get_plugin_panels": "get_plugin_panels",
+        "serialize_graph": "serialize_graph",
+        "deserialize_graph": "deserialize_graph",
     }
 
     def dispatch(self, method: str, params: dict) -> Any:
