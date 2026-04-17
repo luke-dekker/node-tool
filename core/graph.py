@@ -184,15 +184,17 @@ class Graph:
 
     # ── Execution ────────────────────────────────────────────────────────────
 
-    def execute(self) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    def execute(self) -> tuple[dict[str, dict[str, Any]], list[str], dict[str, dict[str, str]]]:
         """
         Execute all reachable nodes in topological order.
-        Returns (node_outputs, terminal_lines).
+        Returns (node_outputs, terminal_lines, errors).
         node_outputs: {node_id: {port_name: value}}
+        errors: {node_id: {"message", "type", "label"}}
         """
         order = self.topological_order()
         stored: dict[str, dict[str, Any]] = {}  # node_id -> {port: value}
         terminal_lines: list[str] = []
+        errors: dict[str, dict[str, str]] = {}
 
         # Build a lookup: (to_node_id, to_port) -> (from_node_id, from_port)
         conn_map: dict[tuple[str, str], tuple[str, str]] = {}
@@ -229,6 +231,11 @@ class Graph:
             except Exception as exc:
                 outputs = {}
                 terminal_lines.append(f"[ERROR] Node {node.label} ({node_id[:8]}): {exc}")
+                errors[node_id] = {
+                    "message": str(exc),
+                    "type": type(exc).__name__,
+                    "label": node.label,
+                }
 
             stored[node_id] = outputs or {}
 
@@ -236,4 +243,4 @@ class Graph:
             if "__terminal__" in (outputs or {}):
                 terminal_lines.append(str(outputs["__terminal__"]))
 
-        return stored, terminal_lines
+        return stored, terminal_lines, errors

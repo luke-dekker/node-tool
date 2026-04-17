@@ -302,7 +302,7 @@ class TrainingMixin:
 
         try:
             with torch.no_grad():
-                outputs, _ = self.graph.execute()
+                outputs, _, _ = self.graph.execute()
         except Exception as exc:
             self._log(f"[Train] Graph error: {exc}")
             return
@@ -378,7 +378,7 @@ class TrainingMixin:
 
         try:
             with torch.no_grad():
-                outputs, _ = self.graph.execute()
+                outputs, _, _ = self.graph.execute()
         except Exception as exc:
             self._log(f"[Train] Graph error: {exc}")
             return
@@ -488,7 +488,7 @@ class TrainingMixin:
         self._log("Checking training wiring...")
         try:
             with torch.no_grad():
-                outputs, _ = self.graph.execute()
+                outputs, _, _ = self.graph.execute()
         except Exception as exc:
             self._log(f"[Check] Graph error: {exc}")
             return

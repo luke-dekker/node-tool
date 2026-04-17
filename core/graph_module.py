@@ -67,7 +67,7 @@ class GraphAsModule(nn.Module):
         self._primed_outputs: dict[str, dict[str, Any]] = {}
         with torch.no_grad():
             try:
-                primed, _ = graph.execute()
+                primed, _, _ = graph.execute()
                 if isinstance(primed, dict):
                     self._primed_outputs = {
                         nid: dict(vals) for nid, vals in primed.items()

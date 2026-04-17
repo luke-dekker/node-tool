@@ -27,7 +27,7 @@ def test_save_load_roundtrip():
         graph2, pos2 = Serializer.load(path)
         assert len(graph2.nodes) == 3
         assert len(graph2.connections) == 2
-        outputs, _ = graph2.execute()
+        outputs, _, _ = graph2.execute()
         add_node = next(n for n in graph2.nodes.values()
                         if n.inputs["code"].default_value == "result = a + b")
         assert outputs[add_node.id]["result"] == 10.0

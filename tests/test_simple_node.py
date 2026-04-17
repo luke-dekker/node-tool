@@ -141,7 +141,7 @@ def test_in_graph():
     n = cls()
     n.inputs["x"].default_value = 4.0
     g.add_node(n)
-    outputs, _ = g.execute()
+    outputs, _, _ = g.execute()
     assert outputs[n.id]["result"] == 12.0
 
 

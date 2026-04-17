@@ -585,7 +585,7 @@ class NodeApp(
         try:
             import torch
             with torch.no_grad():
-                outputs, _ = self.graph.execute()
+                outputs, _, _ = self.graph.execute()
             self._last_outputs = outputs
         except Exception:
             pass
@@ -600,7 +600,7 @@ class NodeApp(
         try:
             import torch
             with torch.no_grad():
-                outputs, terminal_lines = self.graph.execute()
+                outputs, terminal_lines, _ = self.graph.execute()
         except Exception as exc:
             self._log(f"[FATAL] {exc}")
             return
