@@ -1,0 +1,56 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #0c0e14;
+  color: #e0e4ee;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+/* React Flow controls should inherit our dark theme */
+.react-flow__controls button {
+  background: #1c202a !important;
+  color: #e0e4ee !important;
+  border-bottom: 1px solid #2c3448 !important;
+}
+.react-flow__controls button:hover {
+  background: #22273450 !important;
+}
+.react-flow__minimap {
+  background: #14171f !important;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__node {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+input:focus {
+  border-color: #3778a0 !important;
+}
+
+/* Dark scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #303848;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #404858;
+}
