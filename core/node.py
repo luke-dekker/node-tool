@@ -21,6 +21,19 @@ from typing import Any
 from core.port_types import PortType, PortTypeRegistry  # noqa: F401
 
 
+# ── Inspector spec ────────────────────────────────────────────────────────────
+# GUI-agnostic description of a node's custom inspector content. Nodes override
+# BaseNode.inspector_spec() to return one; every frontend renders it natively
+# (DPG reads lines → add_text, actions → add_button). Old GUI-specific
+# inspector_ui() is still honored for nodes that haven't migrated.
+
+@dataclass
+class InspectorSpec:
+    section: str = ""
+    lines:   list[str] = field(default_factory=list)
+    actions: list[tuple[str, str]] = field(default_factory=list)  # (label, method_name)
+
+
 # ── Marker roles ──────────────────────────────────────────────────────────────
 # Node classes can declare a marker_role so GUIs and training loops can find
 # them without hardcoding type_name strings. Plugins define their own role
@@ -144,17 +157,27 @@ class BaseNode(ABC):
         """Override to provide Python code export. Returns (imports, lines)."""
         return [], [f"# [{self.label}]: export not supported"]
 
+    def inspector_spec(self) -> InspectorSpec | None:
+        """Optional: GUI-agnostic description of a custom inspector section.
+
+        Returning an InspectorSpec lets every frontend render the same section
+        natively — no DPG (or other GUI lib) import needed in the node file.
+        Actions are bound by method name; the frontend wires them to buttons
+        and invokes `getattr(self, name)(app)` on click.
+
+        Default: None. Prefer this over inspector_ui for new nodes.
+        """
+        return None
+
     def inspector_ui(self, parent: str, app) -> None:
-        """Optional: draw custom DearPyGui widgets for this node instance.
+        """Legacy DPG-specific inspector hook. New nodes should use
+        inspector_spec() instead; this stays for nodes mid-migration.
 
         Called by the Inspector panel after the default port/output readout,
         each time this node is selected. `parent` is the dpg container tag to
         attach widgets to; `app` is the main `App` for graph access and
         `_log`. State should live on `self` (the node instance), not in
         widget tags — widgets are rebuilt on every re-selection.
-
-        Default: no-op. Nodes that want action buttons, live previews, or
-        richer controls than ports can provide override this.
         """
         return None
 

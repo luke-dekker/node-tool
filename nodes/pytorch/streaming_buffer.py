@@ -252,31 +252,23 @@ class StreamingBufferNode(BaseNode):
 
     # ── Inspector UI ────────────────────────────────────────────────────
 
-    def inspector_ui(self, parent: str, app) -> None:
-        import dearpygui.dearpygui as dpg
-
-        dpg.add_separator(parent=parent)
-        dpg.add_text("Buffer Controls", parent=parent, color=[88, 196, 245])
-
-        # Live status. These are text widgets — the inspector rebuilds on
-        # re-selection, so no per-frame refresh needed. Click a button and
-        # re-select the node to see updated counts.
-        n = len(self._buffer)
-        dpg.add_text(f"Samples: {n} / {self._maxlen}", parent=parent)
-        dpg.add_text(f"Episode: {self._episode}", parent=parent)
-        dpg.add_text(f"Step (t): {self._t}", parent=parent)
-
-        dpg.add_separator(parent=parent)
-        with dpg.group(horizontal=True, parent=parent):
-            dpg.add_button(label="Next Episode",
-                           callback=lambda: self._on_next_episode(app))
-            dpg.add_button(label="Reset t",
-                           callback=lambda: self._on_reset_t(app))
-        with dpg.group(horizontal=True, parent=parent):
-            dpg.add_button(label="Clear Buffer",
-                           callback=lambda: self._on_clear(app))
-            dpg.add_button(label="Save Now",
-                           callback=lambda: self._on_save_now(app))
+    def inspector_spec(self):
+        """GUI-agnostic inspector content. Any frontend renders this."""
+        from core.node import InspectorSpec
+        return InspectorSpec(
+            section="Buffer Controls",
+            lines=[
+                f"Samples: {len(self._buffer)} / {self._maxlen}",
+                f"Episode: {self._episode}",
+                f"Step (t): {self._t}",
+            ],
+            actions=[
+                ("Next Episode", "_on_next_episode"),
+                ("Reset t",      "_on_reset_t"),
+                ("Clear Buffer", "_on_clear"),
+                ("Save Now",     "_on_save_now"),
+            ],
+        )
 
     def _on_next_episode(self, app) -> None:
         self._episode += 1
@@ -301,15 +293,9 @@ class StreamingBufferNode(BaseNode):
         app._update_inspector(self.id)
 
     def _on_save_now(self, app) -> None:
+        # The inspector renderer syncs pending widget edits onto port
+        # defaults before firing actions, so this is always the live value.
         path = self.inputs["save_to"].default_value
-        # Pick up edited value from the live widget if it exists
-        widget_tag = getattr(app, "input_widgets", {}).get((self.id, "save_to"))
-        if widget_tag is not None:
-            try:
-                import dearpygui.dearpygui as dpg
-                path = dpg.get_value(widget_tag) or path
-            except Exception:
-                pass
         if not path:
             try:
                 app._log("[StreamingBuffer] save_to is empty")

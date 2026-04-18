@@ -144,6 +144,39 @@ def _is_primitive_output(port_type: str) -> bool:
     return PortTypeRegistry.is_editable(port_type)
 
 
+def _render_inspector_spec(spec, node, parent: str, app) -> None:
+    """DPG renderer for a GUI-agnostic InspectorSpec.
+
+    Every frontend implements this against its own widget library; the spec
+    itself lives in core.node and knows nothing about DPG.
+    """
+    dpg.add_separator(parent=parent)
+    if spec.section:
+        dpg.add_text(spec.section, parent=parent, color=[88, 196, 245])
+    for line in spec.lines:
+        dpg.add_text(line, parent=parent)
+    if spec.actions:
+        dpg.add_separator(parent=parent)
+
+        def _fire(method):
+            # Push any pending widget edits onto port defaults so the node
+            # can read them via self.inputs[...].default_value — keeps node
+            # code GUI-agnostic.
+            try:
+                app._sync_inputs_from_widgets()
+            except Exception:
+                pass
+            method(app)
+
+        with dpg.group(horizontal=True, parent=parent):
+            for label, method_name in spec.actions:
+                method = getattr(node, method_name, None)
+                if method is None:
+                    continue
+                dpg.add_button(label=label,
+                               callback=lambda m=method: _fire(m))
+
+
 class NodeApp(
     TrainingMixin, PollingMixin, FileOpsMixin,
     EditOpsMixin, LayoutMixin, HandlersMixin,
@@ -863,12 +896,17 @@ class NodeApp(
                         dpg.add_text(f"  {port_name}", color=pin_col)
                         dpg.add_text(f"= {result_val}", color=list(ACCENT))
 
-            # Per-instance custom UI
+            # Per-instance custom UI — prefer GUI-agnostic spec, fall back
+            # to the legacy DPG-specific hook for un-migrated nodes.
             try:
-                node.inspector_ui("inspector_content", self)
+                spec = node.inspector_spec()
+                if spec is not None:
+                    _render_inspector_spec(spec, node, parent, self)
+                else:
+                    node.inspector_ui("inspector_content", self)
             except Exception as ui_exc:
                 dpg.add_separator(parent=parent)
-                dpg.add_text(f"[inspector_ui error] {ui_exc}",
+                dpg.add_text(f"[inspector error] {ui_exc}",
                              parent=parent, color=[255, 120, 120, 255])
 
         except Exception as exc:
