@@ -33,5 +33,8 @@ def register(ctx: PluginContext) -> None:
     ctx.add_categories(["Control", "Sensors", "Actuators", "Signal", "Kinematics"])
 
     # ── Panel ───────────────────────────────────────────────────────────
-    from plugins.robotics.panel import build_robotics_panel
+    # DPG adapter for the robotics panel. Other frontends (React, Godot)
+    # can implement their own panel against the same controller API once
+    # we extract one — see FRONTEND_CHECKLIST.md "Plugin-registered panels".
+    from plugins.robotics._panel_dpg import build_robotics_panel
     ctx.register_panel("Robotics", build_robotics_panel)

@@ -1,6 +1,12 @@
-"""Robotics panel — serial monitor + live sensor plot.
+"""Robotics panel — DearPyGui adapter.
 
-Registers as a tab in the bottom panel bar. Shows:
+This is the DPG-specific rendering. The plugin registers
+`build_robotics_panel` as the panel builder; only the DPG frontend calls
+it. Other frontends (React, Godot) see "Robotics" in get_plugin_panels()
+and implement their own UI — future: extract a RoboticsController class
+this file renders against, so per-frontend code only handles layout.
+
+Shows:
   - Serial port selector + connect/disconnect
   - Incoming serial data log
   - Send command field
