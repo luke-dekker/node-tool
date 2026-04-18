@@ -17,11 +17,9 @@ from core.plugins import PluginContext
 def register(ctx: PluginContext) -> None:
     """Register all PyTorch functionality."""
 
-    # Port types are already registered in core/port_types.py during the
-    # transition period. Once we fully separate, move them here:
-    # ctx.register_port_type("TENSOR", default=None, color=(255,120,40,255))
-    # ctx.register_port_type("MODULE", default=None, color=(160,80,255,255))
-    # ... etc.
+    # Port types first — nodes reference them during class-level setup.
+    from plugins.pytorch.port_types import register_all as register_port_types
+    register_port_types()
 
     # Discover all node classes from the existing nodes/pytorch/ package
     import nodes.pytorch as pt_pkg

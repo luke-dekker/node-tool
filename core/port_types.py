@@ -112,17 +112,6 @@ def _coerce_bool(value: Any) -> bool:
     return bool(value)
 
 
-def _coerce_tensor(value: Any) -> Any:
-    """Coerce scalars/lists to torch.Tensor if torch is available."""
-    if isinstance(value, (int, float, list)):
-        try:
-            import torch
-            return torch.tensor(value)
-        except Exception:
-            return None
-    return value
-
-
 # ── Base types (always available, any domain) ────────────────────────────────
 
 PortTypeRegistry.register("FLOAT",  default=0.0,   coerce=float, editable=True,
@@ -142,36 +131,8 @@ PortTypeRegistry.register("ANY",    default=None,  coerce=None,
                           description="Any type (passthrough)")
 
 
-# ── PyTorch types (will move to plugins/pytorch/ eventually) ─────────────────
-# Registered here for now during the transition. Once the plugin system is
-# built, these move to plugins/pytorch/port_types.py.
-
-PortTypeRegistry.register("TENSOR",     default=None, coerce=_coerce_tensor,
-                          color=(255, 120, 40, 255),  pin_shape="circle",
-                          description="torch.Tensor")
-PortTypeRegistry.register("MODULE",     default=None,
-                          color=(160, 80, 255, 255),  pin_shape="triangle",
-                          description="torch.nn.Module")
-PortTypeRegistry.register("DATALOADER", default=None,
-                          color=(40, 200, 200, 255),  pin_shape="quad",
-                          description="torch.utils.data.DataLoader")
-PortTypeRegistry.register("OPTIMIZER",  default=None,
-                          color=(255, 200, 40, 255),  pin_shape="circle",
-                          description="torch.optim.Optimizer")
-PortTypeRegistry.register("LOSS_FN",    default=None,
-                          color=(220, 60, 120, 255),  pin_shape="circle",
-                          description="Loss function callable")
-PortTypeRegistry.register("SCHEDULER",  default=None,
-                          color=(160, 230, 60, 255),  pin_shape="circle_filled",
-                          description="Learning rate scheduler")
-PortTypeRegistry.register("DATASET",    default=None,
-                          color=(80, 220, 180, 255),  pin_shape="circle_filled",
-                          description="torch.utils.data.Dataset")
-PortTypeRegistry.register("TRANSFORM",  default=None,
-                          color=(200, 130, 255, 255), pin_shape="circle_filled",
-                          description="Data transform callable")
-
-# Data science types
+# Data science types (registered here for now — will move to their plugins
+# as numpy/pandas/sklearn follow pytorch's plugin-owned port type pattern).
 PortTypeRegistry.register("NDARRAY",       default=None,
                           color=(80, 180, 255, 255),  pin_shape="triangle_filled",
                           description="numpy.ndarray")
