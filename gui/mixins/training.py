@@ -7,6 +7,7 @@ mixin is pure GUI: reads panel widgets, shows status, drives the controller.
 from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
+from core.node import MarkerRole
 from gui.theme import OK_GREEN, WARN_AMBER, ERR_RED, TEXT_DIM, ACCENT
 from plugins.pytorch._factories import build_optimizer as _build_optimizer
 from plugins.pytorch._factories import build_loss as _build_loss
@@ -76,7 +77,7 @@ class TrainingMixin:
         """Return sorted unique group names from all markers in the graph."""
         groups = set()
         for n in self.graph.nodes.values():
-            if n.type_name in ("pt_input_marker", "pt_train_marker"):
+            if n.marker_role in (MarkerRole.INPUT, MarkerRole.TRAIN_TARGET):
                 groups.add(str(n.inputs["group"].default_value or "task_1"))
         return sorted(groups) or ["task_1"]
 
@@ -93,11 +94,10 @@ class TrainingMixin:
 
         groups = self._discover_groups()
         modalities: dict[str, list[str]] = {}
-        for n in self.graph.nodes.values():
-            if n.type_name == "pt_input_marker":
-                g = str(n.inputs["group"].default_value or "task_1")
-                m = str(n.inputs["modality"].default_value or "x")
-                modalities.setdefault(g, []).append(m)
+        for n in self.graph.nodes_by_role(MarkerRole.INPUT):
+            g = str(n.inputs["group"].default_value or "task_1")
+            m = str(n.inputs["modality"].default_value or "x")
+            modalities.setdefault(g, []).append(m)
 
         iw = -1  # auto-width: fill the column
         for g in groups:
@@ -126,8 +126,7 @@ class TrainingMixin:
 
     def _has_markers(self) -> bool:
         """True if the graph uses the marker architecture (no DatasetNode)."""
-        return any(n.type_name == "pt_input_marker"
-                   for n in self.graph.nodes.values())
+        return bool(self.graph.nodes_by_role(MarkerRole.INPUT))
 
     def _build_loader_from_panel(self, ds_cfg: dict):
         """Build a DataLoader from a per-group dataset config dict.
@@ -163,9 +162,7 @@ class TrainingMixin:
 
     def _prime_markers(self, batch):
         """Set _probe_tensor on every InputMarker from a batch dict."""
-        for n in self.graph.nodes.values():
-            if n.type_name != "pt_input_marker":
-                continue
+        for n in self.graph.nodes_by_role(MarkerRole.INPUT):
             modality = str(n.inputs["modality"].default_value or "x")
             if isinstance(batch, dict) and modality in batch:
                 n._probe_tensor = batch[modality]
@@ -173,11 +170,11 @@ class TrainingMixin:
     def _find_train_markers(self, outputs: dict) -> list[tuple[str, dict]]:
         """Find TrainMarker (B) nodes and return their configs."""
         results = []
-        for node_id, node in self.graph.nodes.items():
-            if node.type_name == "pt_train_marker" and node_id in outputs:
-                cfg = outputs[node_id].get("config")
+        for node in self.graph.nodes_by_role(MarkerRole.TRAIN_TARGET):
+            if node.id in outputs:
+                cfg = outputs[node.id].get("config")
                 if cfg is not None:
-                    results.append((node_id, cfg))
+                    results.append((node.id, cfg))
         return results
 
     def _find_train_outputs(self, outputs: dict) -> list[tuple[str, dict]]:
@@ -265,9 +262,7 @@ class TrainingMixin:
             batches[g] = batch
 
         # Prime all markers from their group's batch
-        for n in self.graph.nodes.values():
-            if n.type_name != "pt_input_marker":
-                continue
+        for n in self.graph.nodes_by_role(MarkerRole.INPUT):
             g = str(n.inputs["group"].default_value or "task_1")
             m = str(n.inputs["modality"].default_value or "x")
             b = batches.get(g, {})

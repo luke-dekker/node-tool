@@ -17,7 +17,7 @@ a setter and a getter.
 """
 from __future__ import annotations
 from typing import Any
-from core.node import BaseNode, PortType
+from core.node import BaseNode, PortType, MarkerRole
 
 
 class InputMarkerNode(BaseNode):
@@ -25,6 +25,7 @@ class InputMarkerNode(BaseNode):
     label       = "Data In (A)"
     category    = "Training"
     subcategory = "Markers"
+    marker_role = MarkerRole.INPUT
     description = (
         "Data input marker. Pairs with a Data Out (B) marker of the same "
         "group to form a trainable graph section. The Training Panel feeds "

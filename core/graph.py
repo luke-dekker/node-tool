@@ -98,6 +98,15 @@ class Graph:
     def get_node(self, node_id: str) -> BaseNode | None:
         return self.nodes.get(node_id)
 
+    def nodes_by_role(self, role: str) -> list[BaseNode]:
+        """Return all nodes whose class-level marker_role matches `role`.
+
+        Lets GUIs and training backends discover special nodes (input markers,
+        training targets, etc.) without hardcoding type_name strings. See
+        core.node.MarkerRole for the canonical role constants.
+        """
+        return [n for n in self.nodes.values() if n.marker_role == role]
+
     # ── Connection management ───────────────────────────────────────────────
 
     def add_connection(self, from_node_id: str, from_port: str,

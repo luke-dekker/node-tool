@@ -203,9 +203,10 @@ class PollingMixin:
 
     def _poll_marker_groups(self) -> None:
         """Rebuild dataset panel when marker groups change."""
+        from core.node import MarkerRole
         current = set()
         for n in self.graph.nodes.values():
-            if n.type_name in ("pt_input_marker", "pt_train_marker"):
+            if n.marker_role in (MarkerRole.INPUT, MarkerRole.TRAIN_TARGET):
                 current.add(str(n.inputs["group"].default_value or "task_1"))
         if current != self._last_marker_groups:
             self._last_marker_groups = current

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import dearpygui.dearpygui as dpg
 
 from core.graph import Graph, CommandStack, Command
-from core.node import PortType, BaseNode
+from core.node import PortType, BaseNode, MarkerRole
 from nodes import NODE_REGISTRY, get_nodes_by_category, CATEGORY_ORDER
 from gui.constants import VIEWPORT_W, VIEWPORT_H, PALETTE_W, INSPECTOR_W, TERMINAL_H, NODE_INPUT_W
 from gui.theme import (
@@ -433,7 +433,7 @@ class NodeApp(
         if pos is None:
             pos = self._next_pos()
         self.add_node_to_editor(node, pos)
-        if node.type_name in ("pt_input_marker", "pt_train_marker"):
+        if node.marker_role in (MarkerRole.INPUT, MarkerRole.TRAIN_TARGET):
             if hasattr(self, "_rebuild_dataset_panel"):
                 self._rebuild_dataset_panel()
         return node

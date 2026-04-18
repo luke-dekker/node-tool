@@ -13,7 +13,7 @@ legacy fallback plumbing.
 """
 from __future__ import annotations
 from typing import Any
-from core.node import BaseNode, PortType
+from core.node import BaseNode, PortType, MarkerRole
 
 
 class TrainMarkerNode(BaseNode):
@@ -21,6 +21,7 @@ class TrainMarkerNode(BaseNode):
     label       = "Data Out (B)"
     category    = "Training"
     subcategory = "Markers"
+    marker_role = MarkerRole.TRAIN_TARGET
     description = (
         "Training target marker. Pairs with Data In (A) markers of the same "
         "group. Wire the graph section's output tensor into tensor_in — "

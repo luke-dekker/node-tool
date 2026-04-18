@@ -21,6 +21,18 @@ from typing import Any
 from core.port_types import PortType, PortTypeRegistry  # noqa: F401
 
 
+# ── Marker roles ──────────────────────────────────────────────────────────────
+# Node classes can declare a marker_role so GUIs and training loops can find
+# them without hardcoding type_name strings. Plugins define their own role
+# vocabulary; the core ships with two generic training-related constants so
+# any training backend (torch, jax, numpy) can reuse them.
+
+class MarkerRole:
+    """Generic role constants. Plugins may define their own."""
+    INPUT        = "input"         # injects a batch tensor at training time
+    TRAIN_TARGET = "train_target"  # marks the optimization target
+
+
 @dataclass
 class Port:
     name: str
@@ -46,6 +58,7 @@ class BaseNode(ABC):
     category: str = "Misc"
     subcategory: str = ""      # optional — palette groups within a category
     description: str = "A base node."
+    marker_role: str = ""      # optional role tag — see core.node.MarkerRole
 
     def __init__(self) -> None:
         self.id: str = str(uuid.uuid4())
