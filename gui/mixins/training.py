@@ -1,8 +1,15 @@
-"""TrainingMixin — PyTorch model training controls."""
+"""TrainingMixin — DPG panel controls for training.
+
+Torch factories and the training loop itself live in the pytorch plugin
+(plugins/pytorch/_factories.py, plugins/pytorch/_training_executor.py). This
+mixin is pure GUI: reads panel widgets, shows status, drives the controller.
+"""
 from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
 from gui.theme import OK_GREEN, WARN_AMBER, ERR_RED, TEXT_DIM, ACCENT
+from plugins.pytorch._factories import build_optimizer as _build_optimizer
+from plugins.pytorch._factories import build_loss as _build_loss
 
 _STATUS_COLORS = {
     "Idle":     TEXT_DIM,
@@ -12,39 +19,6 @@ _STATUS_COLORS = {
     "Done":     ACCENT,
     "Error":    ERR_RED,
 }
-
-
-# ── Panel → torch object builders ───────────────────────────────────────
-# These used to live in nodes/pytorch/training.py alongside the deleted
-# TrainingConfigNode. They're panel glue, not nodes, so they live here now
-# where their sole caller (this mixin) can see them directly.
-
-def _build_optimizer(name: str, model, lr: float, weight_decay: float, momentum: float):
-    """Construct a torch optimizer from a string name."""
-    import torch.optim as optim
-    if model is None:
-        return None
-    params = model.parameters()
-    key = name.strip().lower().replace("_", "").replace(" ", "")
-    if key == "adamw":
-        return optim.AdamW(params, lr=lr, weight_decay=weight_decay)
-    if key == "sgd":
-        return optim.SGD(params, lr=lr, weight_decay=weight_decay, momentum=momentum)
-    if key == "rmsprop":
-        return optim.RMSprop(params, lr=lr, weight_decay=weight_decay)
-    return optim.Adam(params, lr=lr, weight_decay=weight_decay)  # default: adam
-
-
-def _build_loss(name: str):
-    """Construct a torch loss function from a string name."""
-    import torch.nn as nn
-    key = name.strip().lower().replace("_", "").replace(" ", "").replace("-", "")
-    return {
-        "mse":            nn.MSELoss(),
-        "bce":            nn.BCELoss(),
-        "bcewithlogits":  nn.BCEWithLogitsLoss(),
-        "l1":             nn.L1Loss(),
-    }.get(key, nn.CrossEntropyLoss())  # default: crossentropy
 
 
 def _set_train_status(label: str) -> None:
