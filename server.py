@@ -299,15 +299,16 @@ class NodeToolServer:
         Scans for InputMarker (A) and TrainMarker (B) nodes, returns groups
         with their modalities so the frontend can build dataset config widgets.
         """
+        from core.node import MarkerRole
         groups: dict[str, dict] = {}
         for node in self.graph.nodes.values():
-            if node.type_name == "pt_input_marker":
+            if node.marker_role == MarkerRole.INPUT:
                 g = str(node.inputs["group"].default_value or "task_1")
                 m = str(node.inputs["modality"].default_value or "x")
                 if g not in groups:
                     groups[g] = {"modalities": [], "has_output": False}
                 groups[g]["modalities"].append(m)
-            elif node.type_name == "pt_train_marker":
+            elif node.marker_role == MarkerRole.TRAIN_TARGET:
                 g = str(node.inputs["group"].default_value or "task_1")
                 if g not in groups:
                     groups[g] = {"modalities": [], "has_output": False}
