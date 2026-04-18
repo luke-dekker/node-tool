@@ -21,7 +21,7 @@ from gui.theme import (
     ACCENT, ACCENT2, BG_DARK, BG_MID, BG_LIGHT,
 )
 # Pin color/shape imports no longer needed — driven by PortTypeRegistry
-from gui.training_panel import TrainingController
+from plugins.pytorch._training_executor import TrainingController
 from gui.mixins import (
     TrainingMixin, PollingMixin, FileOpsMixin,
     EditOpsMixin, LayoutMixin, HandlersMixin,

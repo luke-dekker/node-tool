@@ -1,11 +1,13 @@
-"""Training panel - background thread training with live loss plot."""
+"""Training loop executor — runs in a background thread, GUI-agnostic.
+
+Formerly gui/training_panel.py. Lives in the pytorch plugin because it
+imports torch and implements the SGD/backward/step loop. Any frontend drains
+its event queue and displays results; the class itself has no GUI coupling.
+"""
 from __future__ import annotations
 import threading
 import queue
-import time
 from typing import Any
-
-import dearpygui.dearpygui as dpg
 
 
 class TrainingController:
@@ -104,7 +106,7 @@ class TrainingController:
                 lines.append(f"[Train] ERROR: {msg}")
         return lines
 
-    # -- Worker (background thread - NO DPG calls here) --------------------
+    # -- Worker (background thread - NO GUI calls here) --------------------
 
     def _worker(self, config: dict) -> None:
         try:
@@ -277,6 +279,6 @@ class TrainingController:
             state = {k: v.cpu() for k, v in model.state_dict().items()}
             self._evt_q.put(("done", state, model))
 
-        except Exception as e:
+        except Exception:
             import traceback
             self._evt_q.put(("error", traceback.format_exc()))
