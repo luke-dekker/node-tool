@@ -20,6 +20,7 @@ import torch
 import torch.nn as nn
 
 from core.graph import Graph
+from core.node import MarkerRole
 from core.port_types import PortType, PortTypeRegistry
 
 
@@ -138,10 +139,10 @@ class GraphAsModule(nn.Module):
         overrides: dict[tuple[str, str], Any] = {}
 
         # ── Discover injection points ────────────────────────────────────
-        marker_nodes: list[str] = []      # new-style: pt_input_marker
+        marker_nodes: list[str] = []      # new-style: role == MarkerRole.INPUT
         legacy_nodes: list[str] = []      # old-style: dataset node / batch_input
         for nid, n in self.graph.nodes.items():
-            if n.type_name == "pt_input_marker":
+            if n.marker_role == MarkerRole.INPUT:
                 marker_nodes.append(nid)
                 continue
             if n.type_name == "batch_input":
@@ -231,7 +232,8 @@ class GraphAsModule(nn.Module):
             # batch tensors, skip its execute() — stored[node_id] already
             # holds the values.
             if node_id in stored and (
-                node.type_name in ("pt_input_marker", "batch_input")
+                node.marker_role == MarkerRole.INPUT
+                or node.type_name == "batch_input"
                 or ("x" in node.outputs and any(
                     p.port_type == PortType.DATALOADER for p in node.outputs.values()
                 ))

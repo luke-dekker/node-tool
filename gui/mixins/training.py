@@ -228,7 +228,7 @@ class TrainingMixin:
           - Legacy mode (graph has DatasetNode + TrainOutputNode): loader
             discovered from the graph's DatasetNode output ports.
         """
-        from core.graph_module import GraphAsModule
+        from plugins.pytorch.graph_module import GraphAsModule
         import torch
 
         self._sync_inputs_from_widgets()
@@ -241,7 +241,7 @@ class TrainingMixin:
 
     def _train_start_markers(self, panel: dict, loss_fn) -> None:
         """Marker path: build loader per group from panel, prime markers, train."""
-        from core.graph_module import GraphAsModule
+        from plugins.pytorch.graph_module import GraphAsModule
         import torch
 
         groups = self._discover_groups()
@@ -342,7 +342,7 @@ class TrainingMixin:
 
     def _train_start_legacy(self, panel: dict, loss_fn) -> None:
         """Legacy path: discover dataloaders from DatasetNodes in the graph."""
-        from core.graph_module import GraphAsModule
+        from plugins.pytorch.graph_module import GraphAsModule
         import torch
 
         try:
@@ -447,7 +447,7 @@ class TrainingMixin:
 
     def _train_check_wiring(self) -> None:
         """Run the graph and report training wiring status."""
-        from core.graph_module import GraphAsModule
+        from plugins.pytorch.graph_module import GraphAsModule
         import torch
 
         self._rebuild_dataset_panel()

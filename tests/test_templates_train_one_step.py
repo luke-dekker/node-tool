@@ -147,8 +147,8 @@ def _prime_input_markers(graph, batch):
 )
 def test_template_trains_one_step(stem, loader_builder, loss_name, tmp_path):
     from core.graph import Graph
-    from core.graph_module import GraphAsModule
-    from gui.mixins.training import _build_loss, _build_optimizer
+    from plugins.pytorch.graph_module import GraphAsModule
+    from plugins.pytorch._factories import build_loss as _build_loss, build_optimizer as _build_optimizer
     from templates import reload_template
 
     entry = reload_template(stem)
