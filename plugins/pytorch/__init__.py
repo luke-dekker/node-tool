@@ -36,7 +36,6 @@ def register(ctx: PluginContext) -> None:
         "Datasets", "Layers", "Models", "Training", "AI", "Analyze",
     ])
 
-    # Training panel — the DPG version still uses the layout mixin, but
-    # registering here lets the Godot frontend discover it via RPC.
-    # The builder is a no-op on the Python side; Godot has its own builder.
-    ctx.register_panel("Training", lambda parent, app: None)
+    # Training panel — declared once as a PanelSpec, rendered by every GUI.
+    from plugins.pytorch._panel_training import build_training_panel_spec
+    ctx.register_panel_spec("Training", build_training_panel_spec())

@@ -65,6 +65,7 @@ class PluginContext:
 
     def __init__(self):
         self._panels: list[tuple[str, Callable]] = []
+        self._panel_specs: list[tuple[str, Any]] = []  # (label, PanelSpec)
         self._categories: list[str] = []
         self._node_classes: list[Type] = []
 
@@ -99,9 +100,18 @@ class PluginContext:
     # ── Panels ──────────────────────────────────────────────────────────────
 
     def register_panel(self, label: str, builder: Callable) -> None:
-        """Register a sidebar panel tab. The builder receives the DPG parent tag
-        and the app instance: builder(parent_tag, app)."""
+        """Register a DPG-specific panel builder. Kept for legacy panels that
+        haven't migrated to a PanelSpec yet. Prefer register_panel_spec."""
         self._panels.append((label, builder))
+
+    def register_panel_spec(self, label: str, spec) -> None:
+        """Register a PanelSpec for this plugin's side panel.
+
+        Spec-driven panels work in every GUI — no per-frontend code needed.
+        See core.panel for the schema. The `label` should match any existing
+        `register_panel` label (they're the same tab); spec takes precedence.
+        """
+        self._panel_specs.append((label, spec))
 
     # ── Categories ──────────────────────────────────────────────────────────
 
@@ -114,6 +124,10 @@ class PluginContext:
     @property
     def panels(self) -> list[tuple[str, Callable]]:
         return list(self._panels)
+
+    @property
+    def panel_specs(self) -> list[tuple[str, Any]]:
+        return list(self._panel_specs)
 
     @property
     def categories(self) -> list[str]:
