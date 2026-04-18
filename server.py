@@ -41,6 +41,18 @@ class NodeToolServer:
         self.graph = Graph()
         self._last_outputs: dict[str, dict[str, Any]] = {}
         self._clients: set = set()
+        # Plugin orchestrators — live, stateful objects that back RPC methods
+        # declared in plugin panel specs. Lazily constructed on first use so
+        # plugins without their deps installed don't break server startup.
+        self._training_orch = None
+
+    def _get_training_orchestrator(self):
+        if self._training_orch is None:
+            from plugins.pytorch.training_orchestrator import TrainingOrchestrator
+            self._training_orch = TrainingOrchestrator(self.graph)
+        # Orchestrator was bound to the old graph — rebind after clear/load.
+        self._training_orch.graph = self.graph
+        return self._training_orch
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -424,14 +436,62 @@ class NodeToolServer:
         return {"nodes": nodes, "connections": conns, "positions": positions}
 
     def get_plugin_panels(self, params: dict) -> dict:
-        """Return the list of registered plugin panel names."""
+        """Return the list of registered plugin panel names (legacy + spec)."""
         try:
             from nodes import _plugin_ctx
             if _plugin_ctx:
-                return {"panels": [label for label, _builder in _plugin_ctx.panels]}
+                legacy = [label for label, _ in _plugin_ctx.panels]
+                specs  = [label for label, _ in _plugin_ctx.panel_specs]
+                # Spec-driven panels shadow legacy ones of the same label.
+                return {"panels": specs + [l for l in legacy if l not in specs]}
         except Exception:
             pass
         return {"panels": []}
+
+    def get_panel_specs(self, params: dict) -> dict:
+        """Return every plugin-registered PanelSpec as a serialized dict.
+
+        Frontends render these natively — see FRONTEND_PROTOCOL.md and
+        core/panel.py for the schema.
+        """
+        try:
+            from nodes import _plugin_ctx
+            if _plugin_ctx:
+                return {
+                    "panels": {
+                        label: spec.to_dict()
+                        for label, spec in _plugin_ctx.panel_specs
+                    }
+                }
+        except Exception:
+            pass
+        return {"panels": {}}
+
+    # ── Plugin orchestrator passthrough ─────────────────────────────────
+
+    def train_start(self, params: dict) -> dict:
+        return self._get_training_orchestrator().start(params)
+
+    def train_pause(self, params: dict) -> dict:
+        return self._get_training_orchestrator().pause(params)
+
+    def train_resume(self, params: dict) -> dict:
+        return self._get_training_orchestrator().resume(params)
+
+    def train_stop(self, params: dict) -> dict:
+        return self._get_training_orchestrator().stop(params)
+
+    def train_save_model(self, params: dict) -> dict:
+        return self._get_training_orchestrator().save_model(params)
+
+    def get_training_state(self, params: dict) -> dict:
+        return self._get_training_orchestrator().state()
+
+    def get_training_losses(self, params: dict) -> dict:
+        return self._get_training_orchestrator().losses()
+
+    def drain_training_logs(self, params: dict) -> dict:
+        return self._get_training_orchestrator().drain_logs()
 
     # ── Dispatch ─────────────────────────────────────────────────────────
 
@@ -453,8 +513,18 @@ class NodeToolServer:
         "get_templates": "get_templates",
         "load_template": "load_template",
         "get_plugin_panels": "get_plugin_panels",
+        "get_panel_specs": "get_panel_specs",
         "serialize_graph": "serialize_graph",
         "deserialize_graph": "deserialize_graph",
+        # Training (delegated to the pytorch plugin's orchestrator)
+        "train_start":           "train_start",
+        "train_pause":           "train_pause",
+        "train_resume":          "train_resume",
+        "train_stop":            "train_stop",
+        "train_save_model":      "train_save_model",
+        "get_training_state":    "get_training_state",
+        "get_training_losses":   "get_training_losses",
+        "drain_training_logs":   "drain_training_logs",
     }
 
     def dispatch(self, method: str, params: dict) -> Any:
