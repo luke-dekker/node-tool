@@ -7,3 +7,5 @@ from nodes.agents.prompt_template import PromptTemplateNode
 from nodes.agents.chat_message import ChatMessageNode
 from nodes.agents.conversation import ConversationNode
 from nodes.agents.agent import AgentNode
+from nodes.agents.tool import ToolNode
+from nodes.agents.python_function_tool import PythonFunctionToolNode

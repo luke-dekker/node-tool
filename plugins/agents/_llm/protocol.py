@@ -9,8 +9,8 @@ Convention for kwargs across backends: AgentNode passes normalized kwargs
 format (Ollama: options dict; OpenAI: top-level kwargs).
 """
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, ClassVar, Iterator, Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Any, Callable, ClassVar, Iterator, Protocol, runtime_checkable
 
 
 @dataclass
@@ -40,6 +40,35 @@ class ChatResult:
     tokens_out: int = 0
     latency_ms: float = 0.0
     raw: Any = None        # backend-specific raw response
+
+
+@dataclass
+class ToolDef:
+    """Tool definition bound to an AgentNode.
+
+    `input_schema` is JSON Schema (the OpenAI / Ollama / llama.cpp common
+    denominator). `callable` is invoked with kwargs parsed from the LLM's
+    tool_call arguments. `side_effect` flags shell exec / file write / HTTP
+    so AgentNode can gate them behind allow_side_effect_tools.
+    """
+    name: str
+    description: str
+    input_schema: dict = field(default_factory=lambda: {
+        "type": "object", "properties": {}, "additionalProperties": True,
+    })
+    callable: Callable[..., Any] | None = None
+    side_effect: bool = False
+
+    def to_openai(self) -> dict:
+        """Wire format for chat(tools=...) — works with Ollama and OpenAI-compat."""
+        return {
+            "type": "function",
+            "function": {
+                "name":        self.name,
+                "description": self.description,
+                "parameters":  self.input_schema,
+            },
+        }
 
 
 @dataclass

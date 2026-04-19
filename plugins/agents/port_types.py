@@ -1,11 +1,12 @@
 """Port types registered by the Agents plugin.
 
 Heavy imports stay out of this file — these are pure type registrations.
-Most agent types are opaque value handles (LLM client, conversation list)
-that flow between nodes without coercion.
+Most agent types are opaque value handles (LLM client, conversation list,
+tool def) that flow between nodes without coercion.
 
-Phase A registers four types: LLM, MESSAGE, CONVERSATION, PROMPT_TEMPLATE.
-TOOL / DOCUMENT / EMBEDDING / MEMORY_REF land in Phase B.
+Phase A: LLM, MESSAGE, CONVERSATION, PROMPT_TEMPLATE.
+Phase B: + TOOL (single tool def). DOCUMENT / EMBEDDING / MEMORY_REF land
+with the Memory subsystem.
 """
 from __future__ import annotations
 
@@ -33,4 +34,9 @@ def register_all() -> None:
         "PROMPT_TEMPLATE", default="", coerce=str, editable=True,
         color=(255, 180, 120, 255), pin_shape="circle_filled",
         description="String template with {var} slots",
+    )
+    PortTypeRegistry.register(
+        "TOOL", default=None,
+        color=(255, 140, 200, 255), pin_shape="triangle",
+        description="Single tool definition (name, description, schema, callable)",
     )
