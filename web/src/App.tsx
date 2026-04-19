@@ -26,6 +26,23 @@ export function App() {
     connect();
   }, [connect]);
 
+  // Drain training logs into the terminal so the Output tab shows live
+  // training progress (epoch loss, errors) without needing to be on the
+  // Training tab. DPG does the equivalent in gui/mixins/polling.py.
+  const client = useStore((s) => s.client);
+  useEffect(() => {
+    if (conn !== "open") return;
+    const handle = window.setInterval(async () => {
+      try {
+        const resp = await client.call<{ lines: string[] }>("drain_training_logs");
+        for (const line of resp.lines ?? []) appendLog(line);
+      } catch {
+        /* ignore — reconnect loop handles disconnects */
+      }
+    }, 500);
+    return () => window.clearInterval(handle);
+  }, [conn, client, appendLog]);
+
   const onExport = async () => {
     const code = await exportCode();
     try {

@@ -1,6 +1,7 @@
-// Bottom panel: tabs for Output (terminal log), Code (exported Python), and
-// hooks for plugin-registered tabs (Training, Robotics) once we port them
-// over from the Godot frontend.
+// Bottom panel: tabs for Output (terminal log), Code (exported Python),
+// and every plugin-registered spec panel. Tabs stay mounted after first
+// visit — inactive ones are hidden with display:none so form state (typed
+// dataset paths, hyperparams) and poll timers survive tab switches.
 
 import { useEffect, useRef, useState } from "react";
 import { PANEL_BUILDERS } from "./panels";
@@ -13,17 +14,23 @@ export function BottomPanel() {
   const pluginPanels = useStore((s) => s.pluginPanels);
   const [code, setCode] = useState<string>("# Run the graph to generate code preview.");
 
-  // Built-in tabs are always present; plugin tabs are appended in the order
-  // the server reports them, but only if we have a React builder for them.
+  // Built-in tabs are always present; plugin tabs appended in the order
+  // the server reports them, but only if we have a React builder.
   const tabs = [
     { id: "output", label: "Output" },
-    { id: "code", label: "Code" },
+    { id: "code",   label: "Code"   },
     ...pluginPanels
       .filter((name) => PANEL_BUILDERS[name])
       .map((name) => ({ id: `plugin:${name}`, label: name })),
   ];
 
   const [tab, setTab] = useState<string>("output");
+  // Track which tabs have been visited so we only pay the mount cost for
+  // panels the user has actually opened.
+  const [visited, setVisited] = useState<Set<string>>(new Set(["output", "code"]));
+  useEffect(() => {
+    setVisited((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
+  }, [tab]);
 
   // Re-export whenever we switch to the Code tab so it reflects the current graph.
   useEffect(() => {
@@ -39,13 +46,10 @@ export function BottomPanel() {
     }
   }, [terminal, tab]);
 
-  // Resolve a plugin tab id (`plugin:Training`) to its builder component.
-  let pluginPanel: React.ReactNode = null;
-  if (tab.startsWith("plugin:")) {
-    const name = tab.slice("plugin:".length);
-    const Comp = PANEL_BUILDERS[name];
-    if (Comp) pluginPanel = <Comp />;
-  }
+  const pluginTabs = tabs.filter((t) => t.id.startsWith("plugin:"));
+
+  const show = (id: string): React.CSSProperties =>
+    tab === id ? { display: "block", height: "100%" } : { display: "none" };
 
   return (
     <div style={styles.panel}>
@@ -57,11 +61,11 @@ export function BottomPanel() {
         ))}
       </div>
       <div style={styles.body}>
-        {tab === "output" && (
+        <div style={show("output")}>
           <div ref={outRef} style={styles.terminal}>
             {terminal.length === 0 ? (
               <span style={{ color: theme.textDim }}>
-                Execute the graph to see output here.
+                Execute the graph or start training to see output here.
               </span>
             ) : (
               terminal.map((line, i) => (
@@ -78,9 +82,21 @@ export function BottomPanel() {
               ))
             )}
           </div>
-        )}
-        {tab === "code" && <pre style={styles.code}>{code}</pre>}
-        {pluginPanel}
+        </div>
+        <div style={show("code")}>
+          <pre style={styles.code}>{code}</pre>
+        </div>
+        {pluginTabs.map((t) => {
+          if (!visited.has(t.id)) return null;
+          const name = t.id.slice("plugin:".length);
+          const Comp = PANEL_BUILDERS[name];
+          if (!Comp) return null;
+          return (
+            <div key={t.id} style={show(t.id)}>
+              <Comp />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -112,7 +128,7 @@ function TabButton({
 
 const styles: Record<string, React.CSSProperties> = {
   panel: {
-    height: 220,
+    height: 240,
     background: theme.bgMid,
     borderTop: `1px solid ${theme.border}`,
     display: "flex",
@@ -135,6 +151,7 @@ const styles: Record<string, React.CSSProperties> = {
   body: {
     flex: 1,
     minHeight: 0,
+    position: "relative",
   },
   terminal: {
     height: "100%",

@@ -270,6 +270,16 @@ function StatusSectionView({
     };
   }, [dispatch, section.source_rpc, section.poll_ms]);
 
+  const statusColor = (fieldId: string, value: string): string => {
+    if (fieldId !== "status") return theme.text;
+    const v = value.toLowerCase();
+    if (v === "running") return theme.ok;
+    if (v === "error")   return theme.err;
+    if (v === "paused")  return "#e0b050";
+    if (v === "done")    return theme.accent;
+    return theme.textDim;
+  };
+
   return (
     <div style={styles.section}>
       {section.label && <div style={styles.sectionLabel}>{section.label}</div>}
@@ -279,7 +289,7 @@ function StatusSectionView({
         return (
           <div key={f.id} style={styles.statusRow}>
             {f.label && <span style={styles.statusKey}>{f.label}:</span>}
-            <span style={{ color: theme.text }}>{display}</span>
+            <span style={{ color: statusColor(f.id, display) }}>{display}</span>
           </div>
         );
       })}

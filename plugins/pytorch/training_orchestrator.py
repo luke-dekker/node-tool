@@ -72,9 +72,19 @@ class TrainingOrchestrator:
         # Drain event queue into our log buffer so callers get up-to-date
         # status plus can read recent log lines via drain_logs().
         self._pending_logs.extend(c.poll())
-        epoch_str = f"{c.current_epoch} / {c.total_epochs}"
+        # Include in-epoch batch progress so the UI shows activity during
+        # long epochs instead of staring at "Epoch 0 / 1" for minutes.
+        if c.current_batch:
+            epoch_str = f"{c.current_epoch} / {c.total_epochs}  step {c.current_batch}"
+        else:
+            epoch_str = f"{c.current_epoch} / {c.total_epochs}"
         best = f"{c.best_loss:.6f}" if c.best_loss != float("inf") else "—"
-        last = f"{c.train_losses[-1]:.6f}" if c.train_losses else "—"
+        if c.train_losses:
+            last = f"{c.train_losses[-1]:.6f}"
+        elif c.last_batch_loss is not None:
+            last = f"{c.last_batch_loss:.6f}"
+        else:
+            last = "—"
         status_label = {
             "idle":     "Idle",
             "running":  "Running",

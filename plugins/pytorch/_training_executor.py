@@ -26,6 +26,9 @@ class TrainingController:
         self.last_model_state: dict | None = None
         self.last_model: Any | None = None
         self.error_message: str | None = None
+        # In-epoch progress (updated each batch_progress event between epochs)
+        self.current_batch: int = 0
+        self.last_batch_loss: float | None = None
         # Optional callback — called from the main thread after each epoch and on done.
         # Use this to re-execute the graph so tensor_out values reflect updated weights.
         self.on_epoch_end: Any | None = None
@@ -70,6 +73,12 @@ class TrainingController:
             evt_type = evt[0]
             if evt_type == "log":
                 lines.append(evt[1])
+                continue
+            if evt_type == "batch_progress":
+                _, epoch, batch_n, loss_val = evt
+                self.current_epoch = epoch
+                self.current_batch = batch_n
+                self.last_batch_loss = loss_val
                 continue
             if evt_type == "epoch_end":
                 _, epoch, loss, val_loss, current_lr = evt
@@ -217,8 +226,21 @@ class TrainingController:
                             loss = task_lfn(out, labels) if task_lfn else out
                         loss.backward()
                         optimizer.step()
-                        epoch_loss += loss.item()
+                        loss_val = loss.item()
+                        epoch_loss += loss_val
                         batches += 1
+
+                        # Per-batch progress — every N batches emit a log
+                        # so the UI shows activity during long CPU epochs.
+                        # Also pushed as an "epoch_step" event for live loss
+                        # plot updates without waiting for epoch end.
+                        if batches % 25 == 0:
+                            self._evt_q.put((
+                                "log",
+                                f"[Train] Epoch {epoch}/{epochs} step {batches}  "
+                                f"loss={loss_val:.6f}",
+                            ))
+                            self._evt_q.put(("batch_progress", epoch, batches, loss_val))
 
                 avg_loss = epoch_loss / max(batches, 1)
 

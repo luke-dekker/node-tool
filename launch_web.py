@@ -68,6 +68,36 @@ def _terminate(proc: subprocess.Popen) -> None:
             pass
 
 
+def _free_port(port: int) -> None:
+    """If something is listening on `port`, kill it. Keeps restarts painless
+    after the previous launcher crashed / was force-killed."""
+    if not IS_WIN:
+        return
+    try:
+        ps = (
+            f"Get-NetTCPConnection -LocalPort {port} -State Listen "
+            f"-ErrorAction SilentlyContinue | "
+            f"Select-Object -ExpandProperty OwningProcess"
+        )
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", ps],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        if not out:
+            return
+        for line in out.splitlines():
+            pid = line.strip()
+            if pid.isdigit():
+                print(f"{BE} freeing port {port} (killing PID {pid})")
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     f"Stop-Process -Id {pid} -Force"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+    except Exception:
+        pass
+
+
 def main() -> int:
     if not WEB.exists():
         print(f"{ER}web/ not found at {WEB}{RS}")
@@ -75,6 +105,10 @@ def main() -> int:
     if not (WEB / "node_modules").exists():
         print(f"{ER}web/node_modules missing — run `cd web && npm install` first{RS}")
         return 1
+
+    # Clear stale listeners from a previous crashed launcher
+    _free_port(9800)
+    _free_port(5173)
 
     print(f"{BE} starting python server.py")
     backend  = _spawn([sys.executable, "server.py"], ROOT, BE)
