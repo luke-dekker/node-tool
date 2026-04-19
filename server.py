@@ -46,6 +46,15 @@ class NodeToolServer:
         # plugins without their deps installed don't break server startup.
         self._training_orch = None
         self._robotics_ctrl = None
+        self._agents_orch = None
+
+    def _get_agents_orchestrator(self):
+        if self._agents_orch is None:
+            from plugins.agents.agents_orchestrator import AgentOrchestrator
+            self._agents_orch = AgentOrchestrator(self.graph)
+        # Rebind after clear/load so the orchestrator sees the live graph.
+        self._agents_orch.graph = self.graph
+        return self._agents_orch
 
     def _get_robotics_controller(self):
         if self._robotics_ctrl is None:
@@ -500,6 +509,32 @@ class NodeToolServer:
     def drain_training_logs(self, params: dict) -> dict:
         return self._get_training_orchestrator().drain_logs()
 
+    # ── Agents plugin ───────────────────────────────────────────────────
+
+    def agent_list_local_models(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().list_local_models(params)
+
+    def agent_ping_backend(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().ping_backend(params)
+
+    def agent_list_agent_nodes(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().list_agent_nodes(params)
+
+    def agent_start(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().start(params)
+
+    def agent_stop(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().stop(params)
+
+    def get_agent_state(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().get_state(params)
+
+    def agent_drain_tokens(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().drain_tokens(params)
+
+    def agent_drain_logs(self, params: dict) -> dict:
+        return self._get_agents_orchestrator().drain_logs(params)
+
     # ── Robotics plugin ─────────────────────────────────────────────────
 
     def robotics_list_ports(self, params: dict) -> dict:
@@ -559,6 +594,15 @@ class NodeToolServer:
         "robotics_send":        "robotics_send",
         "get_robotics_state":   "get_robotics_state",
         "get_robotics_log":     "get_robotics_log",
+        # Agents (delegated to plugins/agents/agents_orchestrator.py)
+        "agent_list_local_models": "agent_list_local_models",
+        "agent_ping_backend":      "agent_ping_backend",
+        "agent_list_agent_nodes":  "agent_list_agent_nodes",
+        "agent_start":             "agent_start",
+        "agent_stop":              "agent_stop",
+        "get_agent_state":         "get_agent_state",
+        "agent_drain_tokens":      "agent_drain_tokens",
+        "agent_drain_logs":        "agent_drain_logs",
     }
 
     def dispatch(self, method: str, params: dict) -> Any:

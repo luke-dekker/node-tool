@@ -242,6 +242,12 @@ class NodeApp(
         self._training_orch._ctrl.on_epoch_end = self.refresh_graph_silent
         # Backward-compat alias while we migrate the last callers
         self._training_ctrl = self._training_orch._ctrl
+
+        # Agents orchestrator — Phase A surface (chat completion, model
+        # listing, status). Streaming + autoresearch land later. Same handle_rpc
+        # contract as TrainingOrchestrator.
+        from plugins.agents.agents_orchestrator import AgentOrchestrator
+        self._agents_orch = AgentOrchestrator(self.graph)
         # Runtime(s) for rendered panel specs. Keyed by panel label.
         self._panel_runtimes: dict[str, Any] = {}
 
@@ -630,6 +636,12 @@ class NodeApp(
         # Training plugin
         try:
             return self._training_orch.handle_rpc(method, params)
+        except ValueError:
+            pass
+        # Agents plugin — Phase A surface. Phase C will replace this
+        # try-fallthrough chain with a method-prefix registry.
+        try:
+            return self._agents_orch.handle_rpc(method, params)
         except ValueError:
             pass
         # Robotics plugin (lazy-init — the controller has no constructor deps)
