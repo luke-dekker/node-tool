@@ -2,9 +2,16 @@
 // and every plugin-registered spec panel. Tabs stay mounted after first
 // visit — inactive ones are hidden with display:none so form state (typed
 // dataset paths, hyperparams) and poll timers survive tab switches.
+//
+// Plugin panels render generically via SpecRenderer — every panel registered
+// by a plugin (`ctx.register_panel_spec(label, spec)`) auto-appears as a tab
+// with no per-plugin React code required. PANEL_BUILDERS is an OPTIONAL
+// override hook for the rare panel that needs bespoke React beyond the six
+// PanelSpec section kinds. Plugins must stay GUI-clean.
 
 import { useEffect, useRef, useState } from "react";
 import { PANEL_BUILDERS } from "./panels";
+import { SpecRenderer } from "./panels/SpecRenderer";
 import { useStore } from "./store";
 import { theme } from "./theme";
 
@@ -14,14 +21,12 @@ export function BottomPanel() {
   const pluginPanels = useStore((s) => s.pluginPanels);
   const [code, setCode] = useState<string>("# Run the graph to generate code preview.");
 
-  // Built-in tabs are always present; plugin tabs appended in the order
-  // the server reports them, but only if we have a React builder.
+  // Built-in tabs always present; every server-reported plugin panel appended
+  // automatically — no allowlist filter, no per-plugin registration step.
   const tabs = [
     { id: "output", label: "Output" },
     { id: "code",   label: "Code"   },
-    ...pluginPanels
-      .filter((name) => PANEL_BUILDERS[name])
-      .map((name) => ({ id: `plugin:${name}`, label: name })),
+    ...pluginPanels.map((name) => ({ id: `plugin:${name}`, label: name })),
   ];
 
   const [tab, setTab] = useState<string>("output");
@@ -89,13 +94,16 @@ export function BottomPanel() {
         {pluginTabs.map((t) => {
           if (!visited.has(t.id)) return null;
           const name = t.id.slice("plugin:".length);
-          const Comp = PANEL_BUILDERS[name];
-          if (!Comp) return null;
-          // active=false pauses the panel's RPC polling so background tabs
-          // don't contend with training for backend CPU.
+          // Optional override: a plugin can ship a custom React component
+          // by registering it in PANEL_BUILDERS. Default: render the spec
+          // generically. active=false pauses the panel's RPC polling so
+          // background tabs don't contend with the foreground for backend CPU.
+          const Override = PANEL_BUILDERS[name];
           return (
             <div key={t.id} style={show(t.id)}>
-              <Comp active={tab === t.id} />
+              {Override
+                ? <Override active={tab === t.id} />
+                : <SpecRenderer label={name} active={tab === t.id} />}
             </div>
           );
         })}

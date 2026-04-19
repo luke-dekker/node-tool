@@ -1,16 +1,21 @@
-// Registry of plugin panel builders, keyed by the name the plugin registers
-// server-side. When the server reports a panel name we don't have a builder
-// for, BottomPanel logs and skips it (same pattern as the Godot frontend).
+// Optional override registry for plugin panels.
+//
+// Default behavior: every panel reported by the server (`get_panel_specs`)
+// auto-renders via SpecRenderer in BottomPanel. No per-plugin React file
+// is required — plugins must stay GUI-clean, and the React frontend must
+// stay plugin-agnostic.
+//
+// Register an entry here ONLY when a panel needs bespoke React beyond what
+// the six PanelSpec section kinds (form, dynamic_form, status, plot,
+// buttons, custom) can express. Most plugins should never need this.
 
 import type { ComponentType } from "react";
-import { TrainingPanel } from "./TrainingPanel";
-import { RoboticsPanel } from "./RoboticsPanel";
 
 export interface PluginPanelProps {
   active?: boolean;
 }
 
 export const PANEL_BUILDERS: Record<string, ComponentType<PluginPanelProps>> = {
-  Training: TrainingPanel,
-  Robotics: RoboticsPanel,
+  // Example (do not enable without a real reason):
+  //   MyPlugin: MyPluginPanel,
 };
