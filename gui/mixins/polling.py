@@ -199,44 +199,18 @@ class PollingMixin:
         except Exception:
             pass
 
-    _last_marker_groups: set = set()
-
-    def _poll_marker_groups(self) -> None:
-        """Rebuild dataset panel when marker groups change."""
-        from core.node import MarkerRole
-        current = set()
-        for n in self.graph.nodes.values():
-            if n.marker_role in (MarkerRole.INPUT, MarkerRole.TRAIN_TARGET):
-                current.add(str(n.inputs["group"].default_value or "task_1"))
-        if current != self._last_marker_groups:
-            self._last_marker_groups = current
-            if hasattr(self, "_rebuild_dataset_panel"):
-                self._rebuild_dataset_panel()
-
     def _poll_training(self) -> None:
-        """Called each frame — drain training events, update UI."""
-        self._poll_marker_groups()
-        lines = self._training_ctrl.poll()
-        for line in lines:
-            self._log(line)
-        if lines:
-            losses = self._training_ctrl.train_losses
-            if losses:
+        """Each frame: let every PanelRuntime poll its RPC data sources, and
+        drain log lines accumulated by the training orchestrator."""
+        for runtimes in getattr(self, "_panel_runtimes", {}).values():
+            for rt in runtimes:
                 try:
-                    xs = list(range(1, len(losses) + 1))
-                    dpg.set_value("loss_series", [xs, losses])
-                    val_losses = self._training_ctrl.val_losses
-                    if val_losses:
-                        dpg.set_value("val_loss_series", [list(range(1, len(val_losses) + 1)), val_losses])
-                    dpg.fit_axis_data("loss_x_axis")
-                    dpg.fit_axis_data("loss_y_axis")
-                    dpg.set_value("train_epoch_text",
-                        f"Epoch  {self._training_ctrl.current_epoch} / {self._training_ctrl.total_epochs}")
-                    val_str = f"   val {val_losses[-1]:.4f}" if val_losses else ""
-                    dpg.set_value("train_loss_text",
-                        f"Best loss  {self._training_ctrl.best_loss:.4f}{val_str}")
-                    if self._training_ctrl.status in ("done", "error"):
-                        from gui.mixins.training import _set_train_status
-                        _set_train_status(self._training_ctrl.status.capitalize())
+                    rt.poll()
                 except Exception:
                     pass
+        try:
+            resp = self._training_orch.drain_logs()
+            for line in resp.get("lines", []):
+                self._log(line)
+        except Exception:
+            pass

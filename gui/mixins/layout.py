@@ -288,105 +288,59 @@ class LayoutMixin:
                             width=term_w - 30, height=tab_h - 38,
                             tab_input=True,
                         )
-                # ── Training tab (3-column layout) ─────────────────────
-                with dpg.tab(label="Training", tag="tab_training"):
-                    with dpg.child_window(tag="train_scroll", autosize_x=True,
-                                          height=tab_h, border=False):
-                        col_w = max(120, (term_w - 40) // 3)
-                        with dpg.group(horizontal=True, tag="train_columns"):
-                            # ── Left column: Loss plot ──────────────────
-                            with dpg.child_window(tag="train_col_plot",
-                                                  width=col_w, border=False):
-                                with dpg.group(horizontal=True):
-                                    dpg.add_text("*", tag="train_status_dot",
-                                                 color=list(TEXT_DIM))
-                                    dpg.add_text("Idle", tag="train_status_text",
-                                                 color=list(TEXT_DIM))
-                                with dpg.group(horizontal=True):
-                                    dpg.add_text("Epoch  0 / 0",
-                                                 tag="train_epoch_text",
-                                                 color=list(TEXT))
-                                dpg.add_text("Best loss  —",
-                                             tag="train_loss_text",
-                                             color=list(TEXT))
-                                dpg.add_spacer(height=2)
-                                with dpg.plot(label="Loss", tag="loss_plot",
-                                              height=-1, width=-1):
-                                    dpg.add_plot_legend()
-                                    dpg.add_plot_axis(dpg.mvXAxis, label="epoch",
-                                                      tag="loss_x_axis")
-                                    with dpg.plot_axis(dpg.mvYAxis, label="loss",
-                                                       tag="loss_y_axis"):
-                                        dpg.add_line_series([], [], label="train",
-                                                            tag="loss_series")
-                                        dpg.add_line_series([], [], label="val",
-                                                            tag="val_loss_series")
-
-                            # ── Center column: Dataset config ───────────
-                            with dpg.child_window(tag="train_col_data",
-                                                  width=col_w, border=False):
-                                dpg.add_text("Datasets", color=[180, 180, 255])
-                                dpg.add_separator()
-                                dpg.add_spacer(height=2)
-                                with dpg.group(tag="train_dataset_section"):
-                                    dpg.add_text(
-                                        "Load a template to configure datasets.",
-                                        color=list(TEXT_DIM))
-
-                            # ── Right column: Hyperparams + controls ────
-                            with dpg.child_window(tag="train_col_ctrl",
-                                                  width=col_w, border=False):
-                                cw = col_w - 20
-                                dpg.add_input_int(
-                                    label="epochs", tag="train_epochs_input",
-                                    default_value=10, width=cw, step=0,
-                                    min_value=1)
-                                dpg.add_input_float(
-                                    label="lr", tag="train_lr_input",
-                                    default_value=0.001, width=cw, step=0,
-                                    format="%.5f")
-                                dpg.add_combo(
-                                    label="optim", tag="train_optimizer_combo",
-                                    items=["adam", "adamw", "sgd", "rmsprop"],
-                                    default_value="adam", width=cw)
-                                dpg.add_combo(
-                                    label="loss", tag="train_loss_combo",
-                                    items=["crossentropy", "mse", "bce",
-                                           "bcewithlogits", "l1"],
-                                    default_value="crossentropy", width=cw)
-                                dpg.add_combo(
-                                    label="device", tag="train_device_combo",
-                                    items=["cpu", "cuda", "cuda:0", "cuda:1"],
-                                    default_value="cpu", width=cw)
-                                dpg.add_spacer(height=4)
-                                with dpg.group(horizontal=True):
-                                    dpg.add_button(
-                                        label="Start", tag="train_start_btn",
-                                        callback=lambda: self._train_start())
-                                    dpg.add_button(
-                                        label="Pause", tag="train_pause_btn",
-                                        callback=lambda: self._train_pause_resume())
-                                    dpg.add_button(
-                                        label="Stop", tag="train_stop_btn",
-                                        callback=lambda: self._train_stop())
-                                dpg.add_spacer(height=2)
-                                with dpg.group(horizontal=True):
-                                    dpg.add_button(
-                                        label="Save Model", tag="save_model_btn",
-                                        callback=lambda: self._save_model())
-                                    dpg.add_button(
-                                        label="Check Wiring",
-                                        callback=lambda: self._train_check_wiring())
-
-                # ── Plugin-provided tabs ────────────────────────────────
+                # ── Plugin panels (spec-driven, then legacy builders) ──
+                # Every plugin's panel — including Training — is a PanelSpec
+                # rendered by gui/panel_renderer.py. Zero plugin-specific
+                # layout code lives here anymore. Robotics still uses the
+                # legacy callable path until it migrates.
+                from gui.panel_renderer import render_panel
                 try:
                     from nodes import _plugin_ctx
                     if _plugin_ctx:
+                        for plabel, spec in _plugin_ctx.panel_specs:
+                            tab_tag = f"tab_{plabel.lower().replace(' ', '_')}"
+                            with dpg.tab(label=plabel, tag=tab_tag):
+                                with dpg.child_window(autosize_x=True,
+                                                      height=tab_h,
+                                                      border=False) as scroll:
+                                    col_w = max(160, (term_w - 40) // 3)
+                                    with dpg.group(horizontal=True):
+                                        # Columns are visual only — the spec
+                                        # itself is a flat list; distribute
+                                        # sections across three columns so
+                                        # the panel feels dense, not tall.
+                                        sections = spec.to_dict().get("sections", [])
+                                        cols = [[], [], []]
+                                        for i, sec in enumerate(sections):
+                                            cols[i % 3].append(sec)
+                                        for ci, col_sections in enumerate(cols):
+                                            with dpg.child_window(width=col_w,
+                                                                  border=False,
+                                                                  tag=f"{tab_tag}_col{ci}"):
+                                                runtime_parent = dpg.last_item()
+                                                spec_for_col = {
+                                                    "label": spec.label,
+                                                    "sections": col_sections,
+                                                }
+                                                rt = render_panel(
+                                                    spec_for_col,
+                                                    runtime_parent,
+                                                    self.dispatch_rpc,
+                                                    panel_id=f"{plabel.lower()}_col{ci}",
+                                                    log=self._log,
+                                                )
+                                                self._panel_runtimes.setdefault(
+                                                    plabel, []).append(rt)
+                        # Legacy callable panels (pre-spec, until migrated)
                         for plabel, pbuilder in _plugin_ctx.panels:
+                            # Skip if a spec panel already owns this label
+                            if any(l == plabel for l, _ in _plugin_ctx.panel_specs):
+                                continue
                             with dpg.tab(label=plabel):
                                 try:
                                     pbuilder(dpg.last_item(), self)
                                 except Exception as exc:
-                                    dpg.add_text(f"Error: {exc}", color=[220, 80, 80])
-                except Exception:
-                    pass
+                                    dpg.add_text(f"Error: {exc}",
+                                                 color=[220, 80, 80])
+                except Exception as exc:
+                    dpg.add_text(f"[panel load error] {exc}", color=[220, 80, 80])

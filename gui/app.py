@@ -23,7 +23,7 @@ from gui.theme import (
 # Pin color/shape imports no longer needed — driven by PortTypeRegistry
 from plugins.pytorch._training_executor import TrainingController
 from gui.mixins import (
-    TrainingMixin, PollingMixin, FileOpsMixin,
+    PollingMixin, FileOpsMixin,
     EditOpsMixin, LayoutMixin, HandlersMixin,
 )
 
@@ -178,7 +178,7 @@ def _render_inspector_spec(spec, node, parent: str, app) -> None:
 
 
 class NodeApp(
-    TrainingMixin, PollingMixin, FileOpsMixin,
+    PollingMixin, FileOpsMixin,
     EditOpsMixin, LayoutMixin, HandlersMixin,
 ):
     """Main application class. Behaviour split across gui/mixins/ by concern."""
@@ -235,8 +235,15 @@ class NodeApp(
         self._save_requested = False
         self._export_requested = False
 
-        # Training controller
-        self._training_ctrl = TrainingController()
+        # Training orchestrator — all training logic lives in the pytorch
+        # plugin; the GUI just drives it through the panel renderer.
+        from plugins.pytorch.training_orchestrator import TrainingOrchestrator
+        self._training_orch = TrainingOrchestrator(self.graph)
+        self._training_orch._ctrl.on_epoch_end = self.refresh_graph_silent
+        # Backward-compat alias while we migrate the last callers
+        self._training_ctrl = self._training_orch._ctrl
+        # Runtime(s) for rendered panel specs. Keyed by panel label.
+        self._panel_runtimes: dict[str, Any] = {}
 
         # Hot reload — three watchers:
         #   - HotReloader for nodes/custom/*.py (decorator-based custom nodes)
@@ -610,6 +617,16 @@ class NodeApp(
                 node.inputs[port_name].default_value = val
             except Exception:
                 pass
+
+    def dispatch_rpc(self, method: str, params: dict | None = None):
+        """In-process RPC dispatcher used by the panel renderer.
+
+        Routes every method name referenced by a PanelSpec (source_rpc,
+        action rpc) to the right handler — currently all training calls go
+        through the pytorch orchestrator. Add more plugin routes here as
+        other plugins gain spec-driven panels.
+        """
+        return self._training_orch.handle_rpc(method, params or {})
 
     def refresh_graph_silent(self) -> None:
         """Re-execute the graph without logging - used after each training epoch
@@ -1042,6 +1059,14 @@ class NodeApp(
             dpg.render_dearpygui_frame()
             frame_count += 1
 
+            # For screenshot flow: switch to the Training tab before snap
+            # so the user sees the panel being validated.
+            if screenshot_path and frame_count == 40:
+                try:
+                    if dpg.does_item_exist("tab_training"):
+                        dpg.set_value("terminal_tab_bar", "tab_training")
+                except Exception:
+                    pass
             # Take screenshot after ~60 frames (app fully rendered)
             if (screenshot_path and not screenshot_taken and frame_count >= 60):
                 try:
