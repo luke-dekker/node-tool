@@ -17,3 +17,6 @@ sessions/
 *.log
 .vscode/
 .idea/
+
+# TypeScript incremental build artifacts
+*.tsbuildinfo
