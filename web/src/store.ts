@@ -6,7 +6,7 @@
 import { create } from "zustand";
 import type { Edge, Node } from "reactflow";
 import { RpcClient, type ConnState } from "./rpc";
-import type { NodeInstance, Registry } from "./types";
+import type { NodeInstance, PanelSpec, Registry } from "./types";
 
 const SERVER_URL = "ws://127.0.0.1:9800";
 
@@ -30,6 +30,7 @@ interface Store {
   errors: Record<string, { message: string; type: string; label: string }>;
   templates: TemplateInfo[];
   pluginPanels: string[];
+  panelSpecs: Record<string, PanelSpec>;
 
   setConn: (s: ConnState) => void;
   setRegistry: (r: Registry) => void;
@@ -75,6 +76,9 @@ export const useStore = create<Store>((set, get) => {
       c.call<{ panels: string[] }>("get_plugin_panels")
         .then((res) => set({ pluginPanels: res.panels ?? [] }))
         .catch((err) => console.error("get_plugin_panels failed:", err));
+      c.call<{ panels: Record<string, PanelSpec> }>("get_panel_specs")
+        .then((res) => set({ panelSpecs: res.panels ?? {} }))
+        .catch((err) => console.error("get_panel_specs failed:", err));
     }
   });
 
@@ -89,6 +93,7 @@ export const useStore = create<Store>((set, get) => {
     errors: {},
     templates: [],
     pluginPanels: [],
+    panelSpecs: {},
 
     setConn: (s) => set({ conn: s }),
     setRegistry: (r) => set({ registry: r }),
