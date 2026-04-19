@@ -56,15 +56,12 @@ features below.
 - Re-fetches on graph change or on tab focus.
 
 ### 7. Training panel
-- Driven entirely by `get_marker_groups()` — no hardcoding of pytorch node
-  type names. One row of widgets per group (path, batch_size, split, seq_len,
-  chunk_size).
-- Hyperparameters: epochs, lr, optimizer (choices from
-  `plugins.pytorch._factories.OPTIMIZER_CHOICES`), loss
-  (`LOSS_CHOICES`), device.
-- Start / Pause / Resume / Stop controls.
-- Live loss plot (at minimum a line chart over epochs).
-- Status label (Idle / Running / Paused / Done / Error).
+Rendered entirely from the PanelSpec returned by `get_panel_specs()` for
+the `"Training"` label. No per-frontend training UI code exists or should
+be written — see the SpecRenderer section below. The spec declares the
+dataset dynamic_form, hyperparameters form, Start/Pause/Stop buttons, live
+status section, and the `loss_plot` custom section. Change the layout in
+`plugins/pytorch/_panel_training.py` and every frontend updates.
 
 ### 8. Theming
 - Dark and light themes shipped.
@@ -80,6 +77,50 @@ features below.
 - Ctrl+O — open
 - Ctrl+N — new
 - Ctrl+E — export code
+
+## Plugin panels — the spec contract
+
+Every plugin side panel (Training, Robotics, anything new) is described
+**once** in Python as a `core.panel.PanelSpec` and rendered **natively** by
+every GUI. A GUI has one generic renderer: DPG's lives in
+`gui/panel_renderer.py`, React's in `web/src/panels/SpecRenderer.tsx`.
+
+### What a GUI implements
+
+1. Fetch `get_panel_specs()` on connect and keep the result in store.
+2. For each plugin tab, call `render(spec)` with your GUI's renderer.
+3. Support all section kinds from `core/panel.py`:
+   - `form` — typed inputs (str/int/float/bool/choice)
+   - `dynamic_form` — one form per item returned by `source_rpc`
+   - `status` — polled key/value readout
+   - `plot` — polled line chart
+   - `buttons` — action buttons that call `rpc` with `collect`ed params
+   - `custom` — dispatched to a renderer registered by `custom_kind`
+4. Poll status / plot / dynamic_form sections at `poll_ms` (default 500 ms).
+5. On a button click, gather values from the sections in `action.collect`
+   (static forms flatten to top-level keys; dynamic forms nest under the
+   section id), call the action's `rpc`, surface any `error` in the terminal.
+
+### The custom section escape hatch
+
+Any panel piece that doesn't fit the core kinds becomes a `CustomSection`
+with a named `custom_kind`. Current kinds in use:
+
+- `loss_plot` — live line chart (`series: [train, val]` by default)
+- `log_tail` — scrolling read-only log readout
+
+A GUI that recognizes a `custom_kind` renders it; a GUI that doesn't shows
+a "[no renderer for kind X]" placeholder. Adding a new kind = add a renderer
+in each GUI's spec renderer (2-3 files changed total, one per frontend).
+
+### What you do NOT do
+
+- Do not hardcode the Training panel layout in your frontend. Change
+  `plugins/pytorch/_panel_training.py` instead.
+- Do not hardcode plugin-specific RPC calls in your frontend. The spec
+  tells you which RPC each button and polled section uses.
+- Do not special-case known plugin names. If a plugin registers a panel,
+  render it; if not, the tab doesn't appear.
 
 ## Optional surfaces
 
@@ -108,7 +149,9 @@ Update this table when a frontend catches up.
 | Terminal                | ✓   | ✓     | ✓     |
 | File menu               | ✓   | ✓     | ✓     |
 | Code view               | ✓   | ✓     | ✓     |
-| Training panel          | ✓   | skel  | skel  |
+| Training panel (spec)   | ✓   | ✓     | —     |
+| Robotics panel (spec)   | ✓   | ✓     | —     |
+| SpecRenderer            | ✓   | ✓     | —     |
 | Theme: dark             | ✓   | ✓     | —     |
 | Keyboard shortcuts      | ✓   | partial| partial|
 | Minimap                 | ✓   | ✓     | ✓     |

@@ -122,17 +122,67 @@ List shipped templates.
 Replace the graph with a template.
 - **Returns:** `{nodes, connections, positions}`
 
-### Plugins & training
+### Plugins & panels
 
 #### `get_plugin_panels()`
-Panels registered by plugins (Training, Robotics, etc.).
+Panels registered by plugins — specs + legacy merged. Spec-driven panels
+take precedence for the same label.
 - **Returns:** `{panels: [str]}`
 
+#### `get_panel_specs()`
+Every plugin's PanelSpec as a serialized dict. Frontends render these
+natively — see `core/panel.py` for the schema (sections: form / dynamic_form
+/ status / plot / buttons / custom). No frontend should hardcode per-plugin
+panel UI; read the spec.
+- **Returns:** `{panels: {label: PanelSpec, ...}}`
+
 #### `get_marker_groups()`
-Find all training-marker node groups and their modalities. Backed by
-`BaseNode.marker_role` (see `core.node.MarkerRole`), not type-name strings —
-frontends do not need to know the pytorch plugin exists.
+All training-marker node groups and their modalities. Backed by
+`BaseNode.marker_role` (see `core.node.MarkerRole`), not type-name strings.
+Used as the `source_rpc` for the training panel's datasets dynamic_form.
 - **Returns:** `{groups: {name: {modalities: [str], has_output: bool}}}`
+
+### Training (pytorch plugin)
+
+All training methods live in `plugins/pytorch/training_orchestrator.py` and
+are passthrough handlers on the server. DPG calls them in-process through
+`NodeApp.dispatch_rpc`; other frontends call them over WebSocket.
+
+#### `train_start(params)`
+`params` is collected from the Training panel:
+`{epochs, lr, optimizer, loss, device, datasets: {group: {path, batch_size, split, seq_len, chunk_size}}}`.
+- **Returns:** `{ok: bool, error?: str, task_names?: [str], n_params?: int}`
+
+#### `train_pause()`, `train_resume()`, `train_stop()`
+- **Returns:** `{status: str}`
+
+#### `train_save_model(path)`
+- **Returns:** `{ok: bool, path?, n_params?, error?}`
+
+#### `get_training_state()`
+Live snapshot used by the status section.
+- **Returns:** `{status, epoch_str, best_loss, last_loss, error}`
+
+#### `get_training_losses()`
+Series data for the loss plot.
+- **Returns:** `{series: {train: [float], val: [float]}}`
+
+#### `drain_training_logs()`
+Pop accumulated log lines since last call.
+- **Returns:** `{lines: [str]}`
+
+### Robotics (robotics plugin)
+
+Stubbed today — serial operations log to the controller's line buffer.
+Real hardware wiring goes in `plugins/robotics/robotics_controller.py`
+without touching any GUI.
+
+- `robotics_list_ports()` → `{ports: [str], error?}`
+- `robotics_connect(port, baud)` → `{ok, port?, baud?, error?}`
+- `robotics_disconnect()` → `{ok}`
+- `robotics_send(cmd)` → `{ok, error?}`
+- `get_robotics_state()` → `{connected, port, baud, log_tail}`
+- `get_robotics_log()` → `{lines: [str]}`
 
 ## Shared types
 
