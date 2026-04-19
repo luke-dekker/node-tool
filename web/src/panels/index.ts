@@ -6,7 +6,11 @@ import type { ComponentType } from "react";
 import { TrainingPanel } from "./TrainingPanel";
 import { RoboticsPanel } from "./RoboticsPanel";
 
-export const PANEL_BUILDERS: Record<string, ComponentType> = {
+export interface PluginPanelProps {
+  active?: boolean;
+}
+
+export const PANEL_BUILDERS: Record<string, ComponentType<PluginPanelProps>> = {
   Training: TrainingPanel,
   Robotics: RoboticsPanel,
 };

@@ -4,6 +4,6 @@
 
 import { SpecRenderer } from "./SpecRenderer";
 
-export function TrainingPanel() {
-  return <SpecRenderer label="Training" />;
+export function TrainingPanel({ active = true }: { active?: boolean }) {
+  return <SpecRenderer label="Training" active={active} />;
 }

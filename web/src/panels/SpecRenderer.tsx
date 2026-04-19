@@ -24,7 +24,12 @@ type Dispatcher = (method: string, params?: Record<string, unknown>) => Promise<
 type FormValues = Record<string, Record<string, unknown>>;
 type DynValues  = Record<string, Record<string, Record<string, unknown>>>;
 
-export function SpecRenderer({ label }: { label: string }) {
+export function SpecRenderer({
+  label, active = true,
+}: {
+  label: string;
+  active?: boolean;
+}) {
   const spec = useStore((s) => s.panelSpecs[label]) as PanelSpec | undefined;
   const client = useStore((s) => s.client);
   const appendLog = useStore((s) => s.appendLog);
@@ -113,6 +118,7 @@ export function SpecRenderer({ label }: { label: string }) {
           key={sec.id}
           section={sec}
           dispatch={dispatch}
+          active={active}
           formValues={formValues}
           dynValues={dynValues}
           setFormValue={setFormValue}
@@ -129,6 +135,7 @@ export function SpecRenderer({ label }: { label: string }) {
 interface SectionProps {
   section: Section;
   dispatch: Dispatcher;
+  active: boolean;
   formValues: FormValues;
   dynValues: DynValues;
   setFormValue: (sectionId: string, fieldId: string, value: unknown) => void;
@@ -171,11 +178,12 @@ function FormSectionView({
 // ── Dynamic form ─────────────────────────────────────────────────────────
 
 function DynFormSectionView({
-  section, dispatch, dynValues, setDynValue,
+  section, dispatch, active, dynValues, setDynValue,
 }: SectionProps & { section: DynamicFormSection }) {
   const [items, setItems] = useState<Record<string, Record<string, any>>>({});
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     const poll = async () => {
       try {
@@ -193,7 +201,7 @@ function DynFormSectionView({
       alive = false;
       window.clearInterval(handle);
     };
-  }, [dispatch, section.source_rpc]);
+  }, [dispatch, section.source_rpc, active]);
 
   const keys = Object.keys(items).sort();
   if (keys.length === 0) {
@@ -247,11 +255,12 @@ function DynFormSectionView({
 // ── Status ───────────────────────────────────────────────────────────────
 
 function StatusSectionView({
-  section, dispatch,
+  section, dispatch, active,
 }: SectionProps & { section: StatusSection }) {
   const [data, setData] = useState<Record<string, any>>({});
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     const poll = async () => {
       try {
@@ -268,7 +277,7 @@ function StatusSectionView({
       alive = false;
       window.clearInterval(handle);
     };
-  }, [dispatch, section.source_rpc, section.poll_ms]);
+  }, [dispatch, section.source_rpc, section.poll_ms, active]);
 
   const statusColor = (fieldId: string, value: string): string => {
     if (fieldId !== "status") return theme.text;
@@ -326,13 +335,14 @@ const customKinds: Record<
 };
 
 function LogTail({
-  section, dispatch,
+  section, dispatch, active,
 }: SectionProps & { section: CustomSection }) {
   const srcRpc = String(section.params?.source_rpc ?? "");
   const pollMs = Number(section.params?.poll_ms ?? 500);
   const [lines, setLines] = useState<string[]>([]);
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     const poll = async () => {
       try {
@@ -347,7 +357,7 @@ function LogTail({
       alive = false;
       window.clearInterval(handle);
     };
-  }, [dispatch, srcRpc, pollMs]);
+  }, [dispatch, srcRpc, pollMs, active]);
 
   return (
     <div style={styles.section}>
@@ -378,7 +388,7 @@ function CustomSectionView(props: SectionProps & { section: CustomSection }) {
 // ── LossPlot — a SVG line chart driven by source_rpc ─────────────────────
 
 function LossPlot({
-  section, dispatch,
+  section, dispatch, active,
 }: SectionProps & { section: CustomSection }) {
   const srcRpc = String(section.params?.source_rpc ?? "get_training_losses");
   const pollMs = Number(section.params?.poll_ms ?? 500);
@@ -386,6 +396,7 @@ function LossPlot({
   const [series, setSeries] = useState<Record<string, number[]>>({});
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     const poll = async () => {
       try {
@@ -400,7 +411,7 @@ function LossPlot({
       alive = false;
       window.clearInterval(handle);
     };
-  }, [dispatch, srcRpc, pollMs]);
+  }, [dispatch, srcRpc, pollMs, active]);
 
   const colors = [theme.accent, theme.ok];
   const W = 240, H = 100;

@@ -123,7 +123,9 @@ class TrainingController:
             model = config["model"]
             optimizer = config["optimizer"]
             epochs = int(config.get("epochs", 10))
-            device_str = config.get("device", "cpu")
+            # device field comes through as "cuda:0 (RTX 4070)" when the
+            # panel enumerates real GPUs — keep just the torch-valid prefix.
+            device_str = str(config.get("device", "cpu")).split()[0].strip()
             device = torch.device(device_str if torch.cuda.is_available() or device_str == "cpu" else "cpu")
 
             if model is None or optimizer is None:

@@ -3,6 +3,6 @@
 
 import { SpecRenderer } from "./SpecRenderer";
 
-export function RoboticsPanel() {
-  return <SpecRenderer label="Robotics" />;
+export function RoboticsPanel({ active = true }: { active?: boolean }) {
+  return <SpecRenderer label="Robotics" active={active} />;
 }

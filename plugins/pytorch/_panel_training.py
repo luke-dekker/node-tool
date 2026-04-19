@@ -13,7 +13,30 @@ from core.panel import (
 from plugins.pytorch._factories import OPTIMIZER_CHOICES, LOSS_CHOICES
 
 
+def _detect_devices() -> tuple[list[str], str]:
+    """Return (choices, default). Enumerates real CUDA devices by name so the
+    dropdown shows 'cuda:0 (RTX 4070)' instead of a hardcoded guess."""
+    choices = ["cpu"]
+    default = "cpu"
+    try:
+        import torch
+        if torch.cuda.is_available():
+            n = torch.cuda.device_count()
+            for i in range(n):
+                try:
+                    name = torch.cuda.get_device_name(i)
+                except Exception:
+                    name = f"cuda:{i}"
+                choices.append(f"cuda:{i} ({name})")
+            if choices[1:]:
+                default = choices[1]
+    except Exception:
+        pass
+    return choices, default
+
+
 def build_training_panel_spec() -> PanelSpec:
+    device_choices, device_default = _detect_devices()
     return PanelSpec(
         label="Training",
         sections=[
@@ -50,7 +73,7 @@ def build_training_panel_spec() -> PanelSpec:
                     Field("path",       "str",    label="path",
                           hint="mnist, cifar10, lerobot/...",
                           default=""),
-                    Field("batch_size", "int",    label="batch",  default=32, min=1),
+                    Field("batch_size", "int",    label="batch",  default=128, min=1),
                     Field("split",      "choice", label="split",  default="train",
                           choices=["train", "test", "val"]),
                     Field("seq_len",    "int",    label="seq",    default=0, min=0),
@@ -69,8 +92,8 @@ def build_training_panel_spec() -> PanelSpec:
                     Field("loss",      "choice", label="loss",
                           choices=LOSS_CHOICES, default="crossentropy"),
                     Field("device",    "choice", label="device",
-                          choices=["cpu", "cuda", "cuda:0", "cuda:1"],
-                          default="cpu"),
+                          choices=device_choices,
+                          default=device_default),
                 ],
             ),
             ButtonsSection(

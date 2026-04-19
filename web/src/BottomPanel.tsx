@@ -91,9 +91,11 @@ export function BottomPanel() {
           const name = t.id.slice("plugin:".length);
           const Comp = PANEL_BUILDERS[name];
           if (!Comp) return null;
+          // active=false pauses the panel's RPC polling so background tabs
+          // don't contend with training for backend CPU.
           return (
             <div key={t.id} style={show(t.id)}>
-              <Comp />
+              <Comp active={tab === t.id} />
             </div>
           );
         })}
