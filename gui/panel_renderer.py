@@ -120,9 +120,19 @@ class PanelRuntime:
         kind = sec.get("custom_kind", "")
         if kind == "loss_plot":
             self._build_loss_plot(sec, parent)
+        elif kind == "log_tail":
+            self._build_log_tail(sec, parent)
         else:
             dpg.add_text(f"[no renderer for custom kind '{kind}']",
                          parent=parent, color=[200, 160, 80])
+
+    def _build_log_tail(self, sec: dict, parent: str) -> None:
+        if sec.get("label"):
+            dpg.add_text(sec["label"], parent=parent, color=[180, 180, 255])
+        tag = self._tag(sec["id"], "text")
+        dpg.add_input_text(parent=parent, tag=tag, multiline=True,
+                           readonly=True, height=80, width=-1,
+                           default_value="")
 
     def _build_loss_plot(self, sec: dict, parent: str) -> None:
         plot_tag = self._tag(sec["id"], "plot")
@@ -202,6 +212,17 @@ class PanelRuntime:
                     try:
                         data = self.dispatcher(p.get("source_rpc", ""), {})
                         self._apply_loss_plot(sec, data)
+                    except Exception:
+                        pass
+            elif kind == "custom" and sec.get("custom_kind") == "log_tail":
+                p = sec.get("params", {})
+                if now - self._last_poll.get(sid, 0) >= p.get("poll_ms", 500):
+                    self._last_poll[sid] = now
+                    try:
+                        data = self.dispatcher(p.get("source_rpc", ""), {})
+                        tag = self._tag(sid, "text")
+                        if dpg.does_item_exist(tag):
+                            dpg.set_value(tag, "\n".join(data.get("lines", [])))
                     except Exception:
                         pass
             elif kind == "dynamic_form":

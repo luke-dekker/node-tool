@@ -45,6 +45,13 @@ class NodeToolServer:
         # declared in plugin panel specs. Lazily constructed on first use so
         # plugins without their deps installed don't break server startup.
         self._training_orch = None
+        self._robotics_ctrl = None
+
+    def _get_robotics_controller(self):
+        if self._robotics_ctrl is None:
+            from plugins.robotics.robotics_controller import RoboticsController
+            self._robotics_ctrl = RoboticsController()
+        return self._robotics_ctrl
 
     def _get_training_orchestrator(self):
         if self._training_orch is None:
@@ -493,6 +500,26 @@ class NodeToolServer:
     def drain_training_logs(self, params: dict) -> dict:
         return self._get_training_orchestrator().drain_logs()
 
+    # ── Robotics plugin ─────────────────────────────────────────────────
+
+    def robotics_list_ports(self, params: dict) -> dict:
+        return self._get_robotics_controller().list_ports(params)
+
+    def robotics_connect(self, params: dict) -> dict:
+        return self._get_robotics_controller().connect(params)
+
+    def robotics_disconnect(self, params: dict) -> dict:
+        return self._get_robotics_controller().disconnect(params)
+
+    def robotics_send(self, params: dict) -> dict:
+        return self._get_robotics_controller().send(params)
+
+    def get_robotics_state(self, params: dict) -> dict:
+        return self._get_robotics_controller().status()
+
+    def get_robotics_log(self, params: dict) -> dict:
+        return self._get_robotics_controller().log()
+
     # ── Dispatch ─────────────────────────────────────────────────────────
 
     _METHODS: dict[str, str] = {
@@ -525,6 +552,13 @@ class NodeToolServer:
         "get_training_state":    "get_training_state",
         "get_training_losses":   "get_training_losses",
         "drain_training_logs":   "drain_training_logs",
+        # Robotics
+        "robotics_list_ports":  "robotics_list_ports",
+        "robotics_connect":     "robotics_connect",
+        "robotics_disconnect":  "robotics_disconnect",
+        "robotics_send":        "robotics_send",
+        "get_robotics_state":   "get_robotics_state",
+        "get_robotics_log":     "get_robotics_log",
     }
 
     def dispatch(self, method: str, params: dict) -> Any:

@@ -622,11 +622,23 @@ class NodeApp(
         """In-process RPC dispatcher used by the panel renderer.
 
         Routes every method name referenced by a PanelSpec (source_rpc,
-        action rpc) to the right handler — currently all training calls go
-        through the pytorch orchestrator. Add more plugin routes here as
-        other plugins gain spec-driven panels.
+        action rpc) to the right plugin controller. Mirrors server.py's
+        dispatch for parity — a spec that works over WebSocket works
+        in-process.
         """
-        return self._training_orch.handle_rpc(method, params or {})
+        params = params or {}
+        # Training plugin
+        try:
+            return self._training_orch.handle_rpc(method, params)
+        except ValueError:
+            pass
+        # Robotics plugin (lazy-init — the controller has no constructor deps)
+        if method.startswith("robotics_") or method.startswith("get_robotics_"):
+            if not hasattr(self, "_robotics_ctrl") or self._robotics_ctrl is None:
+                from plugins.robotics.robotics_controller import RoboticsController
+                self._robotics_ctrl = RoboticsController()
+            return self._robotics_ctrl.handle_rpc(method, params)
+        raise ValueError(f"Unknown RPC method: {method}")
 
     def refresh_graph_silent(self) -> None:
         """Re-execute the graph without logging - used after each training epoch
@@ -1059,12 +1071,12 @@ class NodeApp(
             dpg.render_dearpygui_frame()
             frame_count += 1
 
-            # For screenshot flow: switch to the Training tab before snap
-            # so the user sees the panel being validated.
+            # For screenshot flow: switch to the Robotics tab (spec-driven,
+            # proves the pattern works beyond just Training).
             if screenshot_path and frame_count == 40:
                 try:
-                    if dpg.does_item_exist("tab_training"):
-                        dpg.set_value("terminal_tab_bar", "tab_training")
+                    if dpg.does_item_exist("tab_robotics"):
+                        dpg.set_value("terminal_tab_bar", "tab_robotics")
                 except Exception:
                     pass
             # Take screenshot after ~60 frames (app fully rendered)

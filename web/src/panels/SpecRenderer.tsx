@@ -312,7 +312,44 @@ const customKinds: Record<
   (props: SectionProps & { section: CustomSection }) => JSX.Element
 > = {
   loss_plot: LossPlot,
+  log_tail:  LogTail,
 };
+
+function LogTail({
+  section, dispatch,
+}: SectionProps & { section: CustomSection }) {
+  const srcRpc = String(section.params?.source_rpc ?? "");
+  const pollMs = Number(section.params?.poll_ms ?? 500);
+  const [lines, setLines] = useState<string[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const resp: any = await dispatch(srcRpc, {});
+        if (!alive) return;
+        setLines(resp?.lines ?? []);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const handle = window.setInterval(poll, pollMs);
+    return () => {
+      alive = false;
+      window.clearInterval(handle);
+    };
+  }, [dispatch, srcRpc, pollMs]);
+
+  return (
+    <div style={styles.section}>
+      {section.label && <div style={styles.sectionLabel}>{section.label}</div>}
+      <div style={styles.logTail}>
+        {lines.length === 0
+          ? <span style={{ color: theme.textDim }}>(no output yet)</span>
+          : lines.map((l, i) => <div key={i}>{l}</div>)}
+      </div>
+    </div>
+  );
+}
 
 function CustomSectionView(props: SectionProps & { section: CustomSection }) {
   const Renderer = customKinds[props.section.custom_kind];
@@ -540,4 +577,15 @@ const styles: Record<string, React.CSSProperties> = {
     height: 100,
   },
   legend: { marginTop: 2, fontSize: 10, color: theme.textDim },
+  logTail: {
+    background: theme.bgDark,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 3,
+    padding: 6,
+    fontFamily: "'Consolas', 'Monaco', monospace",
+    fontSize: 11,
+    maxHeight: 120,
+    overflowY: "auto",
+    whiteSpace: "pre-wrap",
+  },
 };
