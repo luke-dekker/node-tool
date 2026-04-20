@@ -128,10 +128,15 @@ class CustomSection(Section):
 
     Every GUI must decide whether it has a renderer for `custom_kind`.
     Unknown kinds render as a placeholder.
+
+    `fields` is optional — a custom renderer may declare input fields that
+    ButtonsSection's `collect` should gather from, in the same shape as
+    FormSection fields. Renderers without inputs simply leave it empty.
     """
     kind:        str = "custom"
     custom_kind: str = ""
     params:      dict = field(default_factory=dict)
+    fields:      list[Field] = field(default_factory=list)
 
 
 # ── Panel ───────────────────────────────────────────────────────────────────

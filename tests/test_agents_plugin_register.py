@@ -62,3 +62,12 @@ def test_panel_spec_serializable():
     assert d["label"] == "Agents"
     section_ids = {s["id"] for s in d["sections"]}
     assert {"backend", "models", "agents", "chat", "status", "controls"} <= section_ids
+    # Chat is the streaming CustomSection wired to agent_start_stream.
+    chat = next(s for s in d["sections"] if s["id"] == "chat")
+    assert chat["kind"] == "custom"
+    assert chat["custom_kind"] == "chat_stream"
+    assert chat["params"]["start_rpc"] == "agent_start_stream"
+    assert chat["params"]["drain_rpc"] == "agent_drain_tokens"
+    # The chat section declares a message input so ButtonsSection.collect
+    # can gather it like a FormSection field.
+    assert any(f["id"] == "message" for f in chat.get("fields", []))

@@ -1,8 +1,8 @@
-"""Agents panel spec — Phase A subset.
+"""Agents panel spec — Phase A + B subset.
 
 Sections (top → bottom): Backend, Local models (DynamicForm), Selected
-agent (DynamicForm), Chat (form), Status, Controls. Tools / streaming
-chat / Autoresearch sub-section come in later phases.
+agent (DynamicForm), Chat (custom — streaming chat transcript + input),
+Status, Controls. Autoresearch sub-section comes in Phase C.
 
 Single source of truth — DPG, React, Godot all render this exact spec.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from core.panel import (
     PanelSpec, FormSection, DynamicFormSection, StatusSection,
-    ButtonsSection, Field, Action,
+    ButtonsSection, CustomSection, Field, Action,
 )
 
 
@@ -54,9 +54,20 @@ def build_agents_panel_spec() -> PanelSpec:
                           min=0.0, max=2.0, step=0.1),
                 ],
             ),
-            FormSection(
+            CustomSection(
                 id="chat",
                 label="Chat",
+                custom_kind="chat_stream",
+                params={
+                    "input_field_id":  "message",
+                    "start_rpc":       "agent_start_stream",
+                    "stop_rpc":        "agent_stop",
+                    "drain_rpc":       "agent_drain_tokens",
+                    "state_rpc":       "get_agent_state",
+                    "collect":         ["agents"],
+                    "poll_ms":         100,
+                    "placeholder":     "Type a message, press Enter to send",
+                },
                 fields=[
                     Field("message", "str", label="message", default=""),
                 ],
@@ -72,17 +83,42 @@ def build_agents_panel_spec() -> PanelSpec:
                     Field("tokens_in",  "int", label="tokens in"),
                     Field("tokens_out", "int", label="tokens out"),
                     Field("latency_ms", "int", label="ms"),
-                    Field("reply",      "str", label="Reply"),
                     Field("error",      "str", label="Error"),
                 ],
             ),
             ButtonsSection(
                 id="controls",
                 actions=[
-                    Action(id="start", label="Send",
+                    Action(id="send_blocking", label="Send (blocking)",
                            rpc="agent_start",
                            collect=["agents", "chat"]),
+                    Action(id="send_stream", label="Send (stream)",
+                           rpc="agent_start_stream",
+                           collect=["agents", "chat"]),
                     Action(id="stop", label="Stop", rpc="agent_stop"),
+                ],
+            ),
+            # ── Autoresearch sub-section ────────────────────────────────
+            StatusSection(
+                id="autoresearch_status",
+                label="Autoresearch",
+                source_rpc="agent_autoresearch_state",
+                poll_ms=1000,
+                fields=[
+                    Field("current_status",  "str", label="State"),
+                    Field("trials_done",     "int", label="trials"),
+                    Field("best_score",      "float", label="best loss"),
+                    Field("current_op_kind", "str", label="last op"),
+                    Field("error",           "str", label="error"),
+                ],
+            ),
+            ButtonsSection(
+                id="autoresearch_controls",
+                actions=[
+                    Action(id="ar_start", label="Start Autoresearch",
+                           rpc="agent_autoresearch_start"),
+                    Action(id="ar_stop",  label="Stop Autoresearch",
+                           rpc="agent_autoresearch_stop"),
                 ],
             ),
         ],

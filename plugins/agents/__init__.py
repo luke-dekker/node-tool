@@ -4,11 +4,12 @@ Builds, runs, and (eventually) deploys agents using fully open-source local
 infrastructure. Default LLM backend: Ollama. Default vector store: Qdrant.
 Default embedder: sentence-transformers. See plugins/agents/DESIGN.md.
 
-Phase A scope (current): LLM clients (Ollama + OpenAI-compat), prompt /
-message / conversation primitives, AgentNode (single chat() turn — no
-tools, no streaming yet), AgentOrchestrator with start/stop/state, panel
-spec. Phases B (tools+memory+streaming), C (autoresearch), D (deployment)
-follow.
+Phase A + B.1 + B.2-memory (current): LLM clients (Ollama + OpenAI-compat),
+prompt / message / conversation primitives, AgentNode with function-calling
+tool loop, tool nodes (dotted-path + inline Python), memory nodes
+(DocumentLoader, Embedder, MemoryStore, Retriever — Qdrant local default),
+AgentOrchestrator with start/stop/state, panel spec. Phases B remaining
+(streaming, LlamaCpp, MCP), C (autoresearch), D (deployment) follow.
 
 Heavy imports (ollama, openai, qdrant_client, sentence_transformers,
 llama_cpp) are deferred to node-execute time — `register()` runs cleanly
@@ -35,3 +36,10 @@ def register(ctx: PluginContext) -> None:
     # Agents panel spec
     from plugins.agents._panel_agents import build_agents_panel_spec
     ctx.register_panel_spec("Agents", build_agents_panel_spec())
+
+    # RPC orchestrator — agents_orchestrator.handle_rpc routes every method
+    # starting with "agent_" or "get_agent_". Lazy: built once per graph.
+    def _factory(graph):
+        from plugins.agents.agents_orchestrator import AgentOrchestrator
+        return AgentOrchestrator(graph)
+    ctx.register_orchestrator(["agent_", "get_agent_"], _factory)

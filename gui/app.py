@@ -248,6 +248,21 @@ class NodeApp(
         # contract as TrainingOrchestrator.
         from plugins.agents.agents_orchestrator import AgentOrchestrator
         self._agents_orch = AgentOrchestrator(self.graph)
+
+        # Plugin RPC registry — routes `method` to the orchestrator whose
+        # prefix matches. Plugins self-register via
+        # `ctx.register_orchestrator(prefixes, factory)`. Replaces the old
+        # hardcoded fall-through chain in dispatch_rpc.
+        from core.plugins import OrchestratorRegistry
+        import nodes as _nodes_pkg
+        factories = (_nodes_pkg._plugin_ctx.orchestrator_factories
+                     if getattr(_nodes_pkg, "_plugin_ctx", None) else [])
+        self._plugin_registry = OrchestratorRegistry(self.graph, factories)
+        # Pre-seed the registry with the two orchestrators we constructed
+        # above so streaming / training events don't re-create them.
+        self._plugin_registry._cache["train_"] = self._training_orch
+        self._plugin_registry._cache["agent_"] = self._agents_orch
+
         # Runtime(s) for rendered panel specs. Keyed by panel label.
         self._panel_runtimes: dict[str, Any] = {}
 
@@ -628,28 +643,16 @@ class NodeApp(
         """In-process RPC dispatcher used by the panel renderer.
 
         Routes every method name referenced by a PanelSpec (source_rpc,
-        action rpc) to the right plugin controller. Mirrors server.py's
-        dispatch for parity — a spec that works over WebSocket works
-        in-process.
+        action rpc) to the right plugin controller via the plugin
+        OrchestratorRegistry (prefix match, longest wins). A spec that
+        works in-process also works over WebSocket — server.py uses the
+        same registry.
         """
+        from core.plugins import OrchestratorRegistry
         params = params or {}
-        # Training plugin
-        try:
-            return self._training_orch.handle_rpc(method, params)
-        except ValueError:
-            pass
-        # Agents plugin — Phase A surface. Phase C will replace this
-        # try-fallthrough chain with a method-prefix registry.
-        try:
-            return self._agents_orch.handle_rpc(method, params)
-        except ValueError:
-            pass
-        # Robotics plugin (lazy-init — the controller has no constructor deps)
-        if method.startswith("robotics_") or method.startswith("get_robotics_"):
-            if not hasattr(self, "_robotics_ctrl") or self._robotics_ctrl is None:
-                from plugins.robotics.robotics_controller import RoboticsController
-                self._robotics_ctrl = RoboticsController()
-            return self._robotics_ctrl.handle_rpc(method, params)
+        result = self._plugin_registry.try_dispatch(method, params)
+        if result is not OrchestratorRegistry._UNHANDLED:
+            return result
         raise ValueError(f"Unknown RPC method: {method}")
 
     def refresh_graph_silent(self) -> None:

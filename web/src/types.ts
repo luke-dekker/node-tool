@@ -106,6 +106,7 @@ export interface CustomSection extends BaseSection {
   kind: "custom";
   custom_kind: string;
   params: Record<string, unknown>;
+  fields?: SpecField[];
 }
 
 export type Section =

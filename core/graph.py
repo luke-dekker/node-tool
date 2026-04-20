@@ -1,6 +1,8 @@
 """Graph, Connection, topological executor, and undo/redo command stack."""
 
 from __future__ import annotations
+import hashlib
+import json
 from typing import Any
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
@@ -53,6 +55,27 @@ class CommandStack:
         return bool(self._redo)
 
 
+def _canonical_value(v: Any) -> Any:
+    """Return a JSON-safe representation of a port default value.
+
+    Non-serializable values (tensors, nn.Modules, arbitrary objects) collapse
+    to None — the snapshot captures graph structure, not runtime caches.
+    """
+    if isinstance(v, (int, float, bool, str, type(None))):
+        return v
+    if isinstance(v, (list, tuple)):
+        return [_canonical_value(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _canonical_value(v[k]) for k in sorted(v)}
+    return None
+
+
+def _hash_payload(payload: dict) -> str:
+    """sha1 of the canonical JSON of `payload`. Stable across processes."""
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()
+
+
 class Connection:
     """A directed link from one node's output port to another's input port."""
 
@@ -76,6 +99,9 @@ class Graph:
     def __init__(self) -> None:
         self.nodes: dict[str, BaseNode] = {}
         self.connections: list[Connection] = []
+        # Snapshot cache: hash → serialized payload. Populated by snapshot();
+        # consulted by revert_to(). In-memory only; NOT persisted to disk.
+        self._snapshots: dict[str, dict] = {}
 
     def clear(self) -> None:
         """Remove all nodes and connections in place (preserves object identity)."""
@@ -191,6 +217,144 @@ class Graph:
                     queue.append(neighbour)
         return order  # may be shorter than nodes if there are cycles
 
+    def subgraph_between(self, a_id: str, b_id: str) -> list[str]:
+        """Topologically-ordered node ids in the cone between A (inclusive)
+        and B (inclusive).
+
+        Cone = descendants(A) ∩ ancestors(B), both inclusive of the endpoints.
+        Used by `GraphAsToolNode` to scope subgraph execution and by
+        autoresearch's mutator to bound the mutable region. Returns [] if B
+        is unreachable from A. Raises `KeyError` if either id is missing.
+        """
+        if a_id not in self.nodes:
+            raise KeyError(f"subgraph_between: node not found: {a_id}")
+        if b_id not in self.nodes:
+            raise KeyError(f"subgraph_between: node not found: {b_id}")
+
+        adj: dict[str, set[str]]  = {nid: set() for nid in self.nodes}
+        radj: dict[str, set[str]] = {nid: set() for nid in self.nodes}
+        for c in self.connections:
+            if c.from_node_id in adj and c.to_node_id in adj:
+                adj[c.from_node_id].add(c.to_node_id)
+                radj[c.to_node_id].add(c.from_node_id)
+
+        descendants: set[str] = {a_id}
+        stack = [a_id]
+        while stack:
+            cur = stack.pop()
+            for nxt in adj[cur]:
+                if nxt not in descendants:
+                    descendants.add(nxt)
+                    stack.append(nxt)
+
+        ancestors: set[str] = {b_id}
+        stack = [b_id]
+        while stack:
+            cur = stack.pop()
+            for prv in radj[cur]:
+                if prv not in ancestors:
+                    ancestors.add(prv)
+                    stack.append(prv)
+
+        cone = descendants & ancestors
+        if not cone:
+            return []
+        return [nid for nid in self.topological_order() if nid in cone]
+
+    # ── Snapshot / revert (transactional graph state) ──────────────────────
+
+    def snapshot(self) -> str:
+        """Capture current graph state, return a content-addressed hash.
+
+        State captured:
+          - Each node's id, type_name, and JSON-serializable input default values
+          - All connections (from_id, from_port, to_id, to_port)
+
+        Runtime caches (_layer, _probe_tensor, etc.) are NOT captured — run
+        graph.execute() again after a revert to re-materialize them.
+
+        The hash is stable across snapshot() calls on an unmodified graph,
+        so two calls return the same hash iff nothing has changed. The full
+        payload is retained in `self._snapshots` so `revert_to(hash)` works
+        in the same process; not persisted to disk.
+
+        Used by autoresearch's mutate→eval→keep/revert loop and, via the
+        `CommandStack`-free path, as ad-hoc undo in the GUI.
+        """
+        payload = self._build_snapshot_payload()
+        key = _hash_payload(payload)
+        self._snapshots[key] = payload
+        return key
+
+    def revert_to(self, snapshot_hash: str) -> None:
+        """Restore graph state to a previous snapshot. Mutates in place.
+
+        Strategy (surgical, not full rebuild):
+          1. Remove any node present now but not in the snapshot.
+          2. Recreate any node in the snapshot but missing now (via NODE_REGISTRY).
+          3. For nodes in both, reset input defaults to the snapshot values.
+          4. Clear connections and re-add all from the snapshot.
+
+        WARNING: external callers that held references to nodes created AFTER
+        the snapshot will end up with stale objects that no longer belong to
+        the graph — treat the returned Graph as authoritative. Nodes in both
+        sides retain object identity.
+        """
+        payload = self._snapshots.get(snapshot_hash)
+        if payload is None:
+            raise KeyError(f"Unknown snapshot hash: {snapshot_hash!r}")
+        self._restore_from_payload(payload)
+
+    def _build_snapshot_payload(self) -> dict:
+        nodes = []
+        for nid in sorted(self.nodes):
+            node = self.nodes[nid]
+            inputs = {}
+            for pname in sorted(node.inputs):
+                inputs[pname] = _canonical_value(node.inputs[pname].default_value)
+            nodes.append({
+                "id":        nid,
+                "type_name": node.type_name,
+                "inputs":    inputs,
+            })
+        connections = sorted([
+            [c.from_node_id, c.from_port, c.to_node_id, c.to_port]
+            for c in self.connections
+        ])
+        return {"nodes": nodes, "connections": connections}
+
+    def _restore_from_payload(self, payload: dict) -> None:
+        from nodes import NODE_REGISTRY  # lazy: avoids circular import at module top
+        snap_nodes = {n["id"]: n for n in payload.get("nodes", [])}
+
+        # 1. Remove nodes not in snapshot
+        for nid in list(self.nodes.keys()):
+            if nid not in snap_nodes:
+                self.nodes.pop(nid, None)
+
+        # 2. Recreate missing nodes; 3. reset defaults on surviving nodes
+        for nid, snap in snap_nodes.items():
+            node = self.nodes.get(nid)
+            if node is None:
+                cls_ = NODE_REGISTRY.get(snap["type_name"])
+                if cls_ is None:
+                    raise RuntimeError(
+                        f"revert_to: node type {snap['type_name']!r} not in registry; "
+                        "cannot recreate"
+                    )
+                node = cls_()
+                node.id = nid
+                self.nodes[nid] = node
+            for pname, val in snap.get("inputs", {}).items():
+                if pname in node.inputs:
+                    node.inputs[pname].default_value = val
+
+        # 4. Reset connections
+        self.connections = [
+            Connection(c[0], c[1], c[2], c[3])
+            for c in payload.get("connections", [])
+        ]
+
     # ── Execution ────────────────────────────────────────────────────────────
 
     def execute(self) -> tuple[dict[str, dict[str, Any]], list[str], dict[str, dict[str, str]]]:
@@ -212,6 +376,10 @@ class Graph:
 
         for node_id in order:
             node = self.nodes[node_id]
+            # Expose a graph reference on the node so graph-aware nodes (e.g.
+            # GraphAsToolNode) can introspect peers and sub-cones. Most nodes
+            # ignore this attribute; it's a non-breaking opt-in hook.
+            node._graph = self
             inputs: dict[str, Any] = {}
 
             for port_name, port in node.inputs.items():

@@ -39,3 +39,12 @@ def register(ctx: PluginContext) -> None:
     # Training panel — declared once as a PanelSpec, rendered by every GUI.
     from plugins.pytorch._panel_training import build_training_panel_spec
     ctx.register_panel_spec("Training", build_training_panel_spec())
+
+    # RPC orchestrator — TrainingOrchestrator.handle_rpc serves every
+    # training-related method. Lazy: imported only on first call.
+    def _factory(graph):
+        from plugins.pytorch.training_orchestrator import TrainingOrchestrator
+        return TrainingOrchestrator(graph)
+    ctx.register_orchestrator(
+        ["train_", "get_training_", "drain_training_"], _factory,
+    )

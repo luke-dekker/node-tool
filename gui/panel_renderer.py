@@ -38,6 +38,8 @@ class PanelRuntime:
         # Plot section id → {series_name: line_series_tag}
         self._plot_series: dict[str, dict[str, str]] = {}
         self._plot_x_axis: dict[str, str] = {}
+        # Chat-stream custom section id → {session_id, transcript, done, ...}
+        self._chat_sessions: dict[str, dict[str, Any]] = {}
 
     # ── Build ──────────────────────────────────────────────────────────
 
@@ -122,6 +124,8 @@ class PanelRuntime:
             self._build_loss_plot(sec, parent)
         elif kind == "log_tail":
             self._build_log_tail(sec, parent)
+        elif kind == "chat_stream":
+            self._build_chat_stream(sec, parent)
         else:
             dpg.add_text(f"[no renderer for custom kind '{kind}']",
                          parent=parent, color=[200, 160, 80])
@@ -133,6 +137,99 @@ class PanelRuntime:
         dpg.add_input_text(parent=parent, tag=tag, multiline=True,
                            readonly=True, height=80, width=-1,
                            default_value="")
+
+    def _build_chat_stream(self, sec: dict, parent: str) -> None:
+        """Streaming chat transcript + input.
+
+        Widgets: read-only multi-line transcript (auto-appended on poll),
+        a message input bound to the standard _field_tags, and a Send
+        button that fires the start_rpc. Polls drain_rpc every poll_ms
+        to pull streamed tokens into the transcript.
+        """
+        if sec.get("label"):
+            dpg.add_text(sec["label"], parent=parent, color=[180, 180, 255])
+        p = sec.get("params", {})
+        input_fid = p.get("input_field_id", "message")
+
+        transcript_tag = self._tag(sec["id"], "transcript")
+        dpg.add_input_text(parent=parent, tag=transcript_tag,
+                           multiline=True, readonly=True,
+                           height=180, width=-1, default_value="")
+
+        # Message input — registered under the standard field mechanism so
+        # ButtonsSection(collect=["chat"]) picks it up via _collect_params.
+        input_tag = self._tag(sec["id"], "_", input_fid)
+        dpg.add_input_text(parent=parent, tag=input_tag,
+                           hint=p.get("placeholder", ""), width=-1,
+                           on_enter=True,
+                           callback=lambda *_a, _s=sec: self._chat_stream_send(_s))
+        self._field_tags[(sec["id"], "", input_fid)] = input_tag
+
+        with dpg.group(horizontal=True, parent=parent):
+            dpg.add_button(label="Send",
+                           callback=lambda *_a, _s=sec: self._chat_stream_send(_s))
+            dpg.add_button(label="Stop",
+                           callback=lambda *_a, _s=sec: self._chat_stream_stop(_s))
+            dpg.add_button(label="Clear",
+                           callback=lambda *_a, _s=sec: self._chat_stream_clear(_s))
+
+        # Per-session streaming state, scoped to this panel section.
+        self._chat_sessions[sec["id"]] = {
+            "session_id":  "",
+            "transcript":  "",
+            "done":        True,
+            "last_state":  "",
+        }
+
+    def _chat_stream_send(self, sec: dict) -> None:
+        p = sec.get("params", {})
+        collect = list(p.get("collect", [])) + [sec["id"]]
+        params = self._collect_params(collect)
+        if not params.get(p.get("input_field_id", "message")):
+            return  # empty input, no-op
+        try:
+            resp = self.dispatcher(p.get("start_rpc", ""), params)
+        except Exception as exc:
+            self.log(f"[{self.panel_id}] chat_stream start failed: {exc}")
+            return
+        if not isinstance(resp, dict) or not resp.get("ok"):
+            err = (resp or {}).get("error", "unknown error")
+            self.log(f"[{self.panel_id}] chat_stream: {err}")
+            return
+        state = self._chat_sessions.setdefault(sec["id"], {})
+        state["session_id"] = resp.get("session_id", "")
+        state["done"] = False
+        # Echo the user's message into the transcript, reset input.
+        user_msg = params.get(p.get("input_field_id", "message"), "")
+        self._chat_append(sec, f"\nYou: {user_msg}\n\nAssistant: ")
+        input_tag = self._field_tags.get((sec["id"], "", p.get("input_field_id", "message")))
+        if input_tag and dpg.does_item_exist(input_tag):
+            dpg.set_value(input_tag, "")
+
+    def _chat_stream_stop(self, sec: dict) -> None:
+        state = self._chat_sessions.get(sec["id"], {})
+        sid = state.get("session_id", "")
+        if not sid:
+            return
+        try:
+            self.dispatcher(sec.get("params", {}).get("stop_rpc", ""),
+                            {"session_id": sid})
+        except Exception as exc:
+            self.log(f"[{self.panel_id}] chat_stream stop failed: {exc}")
+
+    def _chat_stream_clear(self, sec: dict) -> None:
+        transcript_tag = self._tag(sec["id"], "transcript")
+        if dpg.does_item_exist(transcript_tag):
+            dpg.set_value(transcript_tag, "")
+        state = self._chat_sessions.setdefault(sec["id"], {})
+        state["transcript"] = ""
+
+    def _chat_append(self, sec: dict, piece: str) -> None:
+        state = self._chat_sessions.setdefault(sec["id"], {"transcript": ""})
+        state["transcript"] = (state.get("transcript") or "") + piece
+        tag = self._tag(sec["id"], "transcript")
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, state["transcript"])
 
     def _build_loss_plot(self, sec: dict, parent: str) -> None:
         plot_tag = self._tag(sec["id"], "plot")
@@ -225,6 +322,24 @@ class PanelRuntime:
                             dpg.set_value(tag, "\n".join(data.get("lines", [])))
                     except Exception:
                         pass
+            elif kind == "custom" and sec.get("custom_kind") == "chat_stream":
+                p = sec.get("params", {})
+                state = self._chat_sessions.get(sid, {})
+                sess = state.get("session_id", "")
+                if sess and not state.get("done", True):
+                    if now - self._last_poll.get(sid, 0) >= p.get("poll_ms", 100):
+                        self._last_poll[sid] = now
+                        try:
+                            data = self.dispatcher(p.get("drain_rpc", ""),
+                                                    {"session_id": sess})
+                            for chunk in data.get("chunks", []):
+                                if chunk:
+                                    self._chat_append(sec, chunk)
+                            if data.get("done"):
+                                state["done"] = True
+                                self._chat_append(sec, "\n")
+                        except Exception:
+                            pass
             elif kind == "dynamic_form":
                 # Less frequent — structure change detection is cheap
                 if now - self._last_poll.get(sid, 0) >= 500:

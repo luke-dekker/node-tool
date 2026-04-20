@@ -68,6 +68,12 @@ class PluginContext:
         self._panel_specs: list[tuple[str, Any]] = []  # (label, PanelSpec)
         self._categories: list[str] = []
         self._node_classes: list[Type] = []
+        # Orchestrator factories: (prefixes, factory). Consumed by the runtime
+        # (GUI / WebSocket server) to build an OrchestratorRegistry that routes
+        # RPC methods to the right plugin controller. Factory signature:
+        # `(graph) -> orchestrator` where `orchestrator` has a
+        # `handle_rpc(method, params)` method.
+        self._orchestrator_factories: list[tuple[list[str], Callable]] = []
 
     # ── Port types ──────────────────────────────────────────────────────────
 
@@ -118,6 +124,30 @@ class PluginContext:
     def add_categories(self, names: list[str]) -> None:
         """Add palette category names (in display order)."""
         self._categories.extend(names)
+
+    # ── RPC orchestrators ───────────────────────────────────────────────────
+
+    def register_orchestrator(
+        self, prefixes: list[str] | str,
+        factory: Callable[[Any], Any],
+    ) -> None:
+        """Declare this plugin's RPC orchestrator.
+
+        `prefixes` lists the method-name prefixes the orchestrator owns
+        (e.g., `["agent_", "get_agent_"]`). `factory(graph)` is called once
+        per graph to build the orchestrator instance; the instance must
+        expose `handle_rpc(method, params) -> Any`.
+
+        Runtime routing (in GUI and server): the longest matching prefix
+        wins; ties are broken by registration order.
+        """
+        if isinstance(prefixes, str):
+            prefixes = [prefixes]
+        self._orchestrator_factories.append((list(prefixes), factory))
+
+    @property
+    def orchestrator_factories(self) -> list[tuple[list[str], Callable]]:
+        return list(self._orchestrator_factories)
 
     # ── Accessors (used by the app after all plugins are loaded) ────────────
 
@@ -172,6 +202,85 @@ def discover_plugins() -> list[tuple[str, Any]]:
             print(f"[plugins] {path.name}: import failed: {exc}")
 
     return plugins
+
+
+class OrchestratorRegistry:
+    """Runtime counterpart to `PluginContext.register_orchestrator`.
+
+    Holds the live Graph plus the factories, resolves an incoming RPC method
+    to the right orchestrator by longest-prefix match, and caches the
+    instance so stateful orchestrators (streams, sessions, training runs)
+    persist across calls.
+
+    Used by both the DPG app (`gui.app.NodeApp.dispatch_rpc`) and the
+    WebSocket server (`server.NodeToolServer.dispatch`) so a PanelSpec's
+    RPC surface works identically in-process and over the wire.
+    """
+
+    _UNHANDLED = object()
+
+    def __init__(self, graph: Any,
+                 factories: list[tuple[list[str], Callable]] | None = None):
+        self.graph = graph
+        self._factories = list(factories or [])
+        # prefix → orchestrator instance (lazy)
+        self._cache: dict[str, Any] = {}
+
+    def rebind_graph(self, graph: Any) -> None:
+        """Point every already-instantiated orchestrator at a fresh graph.
+
+        Called after clear() / load() so stateful orchestrators see the
+        current graph, not the one they were constructed against.
+        """
+        self.graph = graph
+        for orch in self._cache.values():
+            if hasattr(orch, "graph"):
+                orch.graph = graph
+
+    def resolve(self, method: str) -> Any:
+        """Return the orchestrator instance that handles `method`, or None.
+
+        Longest matching prefix wins; ties broken by registration order.
+        """
+        best_prefix = ""
+        best_factory = None
+        for prefixes, factory in self._factories:
+            for p in prefixes:
+                if method.startswith(p) and len(p) > len(best_prefix):
+                    best_prefix = p
+                    best_factory = factory
+        if best_factory is None:
+            return None
+        if best_prefix in self._cache:
+            return self._cache[best_prefix]
+        orch = best_factory(self.graph)
+        # Give cross-plugin-RPC-aware orchestrators a handle back to the
+        # registry — autoresearch's evaluator dispatches `train_start` through
+        # this reference without importing the pytorch plugin directly.
+        if hasattr(orch, "attach_registry") and callable(orch.attach_registry):
+            try:
+                orch.attach_registry(self)
+            except Exception:
+                pass
+        self._cache[best_prefix] = orch
+        return orch
+
+    def try_dispatch(self, method: str, params: dict | None = None) -> Any:
+        """Dispatch `method` if a registered orchestrator owns it.
+
+        Returns `OrchestratorRegistry._UNHANDLED` (a sentinel) for unowned
+        methods so callers can distinguish "not my job" from a legitimate
+        None return. Orchestrator's handle_rpc raising ValueError also
+        bubbles up as _UNHANDLED — this matches the hardcoded fall-through
+        chain the registry replaces.
+        """
+        orch = self.resolve(method)
+        if orch is None:
+            return self._UNHANDLED
+        try:
+            return orch.handle_rpc(method, params or {})
+        except ValueError:
+            return self._UNHANDLED
 
 
 def load_plugins() -> PluginContext:

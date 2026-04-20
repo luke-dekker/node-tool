@@ -50,6 +50,9 @@ export function SpecRenderer({
       if (sec.kind === "form") {
         next[sec.id] = {};
         for (const f of sec.fields) next[sec.id][f.id] = f.default ?? null;
+      } else if (sec.kind === "custom" && sec.fields && sec.fields.length) {
+        next[sec.id] = {};
+        for (const f of sec.fields) next[sec.id][f.id] = f.default ?? null;
       }
     }
     setFormValues(next);
@@ -93,6 +96,8 @@ export function SpecRenderer({
       if (sec.kind === "dynamic_form") {
         out[sec.id] = dynValues[sec.id] ?? {};
       } else if (sec.kind === "form") {
+        Object.assign(out, formValues[sec.id] ?? {});
+      } else if (sec.kind === "custom" && sec.fields && sec.fields.length) {
         Object.assign(out, formValues[sec.id] ?? {});
       }
     }
@@ -330,8 +335,9 @@ const customKinds: Record<
   string,
   (props: SectionProps & { section: CustomSection }) => JSX.Element
 > = {
-  loss_plot: LossPlot,
-  log_tail:  LogTail,
+  loss_plot:   LossPlot,
+  log_tail:    LogTail,
+  chat_stream: ChatStream,
 };
 
 function LogTail({
@@ -366,6 +372,165 @@ function LogTail({
         {lines.length === 0
           ? <span style={{ color: theme.textDim }}>(no output yet)</span>
           : lines.map((l, i) => <div key={i}>{l}</div>)}
+      </div>
+    </div>
+  );
+}
+
+// ── ChatStream — streaming chat transcript + input ──────────────────────
+//
+// Mirrors gui/panel_renderer.py::_build_chat_stream. Behavior:
+//   - Renders a read-only transcript (auto-scrolls on new content)
+//   - Renders the declared input field + Send/Stop/Clear buttons
+//   - Send: gathers fields from params.collect + this section's own input,
+//     calls start_rpc, expects {ok, session_id}. Echoes "You: <msg>" into
+//     the transcript, clears the input, starts the drain loop.
+//   - Drain: polls drain_rpc with {session_id} every poll_ms; appends
+//     returned chunks; stops when {done: true}, then appends a newline.
+//   - Stop: calls stop_rpc with {session_id}.
+//   - Clear: wipes transcript state (client-side only).
+function ChatStream({
+  section, dispatch, active, formValues, setFormValue,
+}: SectionProps & { section: CustomSection }) {
+  const p          = section.params ?? {};
+  const inputFid   = String(p.input_field_id ?? "message");
+  const startRpc   = String(p.start_rpc ?? "");
+  const stopRpc    = String(p.stop_rpc ?? "");
+  const drainRpc   = String(p.drain_rpc ?? "");
+  const pollMs     = Number(p.poll_ms ?? 100);
+  const placeholder = String(p.placeholder ?? "");
+  const collectIds = (p.collect as string[] | undefined) ?? [];
+
+  const appendLog = useStore((s) => s.appendLog);
+
+  const [transcript, setTranscript] = useState<string>("");
+  const [sessionId,  setSessionId]  = useState<string>("");
+  const [done,       setDone]       = useState<boolean>(true);
+
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+
+  // Field lookup for the input textbox. The spec guarantees a field with
+  // id === inputFid, but fall back to a synthetic str field so the component
+  // still renders if the caller forgets to declare it.
+  const inputField: SpecField =
+    (section.fields ?? []).find((f) => f.id === inputFid) ??
+    { id: inputFid, type: "str", label: inputFid, default: "" };
+
+  const currentInput = String(
+    formValues[section.id]?.[inputFid] ?? inputField.default ?? "",
+  );
+
+  // Auto-scroll transcript to the bottom whenever it grows.
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [transcript]);
+
+  // Drain loop — only active while a session is live and not done.
+  useEffect(() => {
+    if (!active || !sessionId || done || !drainRpc) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const resp: any = await dispatch(drainRpc, { session_id: sessionId });
+        if (!alive) return;
+        const chunks: string[] = resp?.chunks ?? [];
+        if (chunks.length) {
+          const joined = chunks.join("");
+          if (joined) setTranscript((t) => t + joined);
+        }
+        if (resp?.done) {
+          setTranscript((t) => t + "\n");
+          setDone(true);
+        }
+      } catch { /* ignore — retry on next tick */ }
+    };
+    tick();
+    const handle = window.setInterval(tick, pollMs);
+    return () => {
+      alive = false;
+      window.clearInterval(handle);
+    };
+  }, [active, sessionId, done, drainRpc, pollMs, dispatch]);
+
+  // Gather params for start_rpc — union of every section in params.collect
+  // plus this section's own input. Custom sections with declared fields
+  // live in formValues too (see the seed + collect logic in SpecRenderer).
+  // NOTE: this replicates ButtonsSection action-collect semantics for form
+  // sections. If a spec needs dynamic_form values here, lift this into the
+  // parent `collect` helper.
+  const gatherParams = (): Record<string, unknown> => {
+    const ids = [...collectIds];
+    if (!ids.includes(section.id)) ids.push(section.id);
+    const out: Record<string, unknown> = {};
+    for (const sid of ids) {
+      const fv = formValues[sid];
+      if (fv) Object.assign(out, fv);
+    }
+    return out;
+  };
+
+  const onSend = async () => {
+    const msg = currentInput.trim();
+    if (!msg || !startRpc) return;
+    const params = gatherParams();
+    try {
+      const resp: any = await dispatch(startRpc, params);
+      if (!resp || typeof resp !== "object" || !resp.ok) {
+        const err = (resp && resp.error) || "unknown error";
+        appendLog(`[${section.id}] chat_stream: ${err}`);
+        return;
+      }
+      const sid = String(resp.session_id ?? "");
+      setTranscript((t) => t + `\nYou: ${msg}\n\nAssistant: `);
+      setSessionId(sid);
+      setDone(false);
+      setFormValue(section.id, inputFid, "");
+    } catch (exc) {
+      appendLog(`[${section.id}] chat_stream start failed: ${String(exc)}`);
+    }
+  };
+
+  const onStop = async () => {
+    if (!sessionId || !stopRpc) return;
+    try {
+      await dispatch(stopRpc, { session_id: sessionId });
+    } catch (exc) {
+      appendLog(`[${section.id}] chat_stream stop failed: ${String(exc)}`);
+    }
+  };
+
+  const onClear = () => {
+    setTranscript("");
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSend();
+    }
+  };
+
+  return (
+    <div style={styles.section}>
+      {section.label && <div style={styles.sectionLabel}>{section.label}</div>}
+      <div ref={transcriptRef} style={styles.chatTranscript}>
+        {transcript === ""
+          ? <span style={{ color: theme.textDim }}>(no messages yet)</span>
+          : transcript}
+      </div>
+      <input
+        type="text"
+        placeholder={placeholder}
+        style={styles.input}
+        value={currentInput}
+        onChange={(e) => setFormValue(section.id, inputFid, e.target.value)}
+        onKeyDown={onKeyDown}
+      />
+      <div style={styles.btnRow}>
+        <button style={styles.btn} onClick={onSend}>Send</button>
+        <button style={styles.btn} onClick={onStop}>Stop</button>
+        <button style={styles.btn} onClick={onClear}>Clear</button>
       </div>
     </div>
   );
@@ -608,5 +773,17 @@ const styles: Record<string, React.CSSProperties> = {
     maxHeight: 120,
     overflowY: "auto",
     whiteSpace: "pre-wrap",
+  },
+  chatTranscript: {
+    background: theme.bgDark,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 3,
+    padding: 6,
+    fontFamily: "'Consolas', 'Monaco', monospace",
+    fontSize: 11,
+    height: 180,
+    overflowY: "auto",
+    whiteSpace: "pre-wrap",
+    color: theme.text,
   },
 };

@@ -20,3 +20,9 @@ sessions/
 
 # TypeScript incremental build artifacts
 *.tsbuildinfo
+
+# Autoresearch runtime scratch (TSV ledgers per run)
+.node-tool/
+
+# Qdrant local-mode storage
+qdrant_data/

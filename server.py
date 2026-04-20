@@ -41,34 +41,44 @@ class NodeToolServer:
         self.graph = Graph()
         self._last_outputs: dict[str, dict[str, Any]] = {}
         self._clients: set = set()
-        # Plugin orchestrators — live, stateful objects that back RPC methods
-        # declared in plugin panel specs. Lazily constructed on first use so
-        # plugins without their deps installed don't break server startup.
-        self._training_orch = None
-        self._robotics_ctrl = None
-        self._agents_orch = None
+        # Plugin RPC registry — routes every prefix-matching method to the
+        # plugin orchestrator that registered it via
+        # `ctx.register_orchestrator(prefixes, factory)`. Lazy-built per-graph;
+        # rebind_graph() refreshes the orchestrators' graph ref after clear/load.
+        from core.plugins import OrchestratorRegistry
+        import nodes as _nodes_pkg
+        factories = (_nodes_pkg._plugin_ctx.orchestrator_factories
+                     if getattr(_nodes_pkg, "_plugin_ctx", None) else [])
+        self._plugin_registry = OrchestratorRegistry(self.graph, factories)
 
     def _get_agents_orchestrator(self):
-        if self._agents_orch is None:
+        """Legacy accessor — kept so in-tree callers keep working during the
+        registry migration. Prefer `self._plugin_registry.resolve('agent_')`.
+        """
+        orch = self._plugin_registry.resolve("agent_")
+        if orch is None:
             from plugins.agents.agents_orchestrator import AgentOrchestrator
-            self._agents_orch = AgentOrchestrator(self.graph)
-        # Rebind after clear/load so the orchestrator sees the live graph.
-        self._agents_orch.graph = self.graph
-        return self._agents_orch
+            orch = AgentOrchestrator(self.graph)
+            self._plugin_registry._cache["agent_"] = orch
+        orch.graph = self.graph
+        return orch
 
     def _get_robotics_controller(self):
-        if self._robotics_ctrl is None:
+        orch = self._plugin_registry.resolve("robotics_")
+        if orch is None:
             from plugins.robotics.robotics_controller import RoboticsController
-            self._robotics_ctrl = RoboticsController()
-        return self._robotics_ctrl
+            orch = RoboticsController()
+            self._plugin_registry._cache["robotics_"] = orch
+        return orch
 
     def _get_training_orchestrator(self):
-        if self._training_orch is None:
+        orch = self._plugin_registry.resolve("train_")
+        if orch is None:
             from plugins.pytorch.training_orchestrator import TrainingOrchestrator
-            self._training_orch = TrainingOrchestrator(self.graph)
-        # Orchestrator was bound to the old graph — rebind after clear/load.
-        self._training_orch.graph = self.graph
-        return self._training_orch
+            orch = TrainingOrchestrator(self.graph)
+            self._plugin_registry._cache["train_"] = orch
+        orch.graph = self.graph
+        return orch
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -281,6 +291,7 @@ class NodeToolServer:
         """Clear the graph."""
         self.graph = Graph()
         self._last_outputs = {}
+        self._plugin_registry.rebind_graph(self.graph)
         return {"ok": True}
 
     def save_graph(self, params: dict) -> dict:
@@ -305,6 +316,7 @@ class NodeToolServer:
         graph, positions = Serializer.load(path)
         self.graph = graph
         self._last_outputs = {}
+        self._plugin_registry.rebind_graph(self.graph)
         # Build full response with all nodes and connections
         nodes = {}
         for nid, node in graph.nodes.items():
@@ -363,6 +375,7 @@ class NodeToolServer:
                 if t_label == label:
                     self.graph = Graph()
                     self._last_outputs = {}
+                    self._plugin_registry.rebind_graph(self.graph)
                     positions = builder(self.graph)
                     # Return full graph state
                     nodes = {}
@@ -443,6 +456,7 @@ class NodeToolServer:
                                  c["to_node"], c["to_port"])
         self.graph = graph
         self._last_outputs = {}
+        self._plugin_registry.rebind_graph(self.graph)
         nodes = {nid: self._node_to_dict(n) for nid, n in graph.nodes.items()}
         conns = [
             {"from_node": c.from_node_id, "from_port": c.from_port,
@@ -606,10 +620,17 @@ class NodeToolServer:
     }
 
     def dispatch(self, method: str, params: dict) -> Any:
+        # Core methods (graph CRUD, registry, execute) live on this class.
+        # Plugin-owned methods (train_*, agent_*, robotics_*) route through
+        # the OrchestratorRegistry via longest-prefix match.
+        from core.plugins import OrchestratorRegistry
         handler_name = self._METHODS.get(method)
-        if handler_name is None:
-            raise ValueError(f"Unknown method: {method}")
-        return getattr(self, handler_name)(params or {})
+        if handler_name is not None:
+            return getattr(self, handler_name)(params or {})
+        result = self._plugin_registry.try_dispatch(method, params or {})
+        if result is not OrchestratorRegistry._UNHANDLED:
+            return result
+        raise ValueError(f"Unknown method: {method}")
 
 
 # ── WebSocket handler ────────────────────────────────────────────────────

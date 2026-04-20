@@ -36,3 +36,10 @@ def register(ctx: PluginContext) -> None:
     # Declared once as a PanelSpec, rendered by every GUI.
     from plugins.robotics._panel import build_robotics_panel_spec
     ctx.register_panel_spec("Robotics", build_robotics_panel_spec())
+
+    # ── RPC orchestrator ────────────────────────────────────────────────
+    # RoboticsController has no graph dependency — the lambda ignores its arg.
+    def _factory(_graph):
+        from plugins.robotics.robotics_controller import RoboticsController
+        return RoboticsController()
+    ctx.register_orchestrator(["robotics_", "get_robotics_"], _factory)
