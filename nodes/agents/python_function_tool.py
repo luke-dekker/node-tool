@@ -72,7 +72,30 @@ class PythonFunctionToolNode(BaseNode):
         )}
 
     def export(self, iv, ov):
-        return [], [f"# PythonFunctionToolNode export pending Phase D"]
+        name = (self.inputs["name"].default_value or "tool").strip() or "tool"
+        desc = (self.inputs["description"].default_value or "").strip()
+        schema_raw = (self.inputs["input_schema"].default_value or "").strip()
+        if schema_raw:
+            try:
+                schema = json.loads(schema_raw)
+            except (json.JSONDecodeError, ValueError):
+                schema = {"type": "object", "properties": {}, "additionalProperties": True}
+        else:
+            schema = {"type": "object", "properties": {}, "additionalProperties": True}
+        body = self.inputs["code"].default_value or "return None"
+        side = bool(self.inputs["side_effect"].default_value)
+
+        out = ov.get("tool", f"_tool_{name}")
+        safe_fn = "_inline_" + "".join(
+            c if (c.isalnum() or c == "_") else "_" for c in name
+        )
+        fn_def = "def " + safe_fn + "(**kwargs):\n" + textwrap.indent(body, "    ")
+        lines = fn_def.splitlines() + [
+            f"{out} = {{'name': {name!r}, 'description': {desc!r}, "
+            f"'input_schema': {schema!r}, 'side_effect': {side!r}, "
+            f"'callable': {safe_fn}}}"
+        ]
+        return [], lines
 
 
 def _compile_inline_function(name: str, body: str):

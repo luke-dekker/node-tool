@@ -26,5 +26,12 @@ class OllamaClientNode(BaseNode):
         return {"llm": OllamaClient(host=host, default_model=model)}
 
     def export(self, iv, ov):
-        # Phase A export stub — full template-driven export lands in Phase D.
-        return [], [f"# OllamaClientNode export pending Phase D"]
+        host = (self.inputs["host"].default_value or "http://localhost:11434").strip()
+        model = (self.inputs["model"].default_value or "").strip()
+        out = ov.get("llm", "_ollama")
+        lines = [
+            f'{out} = {{"backend": "ollama", '
+            f'"client": Client(host={host!r}), '
+            f'"model": {model!r}}}'
+        ]
+        return ["from ollama import Client"], lines

@@ -31,4 +31,14 @@ class OpenAICompatClientNode(BaseNode):
                                           default_model=model)}
 
     def export(self, iv, ov):
-        return [], [f"# OpenAICompatClientNode export pending Phase D"]
+        base_url = (self.inputs["base_url"].default_value or
+                    "http://localhost:11434/v1").strip()
+        api_key = (self.inputs["api_key"].default_value or "ollama").strip()
+        model = (self.inputs["model"].default_value or "").strip()
+        out = ov.get("llm", "_openai")
+        lines = [
+            f'{out} = {{"backend": "openai", '
+            f'"client": OpenAI(base_url={base_url!r}, api_key={api_key!r}), '
+            f'"model": {model!r}}}'
+        ]
+        return ["from openai import OpenAI"], lines

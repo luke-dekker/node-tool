@@ -58,7 +58,45 @@ class ToolNode(BaseNode):
         )}
 
     def export(self, iv, ov):
-        return [], [f"# ToolNode export pending Phase D"]
+        name = (self.inputs["name"].default_value or "tool").strip() or "tool"
+        desc = (self.inputs["description"].default_value or "").strip()
+        schema_raw = (self.inputs["input_schema"].default_value or "").strip()
+        if schema_raw:
+            try:
+                schema = json.loads(schema_raw)
+            except (json.JSONDecodeError, ValueError):
+                schema = {"type": "object", "properties": {}, "additionalProperties": True}
+        else:
+            schema = {"type": "object", "properties": {}, "additionalProperties": True}
+        path = (self.inputs["python_callable"].default_value or "").strip()
+        side = bool(self.inputs["side_effect"].default_value)
+
+        out = ov.get("tool", f"_tool_{name}")
+        imports: list[str] = []
+        lines: list[str] = []
+
+        # Resolve the dotted callable at import time — the agent loop just
+        # references the resulting variable by tool name.
+        if path:
+            mod_name, sep, attr = path.partition(":")
+            if not sep:
+                parts = path.rsplit(".", 1)
+                if len(parts) == 2:
+                    mod_name, attr = parts
+                else:
+                    mod_name, attr = path, ""
+            imports.append(f"import {mod_name}" if "." not in mod_name
+                           else f"import {mod_name}")
+            fn_expr = f"{mod_name}.{attr}" if attr else mod_name
+        else:
+            fn_expr = "lambda **kw: None  # TODO: set python_callable"
+
+        lines.append(
+            f"{out} = {{'name': {name!r}, 'description': {desc!r}, "
+            f"'input_schema': {schema!r}, 'side_effect': {side!r}, "
+            f"'callable': {fn_expr}}}"
+        )
+        return imports, lines
 
 
 def _resolve_dotted(path: str) -> Any:

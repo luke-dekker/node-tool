@@ -20,6 +20,39 @@ from core.node import BaseNode, PortType
 _TOOL_LOOP_HARD_CAP = 16
 
 
+# Emitted once per exported script as part of AgentNode's imports list. The
+# exporter dedupes imports by string equality, so multiple AgentNodes in one
+# graph share a single copy of this helper.
+_AGENT_CHAT_HELPER = (
+    "def _ag_chat(llm, messages, tools, *, temperature=0.7, model_override=''):\n"
+    "    backend = llm.get('backend')\n"
+    "    client = llm['client']\n"
+    "    model = (model_override or llm.get('model') or '').strip() or None\n"
+    "    if backend == 'ollama':\n"
+    "        r = client.chat(model=model, messages=messages, tools=tools,\n"
+    "                        options={'temperature': temperature})\n"
+    "        return dict(r['message'])\n"
+    "    if backend == 'openai':\n"
+    "        kw = dict(messages=messages, tools=tools, temperature=temperature)\n"
+    "        if model: kw['model'] = model\n"
+    "        r = client.chat.completions.create(**kw)\n"
+    "        m = r.choices[0].message\n"
+    "        out = {'role': m.role, 'content': m.content or ''}\n"
+    "        tc = getattr(m, 'tool_calls', None)\n"
+    "        if tc:\n"
+    "            out['tool_calls'] = [\n"
+    "                {'id': t.id, 'function': {'name': t.function.name,\n"
+    "                                         'arguments': t.function.arguments}}\n"
+    "                for t in tc]\n"
+    "        return out\n"
+    "    if backend == 'llama_cpp':\n"
+    "        r = client.create_chat_completion(\n"
+    "            messages=messages, tools=tools, temperature=temperature)\n"
+    "        return dict(r['choices'][0]['message'])\n"
+    "    raise RuntimeError(f'unknown backend: {backend!r}')\n"
+)
+
+
 class AgentNode(BaseNode):
     type_name   = "ag_agent"
     label       = "Agent"
@@ -122,7 +155,68 @@ class AgentNode(BaseNode):
         }
 
     def export(self, iv, ov):
-        return [], [f"# AgentNode export pending Phase D"]
+        llm_var = iv.get("llm") or "None  # TODO: connect an LLM client"
+        conv_var = iv.get("messages") or "[]"
+        sys_prompt = self._val(iv, "system_prompt")
+        model_val = self._val(iv, "model")
+        temp_val = self._val(iv, "temperature")
+        max_iter = self._val(iv, "max_iterations")
+        allow_side = self._val(iv, "allow_side_effect_tools")
+
+        connected_tools = [iv[f"tool_{s}"] for s in (1, 2, 3, 4)
+                           if iv.get(f"tool_{s}")]
+
+        resp_var  = ov.get("response",       f"_agent_{self.safe_id}_conv")
+        final_var = ov.get("final_message",  f"_agent_{self.safe_id}_final")
+        text_var  = ov.get("text",           f"_agent_{self.safe_id}_text")
+        calls_var = ov.get("tool_calls",     f"_agent_{self.safe_id}_calls")
+
+        lines: list[str] = [
+            f"_messages = [dict(m) if isinstance(m, dict) else "
+            f"{{'role': m.role, 'content': m.content}} for m in ({conv_var} or [])]",
+            f"_sys = {sys_prompt}",
+            "if _sys:",
+            "    _messages = [{'role': 'system', 'content': _sys}] + "
+            "[m for m in _messages if m.get('role') != 'system']",
+            f"_tools = [t for t in ({', '.join(connected_tools) + ',' if connected_tools else ''}) if t]",
+            "_tool_wire = [{'type': 'function', 'function': "
+            "{'name': t['name'], 'description': t['description'], "
+            "'parameters': t['input_schema']}} for t in _tools] or None",
+            "_tool_by_name = {t['name']: t for t in _tools}",
+            f"{calls_var} = []",
+            f"for _it in range(max(1, int({max_iter}))):",
+            f"    _m = _ag_chat({llm_var}, _messages, _tool_wire, temperature=float({temp_val}), model_override={model_val})",
+            "    _messages.append(_m)",
+            "    _calls = _m.get('tool_calls') or []",
+            "    if not _calls or not _tools: break",
+            "    for _c in _calls:",
+            "        _fn = (_c.get('function') or {})",
+            "        _name = str(_fn.get('name', ''))",
+            "        _raw_args = _fn.get('arguments', {}) or {}",
+            "        if isinstance(_raw_args, str):",
+            "            import json as _json",
+            "            try: _args = _json.loads(_raw_args) if _raw_args else {}",
+            "            except Exception: _args = {}",
+            "        else:",
+            "            _args = _raw_args",
+            "        _t = _tool_by_name.get(_name)",
+            f"        _blocked = bool(_t and _t.get('side_effect')) and not bool({allow_side})",
+            "        if _t is None:",
+            "            _res = f'[error] unknown tool: {_name!r}'",
+            "        elif _blocked:",
+            "            _res = f'[error] tool {_name!r} side_effect=True; set allow_side_effect_tools=True'",
+            "        else:",
+            "            try: _res = _t['callable'](**_args)",
+            "            except Exception as _e: _res = f'[error] {type(_e).__name__}: {_e}'",
+            f"        {calls_var}.append({{'name': _name, 'args': _args, 'result': _res}})",
+            "        _messages.append({'role': 'tool', 'name': _name, "
+            "'content': str(_res), 'tool_call_id': _c.get('id', '')})",
+            f"{resp_var} = _messages",
+            f"{final_var} = _messages[-1] if _messages else {{'role': 'assistant', 'content': ''}}",
+            f"{text_var} = {final_var}.get('content', '') if isinstance({final_var}, dict) "
+            f"else getattr({final_var}, 'content', '')",
+        ]
+        return [_AGENT_CHAT_HELPER], lines
 
     @staticmethod
     def _collect_tools(inputs: dict[str, Any]) -> list:
