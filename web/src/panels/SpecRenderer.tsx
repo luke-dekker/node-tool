@@ -335,10 +335,87 @@ const customKinds: Record<
   string,
   (props: SectionProps & { section: CustomSection }) => JSX.Element
 > = {
-  loss_plot:   LossPlot,
-  log_tail:    LogTail,
-  chat_stream: ChatStream,
+  loss_plot:            LossPlot,
+  log_tail:             LogTail,
+  chat_stream:          ChatStream,
+  autoresearch_history: AutoresearchHistory,
 };
+
+// ── AutoresearchHistory — scrollable trial table ──────────────────────
+//
+// Polls the state RPC; renders one row per trial with op/score/verdict.
+// Reuses the agent_autoresearch_state RPC that the sibling Status
+// section already polls, so we don't duplicate the call — just display
+// a different slice of the same response.
+function AutoresearchHistory({
+  section, dispatch, active,
+}: SectionProps & { section: CustomSection }) {
+  const srcRpc = String(section.params?.source_rpc ?? "agent_autoresearch_state");
+  const pollMs = Number(section.params?.poll_ms ?? 1000);
+  const [history, setHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const resp: any = await dispatch(srcRpc, {});
+        if (!alive) return;
+        setHistory(Array.isArray(resp?.history) ? resp.history : []);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const handle = window.setInterval(poll, pollMs);
+    return () => { alive = false; window.clearInterval(handle); };
+  }, [dispatch, srcRpc, pollMs, active]);
+
+  return (
+    <div style={styles.section}>
+      {section.label && <div style={styles.sectionLabel}>{section.label}</div>}
+      {history.length === 0 ? (
+        <div style={{ color: theme.textDim, fontSize: 11, padding: "4px 0" }}>
+          (no trials yet)
+        </div>
+      ) : (
+        <div style={styles.historyTable}>
+          <div style={styles.historyHeader}>
+            <span style={{ width: 24 }}>#</span>
+            <span style={{ flex: 1 }}>op</span>
+            <span style={{ width: 64, textAlign: "right" }}>score</span>
+            <span style={{ width: 70, textAlign: "right" }}>status</span>
+          </div>
+          {history.slice().reverse().map((h: any, i: number) => {
+            const score = typeof h.score === "number" && Number.isFinite(h.score)
+              ? h.score.toFixed(4) : "—";
+            const statusColor =
+              h.status === "keep" ? theme.accent
+              : h.status === "discard" ? theme.textDim
+              : theme.err;
+            return (
+              <div key={`${h.trial_idx}-${i}`} style={styles.historyRow}>
+                <span style={{ width: 24, color: theme.textDim }}>{h.trial_idx}</span>
+                <span style={{
+                  flex: 1,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  fontFamily: "monospace",
+                  fontSize: 11,
+                }}>{String(h.op_kind ?? "")}</span>
+                <span style={{ width: 64, textAlign: "right", fontFamily: "monospace", fontSize: 11 }}>
+                  {score}
+                </span>
+                <span style={{ width: 70, textAlign: "right", color: statusColor, fontSize: 11 }}>
+                  {String(h.status ?? "")}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LogTail({
   section, dispatch, active,
@@ -785,5 +862,35 @@ const styles: Record<string, React.CSSProperties> = {
     overflowY: "auto",
     whiteSpace: "pre-wrap",
     color: theme.text,
+  },
+  historyTable: {
+    background: theme.bgDark,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 3,
+    maxHeight: 200,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+  },
+  historyHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "4px 8px",
+    color: theme.textDim,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    borderBottom: `1px solid ${theme.border}`,
+    position: "sticky",
+    top: 0,
+    background: theme.bgDark,
+  },
+  historyRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "3px 8px",
+    borderBottom: `1px solid ${theme.border}`,
   },
 };

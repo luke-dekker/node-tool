@@ -16,7 +16,9 @@ class OllamaClientNode(BaseNode):
         self.add_input("host", PortType.STRING, default="http://localhost:11434",
                        description="Ollama daemon URL")
         self.add_input("model", PortType.STRING, default="",
-                       description="Model name (e.g., qwen2.5:7b). Leave blank to set later.")
+                       description="Model name (e.g., qwen2.5:7b). Inspector "
+                                   "offers a dropdown of installed models.",
+                       dynamic_choices="agent_list_local_models")
         self.add_output("llm", "LLM", description="Configured LLMClient")
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:

@@ -360,87 +360,98 @@ class AgentOrchestrator:
     def autoresearch_start(self, params: dict) -> dict:
         """Start a mutate→eval→keep/revert loop on a daemon thread.
 
-        Reads configuration from three nodes in the current graph:
-          - `mutator_node_id` (ag_mutator) — provides LLM + playbook + group
-          - `evaluator_node_id` (ag_evaluator) — metric + per-trial budget + epochs
-          - `loop_node_id` (ag_experiment_loop) — trials + wall-clock + allowlist
+        Reads config from the single `ag_autoresearch` node in the graph:
+          - `llm` input → LLM client
+          - control wires → set of `(node_id, port_name)` targets the agent
+            may tune
+          - other input defaults → trials, wall-clock, metric, etc.
 
-        If any id is omitted, the first node of the matching type_name is used.
         Returns {ok, run_id}.
         """
-        from plugins.agents._autoresearch.graph_textual import serialize_graph_textual
         from plugins.agents._autoresearch.ledger import Ledger
-        from plugins.agents._autoresearch.loop import ExperimentLoop, LoopBudget
-        from plugins.agents._llm.protocol import Message
+        from plugins.agents._autoresearch.control_loop import (
+            ControlLoop, ControlBudget, collect_targets,
+        )
 
         params = params or {}
-        mutator = self._pick_node(params.get("mutator_node_id"), "ag_mutator")
-        evaluator = self._pick_node(params.get("evaluator_node_id"), "ag_evaluator")
-        loop_node = self._pick_node(params.get("loop_node_id"), "ag_experiment_loop")
-        if mutator is None:
-            return {"ok": False, "error": "No MutatorNode in graph"}
-        if evaluator is None:
-            return {"ok": False, "error": "No EvaluatorNode in graph"}
-        if loop_node is None:
-            return {"ok": False, "error": "No ExperimentLoopNode in graph"}
+        agent = self._pick_node(params.get("agent_node_id"), "ag_autoresearch")
+        if agent is None:
+            return {"ok": False, "error":
+                    "No AutoresearchAgent node in graph. Drop one onto the "
+                    "canvas and wire its `control` output into the ports you "
+                    "want it to tune."}
         if self._registry is None:
             return {"ok": False,
                     "error": "No OrchestratorRegistry attached — cannot reach pytorch"}
 
-        # Read panel-like configs straight off each node's input defaults.
-        group     = str(mutator.inputs["group"].default_value or "task_1")
-        playbook  = str(mutator.inputs["playbook"].default_value or "")
-        mut_temp  = float(mutator.inputs["temperature"].default_value or 0.5)
-        mut_model = str(mutator.inputs["model"].default_value or "").strip() or None
-
-        metric      = str(evaluator.inputs["metric"].default_value or "val_loss")
-        eval_budget = float(evaluator.inputs["budget_seconds"].default_value or 60.0)
-        epochs      = int(evaluator.inputs["epochs"].default_value or 5)
-
-        trials         = int(loop_node.inputs["trials"].default_value or 5)
-        wall_clock_s   = float(loop_node.inputs["wall_clock_s"].default_value or 300.0)
-        lt             = float(loop_node.inputs["loss_threshold"].default_value or 0.0)
-        loss_threshold = lt if lt > 0 else None
-        raw_al         = str(loop_node.inputs["allowlist"].default_value or "").strip()
-        allowlist      = {x.strip() for x in raw_al.split(",") if x.strip()} if raw_al else None
-
-        llm = self._resolve_input(mutator, "llm")
+        llm = self._resolve_input(agent, "llm")
         if llm is None:
-            return {"ok": False, "error": "No LLM connected to MutatorNode's `llm` input"}
-
-        cone = _cone_for_group(self.graph, group)
-        if not cone:
             return {"ok": False,
-                    "error": f"No A/B cone found for group={group!r}"}
+                    "error": "No LLM connected to AutoresearchAgent's `llm` input"}
+
+        targets = collect_targets(self.graph, agent.id)
+        if not targets:
+            return {"ok": False, "error":
+                    "AutoresearchAgent has no control wires. Connect its "
+                    "`control` output into one or more input ports (e.g. "
+                    "linear.out_features, B.lr) to define the search space."}
+
+        # Read agent config from input defaults.
+        group        = str(agent.inputs["group"].default_value or "task_1")
+        playbook     = str(agent.inputs["playbook"].default_value or "")
+        metric       = str(agent.inputs["metric"].default_value or "val_loss")
+        trials       = int(agent.inputs["trials"].default_value or 8)
+        wall_clock_s = float(agent.inputs["wall_clock_s"].default_value or 900.0)
+        eval_budget  = float(agent.inputs["eval_budget_s"].default_value or 60.0)
+        lt           = float(agent.inputs["loss_threshold"].default_value or 0.0)
+        loss_threshold = lt if lt > 0 else None
+        temperature  = float(agent.inputs["temperature"].default_value or 0.4)
+        # The LLM node (OllamaClient / OpenAICompatClient / llama.cpp) owns
+        # which model to call — the agent just uses whatever client is wired
+        # into its `llm` input. Per-agent model override was redundant UX.
+        model        = None
+
+        # Pull the cached training-panel submission so train_start has a
+        # dataset/loss/optimizer to work with each trial.
+        last_params_resp = self._registry.try_dispatch(
+            "get_training_last_params", {},
+        )
+        unhandled = getattr(self._registry, "_UNHANDLED", object())
+        cached: dict | None = None
+        if last_params_resp is not unhandled and isinstance(last_params_resp, dict):
+            cached = last_params_resp.get("params")
+        if not cached:
+            return {
+                "ok": False,
+                "error": ("Run training once from the Training panel before "
+                          "starting autoresearch — autoresearch re-uses the "
+                          "last train_start config (datasets, loss, optimizer)."),
+            }
+        train_start_params = dict(cached)
+        train_start_params["group"] = group
 
         run_id = str(uuid4())
         ledger_path = f"./.node-tool/autoresearch/{run_id}/results.tsv"
         ledger = Ledger(ledger_path)
 
-        # Build the mutator callable — one LLM call per trial.
-        def _mutator_fn(recent_tsv_tail: str) -> str:
-            textual = serialize_graph_textual(self.graph, region=cone, max_chars=4000)
-            from nodes.agents.mutator import _SYSTEM_PROMPT, _build_user_prompt
-            user = _build_user_prompt(textual, playbook, recent_tsv_tail)
-            msgs = [Message(role="system", content=_SYSTEM_PROMPT),
-                    Message(role="user", content=user)]
-            result = llm.chat(msgs, model=mut_model, temperature=mut_temp)
-            return (result.message.content or "")
-
-        loop = ExperimentLoop(
+        loop = ControlLoop(
             run_id=run_id, graph=self.graph, registry=self._registry,
-            mutator_fn=_mutator_fn,
-            budget=LoopBudget(trials=trials, wall_clock_s=wall_clock_s,
-                              loss_threshold=loss_threshold),
-            ledger=ledger, allowlist=allowlist, cone=cone,
-            metric=metric, eval_budget_s=eval_budget,
-            train_start_params={"epochs": epochs, "group": group},
+            agent_node=agent, targets=targets, llm=llm,
+            playbook=playbook,
+            budget=ControlBudget(
+                trials=trials, wall_clock_s=wall_clock_s,
+                loss_threshold=loss_threshold,
+            ),
+            ledger=ledger, metric=metric, eval_budget_s=eval_budget,
+            train_start_params=train_start_params,
+            model=model, temperature=temperature,
         )
         self._autoresearch_runs[run_id] = loop
         loop.start()
         self._pending_logs.append(
             f"[Autoresearch] started {run_id[:6]} "
-            f"(trials={trials}, metric={metric}, group={group})"
+            f"(trials={trials}, metric={metric}, group={group}, "
+            f"targets={len(targets)})"
         )
         return {"ok": True, "run_id": run_id}
 
@@ -549,23 +560,3 @@ class AgentOrchestrator:
         return None
 
 
-def _cone_for_group(graph, group: str) -> list[str]:
-    """A/B cone for the given group. Empty list if either marker is missing.
-    Duplicated from nodes/agents/mutator.py so the orchestrator doesn't pull
-    a plugin node module at import time.
-    """
-    from core.node import MarkerRole  # deferred
-    a = b = None
-    for n in graph.nodes_by_role(MarkerRole.INPUT):
-        p = n.inputs.get("group") if hasattr(n, "inputs") else None
-        if p is not None and str(p.default_value or "") == group:
-            a = n
-            break
-    for n in graph.nodes_by_role(MarkerRole.TRAIN_TARGET):
-        p = n.inputs.get("group") if hasattr(n, "inputs") else None
-        if p is not None and str(p.default_value or "") == group:
-            b = n
-            break
-    if a is None or b is None:
-        return []
-    return graph.subgraph_between(a.id, b.id)

@@ -19,18 +19,30 @@ function dataInputs(instance: NodeInstance): [string, PortDef][] {
   return Object.entries(instance.inputs).filter(([, p]) => !p.editable);
 }
 
+// Keep the node's one-line summary short. Long multi-line defaults
+// (prompts, playbooks, code bodies) belong in the Inspector — showing
+// the first chunk here is enough to tell nodes apart.
+const SUMMARY_PER_VALUE_MAX = 40;
+const SUMMARY_TOTAL_MAX = 140;
+
 function configSummary(instance: NodeInstance): string {
   const parts: string[] = [];
   for (const [, p] of Object.entries(instance.inputs)) {
     if (!p.editable) continue;
     const v = p.default_value;
     if (v === null || v === undefined) continue;
-    const s = String(v);
+    let s = String(v);
     if (!s || s === "false" || s === "False" || s === "0" || s === "0.0") continue;
+    // Collapse newlines and cap each value so one long field doesn't
+    // swamp the whole summary.
+    s = s.replace(/\s+/g, " ").trim();
+    if (s.length > SUMMARY_PER_VALUE_MAX) s = s.slice(0, SUMMARY_PER_VALUE_MAX - 1) + "…";
     parts.push(s);
     if (parts.length >= 4) break;
   }
-  return parts.join(", ");
+  let out = parts.join(", ");
+  if (out.length > SUMMARY_TOTAL_MAX) out = out.slice(0, SUMMARY_TOTAL_MAX - 1) + "…";
+  return out;
 }
 
 function GraphNodeComponent({ id, data, selected }: NodeProps<{ instance: NodeInstance }>) {

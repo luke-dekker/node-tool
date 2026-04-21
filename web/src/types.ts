@@ -9,6 +9,10 @@ export interface PortDef {
   default_value?: unknown;
   editable?: boolean;
   choices?: string[] | null;
+  // RPC name that returns {"items": [{"name": ..., "label"?: ...}, ...]}.
+  // When set, the Inspector renders a dropdown populated on-demand from
+  // this RPC — e.g. ollama's installed-model list for OllamaClient.model.
+  dynamic_choices?: string;
 }
 
 export interface NodeDef {

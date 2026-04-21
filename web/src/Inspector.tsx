@@ -4,6 +4,7 @@
 // Edits round-trip through set_input, and the local NodeInstance is updated
 // so the canvas config summary reflects the new value immediately.
 
+import { useState } from "react";
 import { useStore } from "./store";
 import { CATEGORY_COLORS, theme } from "./theme";
 import type { NodeInstance, PortDef } from "./types";
@@ -141,6 +142,74 @@ function ConfigRow({
   );
 }
 
+// Typeable combobox that fetches suggestions from the server the first
+// time the user focuses it. Falls back to a plain text input if the RPC
+// returns nothing or errors (e.g. Ollama daemon not running).
+function DynamicChoiceInput({
+  port,
+  onChange,
+}: {
+  port: PortDef;
+  onChange: (v: unknown) => void;
+}) {
+  const client = useStore((s) => s.client);
+  const v = port.default_value;
+  const [items, setItems] = useState<string[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const str = v === null || v === undefined ? "" : String(v);
+  const listId = `dyn-choices-${port.dynamic_choices}`;
+
+  const loadIfNeeded = () => {
+    if (items !== null || loading) return;
+    setLoading(true);
+    client
+      .call<{ items?: Array<{ name?: string; label?: string }>; error?: string }>(
+        port.dynamic_choices!,
+      )
+      .then((res) => {
+        const names: string[] = [];
+        for (const it of res.items ?? []) {
+          const n = it.name ?? it.label;
+          if (typeof n === "string") names.push(n);
+        }
+        setItems(names);
+        if (res.error) setErr(res.error);
+      })
+      .catch((e) => {
+        setItems([]);
+        setErr(String(e?.message ?? e));
+      })
+      .finally(() => setLoading(false));
+  };
+
+  return (
+    <>
+      <input
+        type="text"
+        list={listId}
+        style={styles.textInput}
+        value={str}
+        placeholder={loading ? "loading…" : "type or pick from list"}
+        onFocus={loadIfNeeded}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {items && items.length > 0 && (
+        <datalist id={listId}>
+          {items.map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
+      )}
+      {err && (
+        <div style={{ fontSize: 10, color: theme.textDim, marginTop: 2 }}>
+          {err}
+        </div>
+      )}
+    </>
+  );
+}
+
 function ConfigWidget({ port, onChange }: { port: PortDef; onChange: (v: unknown) => void }) {
   const t = port.port_type;
   const v = port.default_value;
@@ -191,11 +260,41 @@ function ConfigWidget({ port, onChange }: { port: PortDef; onChange: (v: unknown
       </select>
     );
   }
+  // Port declared a `dynamic_choices` RPC — render a typeable combobox
+  // whose suggestions are fetched from the server on focus. Keeps the
+  // "node is canonical" principle while giving the user discovery UX
+  // (e.g. installed Ollama models) where it belongs: on the node itself.
+  if (t === "STRING" && port.dynamic_choices) {
+    return <DynamicChoiceInput port={port} onChange={onChange} />;
+  }
+  // Long / multi-line strings (prompts, code bodies, playbooks) get a
+  // resizable textarea instead of a cramped single-line input. Heuristic:
+  // any string with newlines, or over 60 chars, is treated as multi-line.
+  const str = v === null || v === undefined ? "" : String(v);
+  const isMultiline = str.includes("\n") || str.length > 60;
+  if (isMultiline) {
+    // Show enough rows to see ~10 lines at once; user can resize via the
+    // textarea handle if they want more. Monospace for code-shaped fields.
+    const looksLikeCode = /^\s*(from\s|import\s|def\s|#|return\s)/m.test(str);
+    return (
+      <textarea
+        style={{
+          ...styles.textInput,
+          minHeight: 160,
+          fontFamily: looksLikeCode ? "monospace" : "inherit",
+          resize: "vertical",
+          lineHeight: 1.4,
+        }}
+        value={str}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
   return (
     <input
       type="text"
       style={styles.textInput}
-      value={v === null || v === undefined ? "" : String(v)}
+      value={str}
       onChange={(e) => onChange(e.target.value)}
     />
   );

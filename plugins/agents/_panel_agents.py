@@ -1,59 +1,30 @@
-"""Agents panel spec — Phase A + B subset.
+"""Agents panel spec.
 
-Sections (top → bottom): Backend, Local models (DynamicForm), Selected
-agent (DynamicForm), Chat (custom — streaming chat transcript + input),
-Status, Controls. Autoresearch sub-section comes in Phase C.
+Observability + session actions. Configuration belongs on canvas nodes,
+edited through the Inspector — not in panel forms. Sections here only
+show live state (Status / Autoresearch Status / Trial history) or
+actions on a running session (Send / Stop / Start Autoresearch).
 
 Single source of truth — DPG, React, Godot all render this exact spec.
 """
 from __future__ import annotations
 
 from core.panel import (
-    PanelSpec, FormSection, DynamicFormSection, StatusSection,
-    ButtonsSection, CustomSection, Field, Action,
+    PanelSpec, StatusSection, ButtonsSection, CustomSection, Field, Action,
 )
 
 
 def build_agents_panel_spec() -> PanelSpec:
+    """Agents panel — observability + session actions only.
+
+    Canvas owns configuration (LLM client, agents, tools, autoresearch
+    agent). The panel surfaces live state of whatever's running and
+    buttons to start/stop sessions. No config forms here — edit the
+    node in the Inspector instead.
+    """
     return PanelSpec(
         label="Agents",
         sections=[
-            FormSection(
-                id="backend",
-                label="Backend",
-                fields=[
-                    Field("backend", "choice", label="backend",
-                          choices=["ollama", "openai_compat"], default="ollama"),
-                    Field("host", "str", label="host",
-                          default="http://localhost:11434"),
-                ],
-            ),
-            DynamicFormSection(
-                id="models",
-                label="Local models",
-                source_rpc="agent_list_local_models",
-                item_label_template="{name} ({size_h})",
-                empty_hint=("No local Ollama models found. Pull one with "
-                            "`ollama pull <model>` — see "
-                            "https://ollama.com/library for options."),
-                fields=[
-                    Field("default", "bool", label="default", default=False),
-                ],
-            ),
-            DynamicFormSection(
-                id="agents",
-                label="Selected agent",
-                source_rpc="agent_list_agent_nodes",
-                item_label_template="{label}",
-                empty_hint="Add an Agent node to the graph to configure it.",
-                fields=[
-                    Field("system_prompt", "str", label="system prompt",
-                          default=""),
-                    Field("model", "str", label="model", default=""),
-                    Field("temperature", "float", label="temp", default=0.7,
-                          min=0.0, max=2.0, step=0.1),
-                ],
-            ),
             CustomSection(
                 id="chat",
                 label="Chat",
@@ -64,7 +35,7 @@ def build_agents_panel_spec() -> PanelSpec:
                     "stop_rpc":        "agent_stop",
                     "drain_rpc":       "agent_drain_tokens",
                     "state_rpc":       "get_agent_state",
-                    "collect":         ["agents"],
+                    "collect":         [],
                     "poll_ms":         100,
                     "placeholder":     "Type a message, press Enter to send",
                 },
@@ -91,14 +62,14 @@ def build_agents_panel_spec() -> PanelSpec:
                 actions=[
                     Action(id="send_blocking", label="Send (blocking)",
                            rpc="agent_start",
-                           collect=["agents", "chat"]),
+                           collect=["chat"]),
                     Action(id="send_stream", label="Send (stream)",
                            rpc="agent_start_stream",
-                           collect=["agents", "chat"]),
+                           collect=["chat"]),
                     Action(id="stop", label="Stop", rpc="agent_stop"),
                 ],
             ),
-            # ── Autoresearch sub-section ────────────────────────────────
+            # ── Autoresearch ────────────────────────────────────────────
             StatusSection(
                 id="autoresearch_status",
                 label="Autoresearch",
@@ -111,6 +82,19 @@ def build_agents_panel_spec() -> PanelSpec:
                     Field("current_op_kind", "str", label="last op"),
                     Field("error",           "str", label="error"),
                 ],
+            ),
+            # Trial-by-trial history — each row shows the mutation, the
+            # resulting score, and whether it was kept or reverted. Polls
+            # the same RPC as the status section.
+            CustomSection(
+                id="autoresearch_history",
+                label="Trial history",
+                custom_kind="autoresearch_history",
+                params={
+                    "source_rpc": "agent_autoresearch_state",
+                    "poll_ms":    1000,
+                },
+                fields=[],
             ),
             ButtonsSection(
                 id="autoresearch_controls",

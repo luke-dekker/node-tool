@@ -61,7 +61,11 @@ def test_panel_spec_serializable():
     d = spec.to_dict()
     assert d["label"] == "Agents"
     section_ids = {s["id"] for s in d["sections"]}
-    assert {"backend", "models", "agents", "chat", "status", "controls"} <= section_ids
+    # Panel is observability + actions. Config forms (backend/models/agents)
+    # were removed — configuration lives on canvas nodes, not in the panel.
+    assert {"chat", "status", "controls",
+            "autoresearch_status", "autoresearch_history",
+            "autoresearch_controls"} <= section_ids
     # Chat is the streaming CustomSection wired to agent_start_stream.
     chat = next(s for s in d["sections"] if s["id"] == "chat")
     assert chat["kind"] == "custom"

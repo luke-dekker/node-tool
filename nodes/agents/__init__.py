@@ -12,9 +12,7 @@ from nodes.agents.tool import ToolNode
 from nodes.agents.python_function_tool import PythonFunctionToolNode
 from nodes.agents.graph_as_tool import GraphAsToolNode
 from nodes.agents.mcp_tool import MCPToolNode
-from nodes.agents.mutator import MutatorNode
-from nodes.agents.evaluator import EvaluatorNode
-from nodes.agents.experiment_loop import ExperimentLoopNode
+from nodes.agents.autoresearch_agent import AutoresearchAgentNode
 from nodes.agents.document_loader import DocumentLoaderNode
 from nodes.agents.embedder import EmbedderNode
 from nodes.agents.memory_store import MemoryStoreNode

@@ -93,6 +93,7 @@ class NodeToolServer:
                 "color": list(PortTypeRegistry.get_color(port.port_type)),
                 "description": getattr(port, "description", ""),
                 "choices": getattr(port, "choices", None),
+                "dynamic_choices": getattr(port, "dynamic_choices", "") or "",
             }
         outputs = {}
         for pname, port in node.outputs.items():
@@ -171,6 +172,7 @@ class NodeToolServer:
                             "editable": PortTypeRegistry.is_editable(p.port_type),
                             "color": list(PortTypeRegistry.get_color(p.port_type)),
                             "choices": getattr(p, "choices", None),
+                            "dynamic_choices": getattr(p, "dynamic_choices", "") or "",
                             "description": getattr(p, "description", ""),
                         }
                         for pname, p in tmp.inputs.items()

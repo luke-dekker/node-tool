@@ -54,6 +54,10 @@ class Port:
     default_value: Any = field(default=None)
     description: str = ""
     choices: list = field(default_factory=list)   # non-empty -> render as combo
+    # Name of an RPC that returns `{"items": [{"name": ...}, ...]}` so the
+    # Inspector can populate a dropdown dynamically (e.g. "ollama list"
+    # for the OllamaClient.model port). Empty = static field.
+    dynamic_choices: str = ""
 
     def __post_init__(self) -> None:
         if self.default_value is None:
@@ -106,10 +110,11 @@ class BaseNode(ABC):
 
     def add_input(self, name: str, port_type: str,
                   default: Any = None, description: str = "",
-                  choices: list | None = None) -> Port:
+                  choices: list | None = None,
+                  dynamic_choices: str = "") -> Port:
         p = Port(name=name, port_type=port_type, is_input=True,
                  default_value=default, description=description,
-                 choices=choices or [])
+                 choices=choices or [], dynamic_choices=dynamic_choices)
         if p.default_value is None:
             p.default_value = PortTypeRegistry.get_default(port_type)
         self.inputs[name] = p

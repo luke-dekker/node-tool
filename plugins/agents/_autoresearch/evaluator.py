@@ -99,12 +99,24 @@ def _extract_score(losses: dict, metric: str) -> float:
     """Pull the final metric value from the training orchestrator's losses dict.
 
     Accepts several shapes to stay tolerant of TrainingOrchestrator variants:
+      - {"series": {"train": [...], "val": [...]}}  ← shape `losses()` actually returns
       - {"val_loss": [...], "train_loss": [...]} → last element
       - {"final_val_loss": float}
       - {"metrics": {"val_loss": float}}
     """
     if not isinstance(losses, dict):
         return float("inf")
+    # "series" shape: map 'val_loss'/'train_loss'/'accuracy' to series keys.
+    series = losses.get("series")
+    if isinstance(series, dict):
+        key_map = {"val_loss": "val", "train_loss": "train", "accuracy": "accuracy"}
+        key = key_map.get(metric, metric)
+        vals = series.get(key)
+        if isinstance(vals, list) and vals:
+            try:
+                return float(vals[-1])
+            except (TypeError, ValueError):
+                pass
     if metric in losses:
         v = losses[metric]
         if isinstance(v, list) and v:
