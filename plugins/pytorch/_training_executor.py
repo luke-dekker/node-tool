@@ -216,9 +216,25 @@ class TrainingController:
                             labels = None
 
                         optimizer.zero_grad()
-                        out = model(dev_batch)
+                        try:
+                            out = model(dev_batch)
+                        except Exception as exc:
+                            # Surface the error instead of silently skipping.
+                            # Autoresearch/mutation loops used to report
+                            # "loss=0.0, training complete" when every batch
+                            # actually failed forward — never again.
+                            self._evt_q.put((
+                                "error",
+                                f"model forward failed: {type(exc).__name__}: {exc}",
+                            ))
+                            return
                         if out is None:
-                            continue
+                            self._evt_q.put((
+                                "error",
+                                "model forward returned None — graph is broken "
+                                "(likely a shape mismatch or missing wire).",
+                            ))
+                            return
 
                         if task_lio:
                             loss = out
@@ -246,43 +262,78 @@ class TrainingController:
 
                 avg_loss = epoch_loss / max(batches, 1)
 
-                # Validation pass (uses first task's settings for now)
+                # Validation pass — iterate every task that has its own
+                # `val_dataloader`. Each task may wire a different TrainMarker
+                # (multi-A/B graphs), so we retarget the model per task just
+                # like the training loop above. Per-task val losses are
+                # averaged by total batch count across tasks so a task with
+                # more val batches dominates proportionally — matching how the
+                # training loss is reported.
                 val_loss = None
-                if val_dataloader is not None:
+                val_total = 0.0
+                val_total_batches = 0
+                per_task_val: list[tuple[str, float]] = []
+                # Backward compat: a legacy `val_dataloader` at the config
+                # root is treated as task[0]'s val loader if no task carries
+                # one of its own.
+                legacy_val = val_dataloader
+                if legacy_val is not None and not any(t.get("val_dataloader") for t in tasks):
+                    tasks[0] = {**tasks[0], "val_dataloader": legacy_val}
+
+                if any(t.get("val_dataloader") for t in tasks):
                     model.eval()
-                    first_task = tasks[0]
-                    val_lio = first_task.get("loss_is_output", False)
-                    val_lfn = first_task.get("loss_fn")
-                    val_epoch_loss = 0.0
-                    val_batches = 0
                     with torch.no_grad():
-                        for batch in val_dataloader:
-                            if isinstance(batch, (list, tuple)) and len(batch) >= 2:
-                                dev_b = (batch[0].to(device), batch[1].to(device))
-                                labels_v = dev_b[1]
-                            elif isinstance(batch, dict) and "data" in batch:
-                                dev_data = {m: (v.to(device) if hasattr(v, "to") else v)
-                                            for m, v in batch["data"].items()}
-                                labels_v = batch.get("label")
-                                if hasattr(labels_v, "to"):
-                                    labels_v = labels_v.to(device)
-                                dev_b = {"data": dev_data, "label": labels_v}
-                            elif isinstance(batch, dict):
-                                dev_b = {k: (v.to(device) if hasattr(v, "to") else v)
-                                         for k, v in batch.items()}
-                                labels_v = dev_b.get("label")
-                            else:
-                                dev_b = batch.to(device) if hasattr(batch, "to") else batch
-                                labels_v = None
-                            out_v = model(dev_b)
-                            if out_v is None:
+                        for task in tasks:
+                            tdl = task.get("val_dataloader")
+                            if tdl is None:
                                 continue
-                            if val_lio:
-                                val_epoch_loss += out_v.item()
-                            elif val_lfn and labels_v is not None:
-                                val_epoch_loss += val_lfn(out_v, labels_v).item()
-                            val_batches += 1
-                    val_loss = val_epoch_loss / max(val_batches, 1)
+                            tid = task.get("target_id")
+                            if tid is not None:
+                                model.output_node_id = tid
+                                model.output_port = "tensor_in"
+                            t_lio = task.get("loss_is_output", False)
+                            t_lfn = task.get("loss_fn")
+                            t_sum = 0.0
+                            t_batches = 0
+                            for batch in tdl:
+                                if isinstance(batch, (list, tuple)) and len(batch) >= 2:
+                                    dev_b = (batch[0].to(device), batch[1].to(device))
+                                    labels_v = dev_b[1]
+                                elif isinstance(batch, dict) and "data" in batch:
+                                    dev_data = {m: (v.to(device) if hasattr(v, "to") else v)
+                                                for m, v in batch["data"].items()}
+                                    labels_v = batch.get("label")
+                                    if hasattr(labels_v, "to"):
+                                        labels_v = labels_v.to(device)
+                                    dev_b = {"data": dev_data, "label": labels_v}
+                                elif isinstance(batch, dict):
+                                    dev_b = {k: (v.to(device) if hasattr(v, "to") else v)
+                                             for k, v in batch.items()}
+                                    labels_v = dev_b.get("label")
+                                else:
+                                    dev_b = batch.to(device) if hasattr(batch, "to") else batch
+                                    labels_v = None
+                                out_v = model(dev_b)
+                                if out_v is None:
+                                    continue
+                                if t_lio:
+                                    t_sum += out_v.item()
+                                elif t_lfn and labels_v is not None:
+                                    t_sum += t_lfn(out_v, labels_v).item()
+                                t_batches += 1
+                            if t_batches > 0:
+                                task_avg = t_sum / t_batches
+                                per_task_val.append((task.get("task_name", "task"), task_avg))
+                                val_total += t_sum
+                                val_total_batches += t_batches
+                    if val_total_batches > 0:
+                        val_loss = val_total / val_total_batches
+                        if len(per_task_val) > 1:
+                            parts = ", ".join(f"{n}={v:.4f}" for n, v in per_task_val)
+                            self._evt_q.put((
+                                "log",
+                                f"[Train] val breakdown: {parts}  mean={val_loss:.4f}",
+                            ))
 
                 # Scheduler step
                 current_lr = None

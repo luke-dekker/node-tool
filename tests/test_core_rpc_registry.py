@@ -94,6 +94,27 @@ def test_resolve_caches_instance_across_calls():
     assert len(built) == 1   # factory called once
 
 
+def test_resolve_shares_one_instance_across_sibling_prefixes():
+    """Regression: when a single factory declares multiple prefixes
+    (e.g. pytorch owns both `train_` and `get_training_`), both prefixes
+    must resolve to the SAME instance — otherwise state set by one RPC is
+    invisible to another. A prior bug keyed the cache on prefix, which
+    silently built two copies of the orchestrator and broke autoresearch's
+    cross-RPC dataset-forwarding."""
+    g = Graph()
+    built = []
+    def _factory(gg):
+        built.append(gg)
+        return _FakeOrch(gg, ["train_", "get_training_"])
+    reg = OrchestratorRegistry(g, [
+        (["train_", "get_training_"], _factory),
+    ])
+    a = reg.resolve("train_start")
+    b = reg.resolve("get_training_last_params")
+    assert a is b, "sibling prefixes must share one orchestrator instance"
+    assert len(built) == 1
+
+
 # ── Dispatch ───────────────────────────────────────────────────────────────
 
 def test_try_dispatch_routes_to_owner():

@@ -223,8 +223,14 @@ class OrchestratorRegistry:
                  factories: list[tuple[list[str], Callable]] | None = None):
         self.graph = graph
         self._factories = list(factories or [])
-        # prefix → orchestrator instance (lazy)
-        self._cache: dict[str, Any] = {}
+        # factory identity → orchestrator instance (lazy). Keyed on the
+        # factory, NOT on the prefix — one factory is one plugin, and all
+        # of its declared prefixes must resolve to the SAME instance so
+        # state set by a `train_start` call is visible to a later
+        # `get_training_last_params` call. A prior bug keyed this cache on
+        # prefix, which silently double-instantiated the pytorch plugin's
+        # orchestrator and split its state across two copies.
+        self._cache: dict[int, Any] = {}
 
     def rebind_graph(self, graph: Any) -> None:
         """Point every already-instantiated orchestrator at a fresh graph.
@@ -251,8 +257,9 @@ class OrchestratorRegistry:
                     best_factory = factory
         if best_factory is None:
             return None
-        if best_prefix in self._cache:
-            return self._cache[best_prefix]
+        key = id(best_factory)
+        if key in self._cache:
+            return self._cache[key]
         orch = best_factory(self.graph)
         # Give cross-plugin-RPC-aware orchestrators a handle back to the
         # registry — autoresearch's evaluator dispatches `train_start` through
@@ -262,7 +269,7 @@ class OrchestratorRegistry:
                 orch.attach_registry(self)
             except Exception:
                 pass
-        self._cache[best_prefix] = orch
+        self._cache[key] = orch
         return orch
 
     def try_dispatch(self, method: str, params: dict | None = None) -> Any:

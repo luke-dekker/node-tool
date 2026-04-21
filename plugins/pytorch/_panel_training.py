@@ -75,7 +75,12 @@ def build_training_panel_spec() -> PanelSpec:
                           default=""),
                     Field("batch_size", "int",    label="batch",  default=128, min=1),
                     Field("split",      "choice", label="split",  default="train",
-                          choices=["train", "test", "val"]),
+                          choices=["train", "test", "val"],
+                          hint="source split loaded from the dataset itself"),
+                    Field("val_fraction", "float", label="val%",  default=0.1,
+                          min=0.0, max=0.5, step=0.05,
+                          hint="0.0 = no validation; otherwise hold out this fraction "
+                               "of the loaded dataset as val (stable seed)"),
                     Field("seq_len",    "int",    label="seq",    default=0, min=0),
                     Field("chunk_size", "int",    label="chunk",  default=1, min=1),
                 ],

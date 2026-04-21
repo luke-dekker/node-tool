@@ -48,6 +48,25 @@ class InputMarkerNode(BaseNode):
         self.add_input("modality", PortType.STRING, default="x",
                        description="Batch column name this marker consumes "
                                    "(e.g. 'x', 'label', 'observation.state')")
+        # ── Dataset config (per-group). The training panel reads/writes
+        # these defaults; the autoresearch agent can wire `control` into
+        # any of them. The first A marker in a group is authoritative for
+        # dataset config; sibling A markers in the same group share these
+        # values (one dataset, multiple modalities).
+        self.add_input("path",         PortType.STRING, default="",
+                       description="Dataset path (mnist, cifar10, ./csv, lerobot/...)")
+        self.add_input("batch_size",   PortType.INT,    default=128,
+                       description="Batch size for this group's dataloader")
+        self.add_input("split",        PortType.STRING, default="train",
+                       choices=["train", "test", "val"],
+                       description="Source split loaded from the dataset itself")
+        self.add_input("val_fraction", PortType.FLOAT,  default=0.1,
+                       description="0.0 = no held-out val; otherwise this "
+                                   "fraction of the loaded dataset is split out")
+        self.add_input("seq_len",      PortType.INT,    default=0,
+                       description="Sequence length (text/timeseries datasets only)")
+        self.add_input("chunk_size",   PortType.INT,    default=1,
+                       description="Chunking factor (text/timeseries datasets only)")
         self.add_output("tensor",  PortType.TENSOR,
                         description="Injected batch tensor for this modality")
 

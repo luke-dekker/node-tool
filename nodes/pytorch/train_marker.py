@@ -45,6 +45,23 @@ class TrainMarkerNode(BaseNode):
                                    "(used when kind='logits'; ignored when kind='loss')")
         self.add_input("task_name", PortType.STRING, default="",
                        description="Optional display label; defaults to group")
+        # ── Optimization config (read by the training orchestrator from
+        # whichever B marker has primary=True; multi-task graphs use one
+        # shared optimizer). The autoresearch agent can wire `control`
+        # into any of these to make them part of its search space.
+        self.add_input("primary",   PortType.BOOL,  default=False,
+                       description="Exactly one B marker per training run must "
+                                   "set primary=True. Its lr/optimizer/loss/epochs "
+                                   "drive the shared optimizer. Single-B graphs "
+                                   "auto-promote the only marker to primary.")
+        self.add_input("lr",        PortType.FLOAT, default=0.001,
+                       description="Learning rate (used only on the primary marker)")
+        self.add_input("optimizer", PortType.STRING, default="adam",
+                       description="Optimizer name (used only on the primary marker)")
+        self.add_input("loss",      PortType.STRING, default="crossentropy",
+                       description="Loss function name (used only on the primary marker)")
+        self.add_input("epochs",    PortType.INT,   default=10,
+                       description="Training epochs (used only on the primary marker)")
         self.add_output("config",   PortType.ANY,
                         description="Pass-through for GraphAsModule output targeting")
 
