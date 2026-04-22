@@ -182,6 +182,51 @@ def test_collect_targets_walks_outgoing_control_wires():
     assert act_t.choices == ["relu", "gelu", "tanh"]
 
 
+def test_collect_targets_uses_positional_ids_in_topo_order():
+    """With multiple same-type layers wired, the agent's prompt must
+    distinguish them by position (T1, T2, T3...) in topological order —
+    not by random hex UUID suffix — so the LLM can tell which Linear is
+    the first hidden layer vs the output head."""
+    from nodes.agents.autoresearch_agent import AutoresearchAgentNode
+    from plugins.agents._autoresearch.control_loop import (
+        _format_target_lines, collect_targets,
+    )
+
+    g = Graph()
+    # Build a simple 4-layer chain: A → W1 → W2 → W3 → B (all widgets).
+    a  = _InputMarker(); g.add_node(a)
+    w1 = _Widget();      g.add_node(w1)
+    w2 = _Widget();      g.add_node(w2)
+    w3 = _Widget();      g.add_node(w3)
+    b  = _TargetMarker(); g.add_node(b)
+    g.add_connection(a.id,  "tensor",     w1.id, "tensor_in")
+    g.add_connection(w1.id, "tensor_out", w2.id, "tensor_in")
+    g.add_connection(w2.id, "tensor_out", w3.id, "tensor_in")
+    g.add_connection(w3.id, "tensor_out", b.id,  "tensor_in")
+
+    agent = AutoresearchAgentNode(); g.add_node(agent)
+    # Wire the agent to every widget's `width` port.
+    g.add_connection(agent.id, "control", w1.id, "width")
+    g.add_connection(agent.id, "control", w2.id, "width")
+    g.add_connection(agent.id, "control", w3.id, "width")
+
+    targets = collect_targets(g, agent.id)
+    # Three targets, numbered T1/T2/T3 in topo order (upstream → downstream).
+    assert [t.target_id for t in targets] == ["T1.width", "T2.width", "T3.width"]
+    assert targets[0].node_id == w1.id
+    assert targets[1].node_id == w2.id
+    assert targets[2].node_id == w3.id
+    # Each target carries upstream/downstream context.
+    assert "A" in targets[0].upstream or "marker" in targets[0].upstream.lower()
+    assert targets[0].downstream    # points at w2
+    # _format_target_lines emits both the context line and the spec line.
+    block = _format_target_lines(g, targets)
+    assert "T1.width" in block and "T2.width" in block and "T3.width" in block
+    # Spec line includes the current value + port type.
+    assert "current=" in block
+    assert "type=INT" in block
+
+
 def test_collect_targets_skips_wires_into_missing_ports():
     """If a target node was deleted or its port renamed, the wire is
     silently skipped instead of crashing the loop."""

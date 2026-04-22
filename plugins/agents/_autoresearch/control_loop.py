@@ -37,12 +37,19 @@ target metric. Each call you receive a list of controllable parameters
 with their current values, types, and allowed ranges/choices. You return
 a JSON object naming the changes you'd like to try this trial.
 
+Target ids use the pattern `T<N>.<port>` where N is the target's position
+in the graph's topological order — T1 is closest to the inputs, higher
+numbers are closer to the loss. Each target includes a context line
+"<NodeType> (in: <upstream>; out: <downstream>)" so you can tell, for
+example, which Linear is the first hidden layer vs the output head when
+several of the same type are controllable.
+
 Output JSON ONLY — no prose, no markdown fences:
 
-  {"changes": [{"target": "<exact target id>", "value": <new value>}, ...]}
+  {"changes": [{"target": "T<N>.<port>", "value": <new value>}, ...]}
 
 Rules:
-  - Use the exact target id strings shown in the prompt.
+  - Use the EXACT target id strings shown in the prompt (case-sensitive).
   - For STRING choice targets, value MUST be one of the listed choices.
   - For INT targets, value must be an integer.
   - For FLOAT targets, value can be int or float.
@@ -76,33 +83,80 @@ class _Target:
     """One wired (node, port) under agent control."""
     node_id:   str
     port_name: str
-    target_id: str            # display id like "pt_linear_a1b2c3.out_features"
+    target_id: str            # short positional id like "T2.out_features"
     port_type: str            # PortType string (INT/FLOAT/STRING/BOOL/...)
     choices:   list | None
     pmin:      float | None
     pmax:      float | None
+    # Context for the LLM prompt — which node type this target lives on,
+    # and the types of the immediate upstream / downstream nodes so the
+    # LLM has a prayer of distinguishing "layer 1" from "output head"
+    # when there are 10 Linears wired. Filled in by collect_targets.
+    node_type:  str = ""
+    upstream:   str = ""      # e.g. "Flatten" or "Linear" or "Input"
+    downstream: str = ""      # e.g. "Linear" or "Output" or "(none)"
+
+
+def _node_context(graph, node_id: str) -> tuple[str, str]:
+    """Return (upstream_label, downstream_label) for a node — the types of
+    whichever nodes feed into / out of its tensor ports. Used so the LLM
+    can distinguish multiple same-type layers by their position."""
+    up_types: list[str] = []
+    down_types: list[str] = []
+    for c in graph.connections:
+        if c.to_node_id == node_id:
+            src = graph.nodes.get(c.from_node_id)
+            if src is not None and c.to_port != "control":
+                up_types.append(src.label or src.type_name)
+        if c.from_node_id == node_id:
+            dst = graph.nodes.get(c.to_node_id)
+            if dst is not None:
+                down_types.append(dst.label or dst.type_name)
+    up   = ",".join(sorted(set(up_types)))   or "(input)"
+    down = ",".join(sorted(set(down_types))) or "(output)"
+    return up, down
 
 
 def collect_targets(graph, agent_node_id: str) -> list[_Target]:
     """Walk the graph's connections to find every input port wired to
-    `<agent>.control`. Returns a list of Target descriptors."""
-    out: list[_Target] = []
+    `<agent>.control`. Returns targets in topological order so `T1` is
+    closest to the inputs and `TN` is closest to the loss, giving the
+    LLM positional context — crucial when many same-type layers (e.g.
+    10 Linears) are all agent-controllable."""
+    order = graph.topological_order()
+    position = {nid: i for i, nid in enumerate(order)}
+
+    raw: list[tuple[int, str, str]] = []   # (topo_pos, node_id, port_name)
     for c in graph.connections:
         if c.from_node_id != agent_node_id or c.from_port != "control":
             continue
         target_node = graph.nodes.get(c.to_node_id)
         if target_node is None or c.to_port not in target_node.inputs:
             continue
-        port = target_node.inputs[c.to_port]
-        target_id = f"{target_node.type_name}_{c.to_node_id[:6]}.{c.to_port}"
+        raw.append((position.get(c.to_node_id, 10**9), c.to_node_id, c.to_port))
+
+    # Sort topologically, then stably by port name for deterministic ids.
+    raw.sort(key=lambda t: (t[0], t[2]))
+
+    out: list[_Target] = []
+    for idx, (_pos, node_id, port_name) in enumerate(raw, start=1):
+        target_node = graph.nodes[node_id]
+        port = target_node.inputs[port_name]
+        # Positional id: T1, T2, T3 ... (+ port name suffix). Short, readable,
+        # and reflects where the target sits in the shape chain.
+        target_id = f"T{idx}.{port_name}"
+        up, down = _node_context(graph, node_id)
         out.append(_Target(
-            node_id=c.to_node_id,
-            port_name=c.to_port,
+            node_id=node_id,
+            port_name=port_name,
             target_id=target_id,
             port_type=str(port.port_type),
             choices=list(port.choices) if getattr(port, "choices", None) else None,
             pmin=getattr(port, "min", None),
             pmax=getattr(port, "max", None),
+            node_type=target_node.label or target_node.type_name,
+            upstream=up,
+            downstream=down,
         ))
     return out
 
@@ -119,7 +173,10 @@ def _format_target_lines(graph, targets: list[_Target]) -> str:
             bits.append(f"min={t.pmin}")
         if t.pmax is not None:
             bits.append(f"max={t.pmax}")
-        lines.append(f"  - {t.target_id}  ({', '.join(bits)})")
+        # Context line so the LLM can tell which Linear is early vs late.
+        context = f"{t.node_type} (in: {t.upstream}; out: {t.downstream})"
+        lines.append(f"  {t.target_id}  — {context}")
+        lines.append(f"      ({', '.join(bits)})")
     return "\n".join(lines)
 
 
