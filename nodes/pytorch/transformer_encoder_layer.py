@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import torch.nn as nn
 from core.node import BaseNode, PortType
-from nodes.pytorch._helpers import _forward
+from nodes.pytorch._helpers import _forward, _infer_feature_dim
 
 
 class TransformerEncoderLayerNode(BaseNode):
@@ -43,31 +43,37 @@ class TransformerEncoderLayerNode(BaseNode):
     def _setup_ports(self) -> None:
         self.add_input("tensor_in",       PortType.TENSOR, default=None,
                        description="(B, T, d_model) input")
-        self.add_input("d_model",         PortType.INT, default=256)
         self.add_input("nhead",           PortType.INT, default=8)
         self.add_input("dim_feedforward", PortType.INT, default=1024)
         self.add_input("dropout",         PortType.FLOAT, default=0.1)
         self.add_input("activation",      PortType.STRING, default="relu",
                        choices=["relu", "gelu"])
+        # Legacy: d_model inferred from tensor_in.shape[-1].
+        self.add_input("d_model",         PortType.INT, default=0,
+                       description="(legacy; ignored) — inferred from input")
         self.add_output("tensor_out",     PortType.TENSOR,
                         description="(B, T, d_model) encoded output")
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        tensor_in = inputs.get("tensor_in")
+        d_model = _infer_feature_dim(tensor_in, inputs.get("d_model"), axis=-1)
+        if d_model <= 0:
+            return {"tensor_out": None}
         layer = self._get_layer(
-            int(inputs.get("d_model") or 256),
+            d_model,
             int(inputs.get("nhead") or 8),
             int(inputs.get("dim_feedforward") or 1024),
             float(inputs.get("dropout") or 0.1),
             str(inputs.get("activation") or "relu"),
         )
-        return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
+        return {"tensor_out": _forward(layer, None, tensor_in)}
 
     def export(self, iv, ov):
         lv = f"_tel_{self.safe_id}"
         tin = iv.get("tensor_in") or "_x"
         tout = ov.get("tensor_out", "_out")
         return ["import torch", "import torch.nn as nn"], [
-            f"{lv} = nn.TransformerEncoderLayer(d_model={self._val(iv, 'd_model')}, "
+            f"{lv} = nn.TransformerEncoderLayer(d_model={tin}.shape[-1], "
             f"nhead={self._val(iv, 'nhead')}, "
             f"dim_feedforward={self._val(iv, 'dim_feedforward')}, "
             f"dropout={self._val(iv, 'dropout')}, "

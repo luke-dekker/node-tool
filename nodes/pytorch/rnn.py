@@ -16,7 +16,6 @@ class RNNNode(BaseNode):
         super().__init__()
 
     def _setup_ports(self):
-        self.add_input("input_size",    PortType.INT,    default=64)
         self.add_input("hidden_size",   PortType.INT,    default=128)
         self.add_input("num_layers",    PortType.INT,    default=1)
         self.add_input("nonlinearity",  PortType.STRING, default="tanh")
@@ -26,6 +25,9 @@ class RNNNode(BaseNode):
         self.add_input("freeze",        PortType.BOOL,   default=False)
         self.add_input("x",             PortType.TENSOR, default=None)
         self.add_input("h0",            PortType.TENSOR, default=None)
+        # Legacy: input_size inferred from x.shape[-1].
+        self.add_input("input_size",    PortType.INT,    default=0,
+                       description="(legacy; ignored) — inferred from x")
         self.add_output("output", PortType.TENSOR)
         self.add_output("hidden", PortType.TENSOR)
         self.add_output("module", PortType.MODULE)
@@ -33,8 +35,13 @@ class RNNNode(BaseNode):
     def execute(self, inputs):
         try:
             import torch.nn as nn
+            from nodes.pytorch._helpers import _infer_feature_dim
+            x = inputs.get("x")
+            in_f = _infer_feature_dim(x, inputs.get("input_size"), axis=-1)
+            if in_f <= 0:
+                return {"output": None, "hidden": None, "module": self._layer}
             cfg = (
-                int(inputs.get("input_size") or 64),
+                in_f,
                 int(inputs.get("hidden_size") or 128),
                 int(inputs.get("num_layers") or 1),
                 str(inputs.get("nonlinearity") or "tanh"),
@@ -54,7 +61,6 @@ class RNNNode(BaseNode):
                         p.requires_grad = False
                 self._layer_cfg = cfg
 
-            x = inputs.get("x")
             if x is None:
                 return {"output": None, "hidden": None, "module": self._layer}
             h0 = inputs.get("h0")
@@ -69,7 +75,7 @@ class RNNNode(BaseNode):
         h0 = iv.get("h0")
         lines = [
             f"{lv} = nn.RNN(",
-            f"    input_size={self._val(iv, 'input_size')},",
+            f"    input_size={x}.shape[-1],",
             f"    hidden_size={self._val(iv, 'hidden_size')},",
             f"    num_layers={self._val(iv, 'num_layers')},",
             f"    nonlinearity={self._val(iv, 'nonlinearity')},",

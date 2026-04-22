@@ -66,21 +66,25 @@ class PositionalEncodingNode(BaseNode):
     def _setup_ports(self) -> None:
         self.add_input("tensor_in", PortType.TENSOR, default=None,
                        description="(B, T, d_model) sequence tensor")
-        self.add_input("d_model",   PortType.INT, default=256)
         self.add_input("max_len",   PortType.INT, default=5000)
         self.add_input("kind",      PortType.STRING, default="sinusoidal",
                        choices=["sinusoidal", "learned"])
+        # Legacy: d_model inferred from tensor_in.shape[-1].
+        self.add_input("d_model",   PortType.INT, default=0,
+                       description="(legacy; ignored) — inferred from input")
         self.add_output("tensor_out", PortType.TENSOR)
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        from nodes.pytorch._helpers import _infer_feature_dim
+        x = inputs.get("tensor_in")
+        d_model = _infer_feature_dim(x, inputs.get("d_model"), axis=-1)
+        if x is None or d_model <= 0:
+            return {"tensor_out": None}
         layer = self._get_layer(
-            int(inputs.get("d_model") or 256),
+            d_model,
             int(inputs.get("max_len") or 5000),
             str(inputs.get("kind") or "sinusoidal"),
         )
-        x = inputs.get("tensor_in")
-        if x is None:
-            return {"tensor_out": None}
         try:
             return {"tensor_out": layer(x)}
         except Exception:

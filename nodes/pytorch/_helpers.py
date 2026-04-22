@@ -1,6 +1,7 @@
 """Shared helpers for PyTorch layer node export."""
 
 from __future__ import annotations
+from typing import Any
 import torch
 import torch.nn as nn
 
@@ -18,6 +19,33 @@ def _make_activation(name: str) -> nn.Module | None:
         "swish":     nn.SiLU(),
         "softmax":   nn.Softmax(dim=1),
     }.get(key)
+
+
+def _infer_feature_dim(tensor: torch.Tensor | None, legacy_value: Any,
+                       axis: int = -1, fallback: int = 0) -> int:
+    """Return the input feature / channel count.
+
+    Primary: read `tensor.shape[axis]` from the upstream tensor. Keeps the
+    graph's shape chain auto-propagating when an upstream layer changes
+    width — the downstream layer rebuilds on next forward.
+
+    Fallback: a legacy input port value (for saved graphs / live preview
+    without a probe tensor). Pass 0 / empty to mean 'no fallback, return
+    `fallback`'. Layer nodes typically pass this to `_get_layer` and skip
+    the forward when the result is 0 (no input, no output yet).
+    """
+    if tensor is not None:
+        try:
+            return int(tensor.shape[axis])
+        except (IndexError, TypeError, ValueError):
+            pass
+    if legacy_value is None:
+        return fallback
+    try:
+        v = int(legacy_value)
+        return v if v > 0 else fallback
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _forward(layer: nn.Module, act: nn.Module | None, tensor: torch.Tensor | None):

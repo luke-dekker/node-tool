@@ -16,7 +16,6 @@ class LSTMNode(BaseNode):
         super().__init__()
 
     def _setup_ports(self):
-        self.add_input("input_size",    PortType.INT,    default=64)
         self.add_input("hidden_size",   PortType.INT,    default=128)
         self.add_input("num_layers",    PortType.INT,    default=1)
         self.add_input("dropout",       PortType.FLOAT,  default=0.0)
@@ -26,6 +25,9 @@ class LSTMNode(BaseNode):
         self.add_input("x",             PortType.TENSOR, default=None)
         self.add_input("h0",            PortType.TENSOR, default=None)
         self.add_input("c0",            PortType.TENSOR, default=None)
+        # Legacy: input_size inferred from x.shape[-1].
+        self.add_input("input_size",    PortType.INT,    default=0,
+                       description="(legacy; ignored) — inferred from x")
         self.add_output("output", PortType.TENSOR)
         self.add_output("hidden", PortType.TENSOR)
         self.add_output("cell",   PortType.TENSOR)
@@ -34,8 +36,14 @@ class LSTMNode(BaseNode):
     def execute(self, inputs):
         try:
             import torch.nn as nn
+            from nodes.pytorch._helpers import _infer_feature_dim
+            x = inputs.get("x")
+            in_f = _infer_feature_dim(x, inputs.get("input_size"), axis=-1)
+            if in_f <= 0:
+                return {"output": None, "hidden": None, "cell": None,
+                        "module": self._layer}
             cfg = (
-                int(inputs.get("input_size") or 64),
+                in_f,
                 int(inputs.get("hidden_size") or 128),
                 int(inputs.get("num_layers") or 1),
                 float(inputs.get("dropout") or 0.0),
@@ -53,9 +61,11 @@ class LSTMNode(BaseNode):
                         p.requires_grad = False
                 self._layer_cfg = cfg
 
-            x = inputs.get("x")
+            # No input tensor flowing — just return the built module so
+            # downstream nodes (or module-only consumers) still see it.
             if x is None:
-                return {"output": None, "hidden": None, "cell": None, "module": self._layer}
+                return {"output": None, "hidden": None, "cell": None,
+                        "module": self._layer}
             h0 = inputs.get("h0")
             c0 = inputs.get("c0")
             if h0 is not None and c0 is not None:
@@ -73,7 +83,9 @@ class LSTMNode(BaseNode):
         c0 = iv.get("c0")
         lines = [
             f"{lv} = nn.LSTM(",
-            f"    input_size={self._val(iv, 'input_size')},",
+            # Shape-inferred input_size at export-time: read from the
+            # upstream tensor's last dim, matching runtime behavior.
+            f"    input_size={x}.shape[-1],",
             f"    hidden_size={self._val(iv, 'hidden_size')},",
             f"    num_layers={self._val(iv, 'num_layers')},",
             f"    dropout={self._val(iv, 'dropout')},",

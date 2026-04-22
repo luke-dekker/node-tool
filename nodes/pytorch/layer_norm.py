@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import torch.nn as nn
 from core.node import BaseNode, PortType
-from nodes.pytorch._helpers import _forward, _layer_fwd
+from nodes.pytorch._helpers import _forward, _layer_fwd, _infer_feature_dim
 
 
 class LayerNormNode(BaseNode):
@@ -30,20 +30,34 @@ class LayerNormNode(BaseNode):
 
     def _setup_ports(self) -> None:
         self.add_input("tensor_in",        PortType.TENSOR, default=None)
-        self.add_input("normalized_shape", PortType.INT, default=64,
-                       description="Size of the feature dim to normalize over")
         self.add_input("eps",              PortType.FLOAT, default=1e-5)
+        # Legacy: normalized_shape is inferred from tensor_in.shape[-1].
+        self.add_input("normalized_shape", PortType.INT, default=0,
+                       description="(legacy; ignored) — inferred from input")
         self.add_output("tensor_out",      PortType.TENSOR)
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        tensor_in = inputs.get("tensor_in")
+        normalized_shape = _infer_feature_dim(
+            tensor_in, inputs.get("normalized_shape"), axis=-1,
+        )
+        if normalized_shape <= 0:
+            return {"tensor_out": None}
         layer = self._get_layer(
-            int(inputs.get("normalized_shape") or 64),
+            normalized_shape,
             float(inputs.get("eps") or 1e-5),
         )
-        return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
+        return {"tensor_out": _forward(layer, None, tensor_in)}
 
     def export(self, iv, ov):
+        """Emit a small shape-inferring LayerNorm wrapper so the exported
+        script matches runtime behavior (no `LazyLayerNorm` in PyTorch)."""
         lv = f"_ln_{self.safe_id}"
-        expr = (f"nn.LayerNorm({self._val(iv, 'normalized_shape')}, "
-                f"eps={self._val(iv, 'eps')})")
-        return _layer_fwd(ov, iv, lv, expr, "")
+        tin  = iv.get("tensor_in") or "_x"
+        tout = ov.get("tensor_out", "_out")
+        eps  = self._val(iv, "eps")
+        lines = [
+            f"{lv} = nn.LayerNorm({tin}.shape[-1], eps={eps}).to({tin}.device)",
+            f"{tout} = {lv}({tin})",
+        ]
+        return ["import torch", "import torch.nn as nn"], lines

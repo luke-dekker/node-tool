@@ -48,21 +48,25 @@ class MultiheadAttentionNode(BaseNode):
                        description="(B, S, embed_dim) key — defaults to query for self-attn")
         self.add_input("value",      PortType.TENSOR, default=None,
                        description="(B, S, embed_dim) value — defaults to key")
-        self.add_input("embed_dim",  PortType.INT, default=256)
         self.add_input("num_heads",  PortType.INT, default=8)
         self.add_input("dropout",    PortType.FLOAT, default=0.0)
+        # Legacy: embed_dim inferred from query.shape[-1].
+        self.add_input("embed_dim",  PortType.INT, default=0,
+                       description="(legacy; ignored) — inferred from query")
         self.add_output("tensor_out", PortType.TENSOR,
                         description="(B, T, embed_dim) attended output")
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        from nodes.pytorch._helpers import _infer_feature_dim
+        q = inputs.get("query")
+        embed_dim = _infer_feature_dim(q, inputs.get("embed_dim"), axis=-1)
+        if q is None or embed_dim <= 0:
+            return {"tensor_out": None}
         layer = self._get_layer(
-            int(inputs.get("embed_dim") or 256),
+            embed_dim,
             int(inputs.get("num_heads") or 8),
             float(inputs.get("dropout") or 0.0),
         )
-        q = inputs.get("query")
-        if q is None:
-            return {"tensor_out": None}
         k = inputs.get("key")  if inputs.get("key")  is not None else q
         v = inputs.get("value") if inputs.get("value") is not None else k
         try:
@@ -78,7 +82,7 @@ class MultiheadAttentionNode(BaseNode):
         v  = iv.get("value") or k
         out = ov.get("tensor_out", "_out")
         return ["import torch", "import torch.nn as nn"], [
-            f"{lv} = nn.MultiheadAttention(embed_dim={self._val(iv, 'embed_dim')}, "
+            f"{lv} = nn.MultiheadAttention(embed_dim={q}.shape[-1], "
             f"num_heads={self._val(iv, 'num_heads')}, "
             f"dropout={self._val(iv, 'dropout')}, batch_first=True)",
             f"{out}, _ = {lv}({q}, {k}, {v}, need_weights=False)",

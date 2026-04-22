@@ -4,7 +4,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 from core.node import BaseNode, PortType
-from nodes.pytorch._helpers import _forward, _layer_fwd
+from nodes.pytorch._helpers import _forward, _layer_fwd, _infer_feature_dim
 
 
 class BatchNorm1dNode(BaseNode):
@@ -31,20 +31,22 @@ class BatchNorm1dNode(BaseNode):
 
     def _setup_ports(self) -> None:
         self.add_input("tensor_in",    PortType.TENSOR, default=None)
-        self.add_input("num_features", PortType.INT,    default=64)
+        # Legacy: num_features is inferred from tensor_in.shape[1].
+        self.add_input("num_features", PortType.INT,    default=0,
+                       description="(legacy; ignored) — inferred from input")
         self.add_output("tensor_out",  PortType.TENSOR)
 
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        layer = self._get_layer(int(inputs.get("num_features") or 64))
-        # Don't force eval mode — GraphAsModule.forward() calls self.train()/eval()
-        # as appropriate; live preview runs inside torch.no_grad() so stats won't
-        # drift meaningfully even in train mode, but using eval() here would break
-        # batchnorm during actual training.
+        tensor_in = inputs.get("tensor_in")
+        num_features = _infer_feature_dim(tensor_in,
+                                           inputs.get("num_features"), axis=1)
+        if num_features <= 0:
+            return {"tensor_out": None}
+        layer = self._get_layer(num_features)
         if not torch.is_grad_enabled():
             layer.eval()
-        return {"tensor_out": _forward(layer, None, inputs.get("tensor_in"))}
+        return {"tensor_out": _forward(layer, None, tensor_in)}
 
     def export(self, iv, ov):
         lv = f"_bn1_{self.safe_id}"
-        return _layer_fwd(
-            ov, iv, lv, f"nn.BatchNorm1d({self._val(iv,'num_features')})")
+        return _layer_fwd(ov, iv, lv, "nn.LazyBatchNorm1d()")
