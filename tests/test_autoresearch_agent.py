@@ -421,14 +421,31 @@ def test_autoresearch_start_requires_control_wires():
     assert "control" in r["error"].lower()
 
 
-def test_autoresearch_start_requires_cached_training_params():
-    llm = _ScriptedLLM(["{}"])
+def test_autoresearch_starts_without_cached_training_params():
+    """Zero manual training runs beforehand — autoresearch should still
+    start, synthesizing `device` from hardware detection and letting
+    A/B markers drive the rest. Removes the clunky 'run training once
+    first' requirement."""
+    llm = _ScriptedLLM([json.dumps({"changes": []})])
     g, a, w, b, agent = _build_graph(llm)
+    agent.inputs["trials"].default_value = 1
     fake = _FakeTrainOrch(scores=[0.5], last_params=None)
     agent_orch, _ = _make_orch_with_graph(g, fake_train=fake)
     r = agent_orch.handle_rpc("agent_autoresearch_start", {})
-    assert r["ok"] is False
-    assert "Run training once" in r["error"]
+    assert r["ok"] is True, r
+    # Wait for completion so the test is deterministic.
+    for _ in range(50):
+        st = agent_orch.handle_rpc("agent_autoresearch_state",
+                                     {"run_id": r["run_id"]})
+        if st["current_status"] in ("done", "error", "stopped"):
+            break
+        time.sleep(0.02)
+    # train_start fired with a sensible envelope.
+    assert fake.calls
+    starts = [p for m, p in fake.calls if m == "train_start"]
+    assert starts
+    assert starts[0]["device"] in ("cpu", "cuda:0")
+    assert starts[0]["epochs"] >= 1
 
 
 def test_autoresearch_start_kicks_off_run():

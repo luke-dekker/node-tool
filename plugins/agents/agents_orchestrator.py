@@ -411,8 +411,12 @@ class AgentOrchestrator:
         # into its `llm` input. Per-agent model override was redundant UX.
         model        = None
 
-        # Pull the cached training-panel submission so train_start has a
-        # dataset/loss/optimizer to work with each trial.
+        # Build train_start params. A/B markers carry dataset/optimizer/
+        # loss/lr on their own input ports now, so we don't need a cached
+        # panel submission — we just pass a minimal envelope and the
+        # training orchestrator pulls config directly from markers.
+        # If the user DID run training manually (caching panel state),
+        # honor it as a base; otherwise synthesize a sensible envelope.
         last_params_resp = self._registry.try_dispatch(
             "get_training_last_params", {},
         )
@@ -420,14 +424,7 @@ class AgentOrchestrator:
         cached: dict | None = None
         if last_params_resp is not unhandled and isinstance(last_params_resp, dict):
             cached = last_params_resp.get("params")
-        if not cached:
-            return {
-                "ok": False,
-                "error": ("Run training once from the Training panel before "
-                          "starting autoresearch — autoresearch re-uses the "
-                          "last train_start config (datasets, loss, optimizer)."),
-            }
-        train_start_params = dict(cached)
+        train_start_params = dict(cached) if cached else {"device": _auto_device()}
         train_start_params["group"] = group
         # Override epochs with the agent's per-trial budget. Otherwise
         # every trial inherits whatever the user set for full training
@@ -565,5 +562,18 @@ class AgentOrchestrator:
             if getattr(n, "type_name", "") == fallback_type:
                 return n
         return None
+
+
+def _auto_device() -> str:
+    """Pick cuda:0 if available, else cpu. Used when autoresearch kicks
+    off without a cached panel submission — user hasn't run training
+    manually, and we shouldn't make them."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda:0"
+    except Exception:
+        pass
+    return "cpu"
 
 
