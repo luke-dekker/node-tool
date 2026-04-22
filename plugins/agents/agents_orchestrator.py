@@ -429,6 +429,13 @@ class AgentOrchestrator:
             }
         train_start_params = dict(cached)
         train_start_params["group"] = group
+        # Override epochs with the agent's per-trial budget. Otherwise
+        # every trial inherits whatever the user set for full training
+        # (e.g. 10) and gets killed mid-run by `eval_budget_s`. Trials
+        # are for FAST feedback — 1 epoch is usually enough to rank
+        # hyperparameter configurations.
+        epochs_per_trial = int(agent.inputs["epochs_per_trial"].default_value or 1)
+        train_start_params["epochs"] = max(1, epochs_per_trial)
 
         run_id = str(uuid4())
         ledger_path = f"./.node-tool/autoresearch/{run_id}/results.tsv"

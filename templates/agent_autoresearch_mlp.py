@@ -111,13 +111,17 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     graph.add_node(cli); positions[cli.id] = pos(col=0, row=1)
 
     agent = AutoresearchAgentNode()
-    agent.inputs["group"].default_value         = "mlp"
-    agent.inputs["playbook"].default_value      = _PLAYBOOK
-    agent.inputs["metric"].default_value        = "val_loss"
-    agent.inputs["trials"].default_value        = 8
-    agent.inputs["wall_clock_s"].default_value  = 900.0
-    agent.inputs["eval_budget_s"].default_value = 60.0
-    agent.inputs["temperature"].default_value   = 0.4
+    agent.inputs["group"].default_value            = "mlp"
+    agent.inputs["playbook"].default_value         = _PLAYBOOK
+    agent.inputs["metric"].default_value           = "val_loss"
+    agent.inputs["trials"].default_value           = 8
+    # Trials are fast feedback — 1 epoch per trial is usually enough to
+    # rank hyperparameter configs. Full training (10+ epochs) happens
+    # later on the winning config.
+    agent.inputs["epochs_per_trial"].default_value = 1
+    agent.inputs["eval_budget_s"].default_value    = 120.0
+    agent.inputs["wall_clock_s"].default_value     = 1800.0
+    agent.inputs["temperature"].default_value      = 0.4
     graph.add_node(agent); positions[agent.id] = pos(col=2, row=1)
 
     # LLM into the agent

@@ -328,11 +328,14 @@ class ControlLoop:
                                wall=time.time() - trial_t0, error=str(exc))
             return
 
-        # Stash the LLM proposal on the agent node so the user can see
-        # what was actually tried. Logged to stdout too for debuggability.
-        print(f"[autoresearch trial {idx}] LLM proposed: "
-              f"{[(c['target'], c['value']) for c in changes]}",
+        proposal_summary = ", ".join(
+            f"{c['target'].split('.')[-1]}={c['value']!r}" for c in changes
+        ) or "no changes (noop)"
+        print(f"[autoresearch trial {idx}] LLM proposed: {proposal_summary}",
               flush=True)
+        # Carry the proposal onto the trial history so the panel can show
+        # what was actually tried, not just the op_kind tag.
+        self._last_proposal = proposal_summary
 
         # 2. Apply (in place; revert if score doesn't improve)
         applied, apply_errs = apply_changes(self.graph, self.targets, changes)
@@ -364,7 +367,10 @@ class ControlLoop:
         else:
             self.graph.revert_to(pre_hash)
 
-        op_kind = ",".join(c["target"].split(".")[-1] for c in changes) or "noop"
+        # op_kind is what the trial history shows — use the full proposal
+        # summary (port=value pairs) so the user can read what was tried
+        # at a glance.
+        op_kind = getattr(self, "_last_proposal", "") or "noop"
         self._record_trial(idx, post_hash, op_kind=op_kind,
                            score=eval_result.score, status=eval_result.status,
                            wall=time.time() - trial_t0,

@@ -71,10 +71,16 @@ class AutoresearchAgentNode(BaseNode):
                        description="Metric to minimize (loss) / maximize (accuracy)")
         self.add_input("trials", PortType.INT, default=8,
                        description="Maximum mutate→eval cycles")
-        self.add_input("wall_clock_s", PortType.FLOAT, default=900.0,
+        self.add_input("wall_clock_s", PortType.FLOAT, default=1800.0,
                        description="Total wall-clock budget across all trials")
-        self.add_input("eval_budget_s", PortType.FLOAT, default=60.0,
+        self.add_input("eval_budget_s", PortType.FLOAT, default=120.0,
                        description="Per-trial training budget")
+        self.add_input("epochs_per_trial", PortType.INT, default=1,
+                       description="How many epochs to train PER TRIAL. "
+                                   "Overrides the B marker's epochs (which "
+                                   "is used for full manual training). "
+                                   "Keep this small — trials should be fast "
+                                   "feedback, not full training runs.")
         self.add_input("loss_threshold", PortType.FLOAT, default=0.0,
                        description="Stop early if best score ≤ this. 0 = disabled.")
         self.add_input("temperature", PortType.FLOAT, default=0.4,

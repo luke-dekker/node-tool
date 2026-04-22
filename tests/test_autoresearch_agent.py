@@ -147,8 +147,8 @@ def test_autoresearch_agent_node_has_expected_ports():
     from nodes.agents.autoresearch_agent import AutoresearchAgentNode
     n = AutoresearchAgentNode()
     for p in ("llm", "playbook", "group", "metric", "trials",
-              "wall_clock_s", "eval_budget_s", "loss_threshold",
-              "temperature"):
+              "wall_clock_s", "eval_budget_s", "epochs_per_trial",
+              "loss_threshold", "temperature"):
         assert p in n.inputs, f"missing input {p!r}"
     # `model` is NOT on the agent — the LLM node owns model selection.
     assert "model" not in n.inputs
