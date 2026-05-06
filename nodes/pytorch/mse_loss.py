@@ -40,8 +40,8 @@ class LossFnNode(BaseNode):
             return {"loss_fn": None}
 
     def export(self, iv, ov):
-        loss_type = (iv.get("loss_type") or {}).get("value", "mse")
-        reduction = (iv.get("reduction") or {}).get("value", "mean")
+        loss_type = (self.inputs["loss_type"].default_value or "mse")
+        reduction = (self.inputs["reduction"].default_value or "mean")
         entry = _LOSS_MAP.get(loss_type)
         cls_name = entry[0] if entry else "MSELoss"
         no_reduction = loss_type == "cross_entropy"

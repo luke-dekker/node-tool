@@ -1,46 +1,47 @@
-"""Agent Autoresearch — single-node LLM-guided search over an MLP.
+"""Agent Autoresearch — single-node LLM-guided search over a 3-hidden MLP.
 
-    Data In (A:x) ─► Flatten ─► Linear ─► ReLU ─► Linear ─► Data Out (B)
-        │                          ▲                ▲          │
-        │ batch_size               out_features     activation │ lr (primary)
-        │                          │                │          │
-        └──── (control wires from agent) ───────────┴──────────┘
+    Data In (A:x) ─► Flatten ─► Linear ─► Linear ─► Linear ─► Linear ─► B
+                                  h1       h2       h3       h_out (fixed 10)
+                                  ▲▲       ▲▲       ▲▲
+                                  ││       ││       ││    (control wires)
+                                  └┴───────┴┴───────┴┴──── out_features + activation
 
     OllamaClient ─llm─► AutoresearchAgent
                               │
-                              └─ control wires define the search space:
-                                  • A.batch_size       (INT)
-                                  • Linear_1.out_features  (INT, width)
-                                  • Linear_1.activation    (STRING choice)
-                                  • B.lr               (FLOAT, primary)
+                              └─ control wires (search space):
+                                  • A.batch_size            (INT)
+                                  • h1/h2/h3.out_features   (INT, width)
+                                  • h1/h2/h3.activation     (STRING choice)
+                                  • B.lr                    (FLOAT, primary)
+
+    Output head h_out is intentionally NOT wired — class count must stay
+    at 10. With three same-type hidden layers each exposing two ports,
+    the LLM gets six Linear targets whose context strings are nearly
+    identical ("Linear (in: Linear; out: Linear)") for h2/h3. Only the
+    positional id (T1..T6) distinguishes them — this template is the
+    direct test of whether the LLM reasons about position.
 
 Start the run from the Agents panel → Autoresearch → "Start Autoresearch".
 The agent walks its own outgoing `control` connections to discover what's
-in scope, then mutate→train→keep/revert per trial.
+in scope, then mutate→train→keep/revert per trial. Training kicks off
+directly — no need to click Start on the Training panel first.
 
 A TSV ledger lands at `./.node-tool/autoresearch/<run_id>/results.tsv`.
 
-## Setup before clicking Start
-
-1. Open the Training panel and click Start once. The training params
-   (dataset path, batch size, val_fraction, optimizer, loss, epochs)
-   get cached. Autoresearch re-uses them per trial — without this step
-   it has no dataset to train on and refuses to start.
-2. The Agents panel's Autoresearch section drives the loop.
-
 Required:
   - Ollama on localhost:11434 (with a model pulled, e.g. `llama3.1:8b`)
-  - MNIST (or any 28x28 grayscale → 10-class dataset) wired into the
-    Training panel for group "mlp"
+  - A dataset `path` set on the A marker (or cached from a prior
+    Training panel submission) so training can load data each trial.
 """
 from __future__ import annotations
 from core.graph import Graph
 from templates._helpers import grid
 
-LABEL = "Agent Autoresearch (mutate → eval → keep MLP)"
-DESCRIPTION = ("LLM-guided architecture search on an MNIST-shape MLP. "
-               "Single AutoresearchAgent node; control wires define the "
-               "search space (width, activation, learning rate, batch size).")
+LABEL = "Agent Autoresearch (3-hidden MLP — positional id test)"
+DESCRIPTION = ("LLM-guided search on a 3-hidden MLP. Three same-type "
+               "Linears are each wired for out_features + activation so "
+               "positional ids (T1..T6) are the only way the LLM can "
+               "tell them apart. Output head stays fixed at 10 classes.")
 
 
 _PLAYBOOK = """\
@@ -61,7 +62,7 @@ Avoid configurations that already appear in Recent trials.
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.input_marker          import InputMarkerNode
     from nodes.pytorch.flatten               import FlattenNode
-    from nodes.pytorch.linear                import LinearNode
+    from nodes.pytorch.layer                 import LayerNode
     from nodes.pytorch.train_marker          import TrainMarkerNode
     from nodes.agents.ollama_client          import OllamaClientNode
     from nodes.agents.autoresearch_agent     import AutoresearchAgentNode
@@ -74,20 +75,35 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     data_in.inputs["modality"].default_value = "x"
     data_in.inputs["group"].default_value    = "mlp"
     data_in.inputs["batch_size"].default_value = 128
+    data_in.inputs["path"].default_value     = "mnist"  # torchvision built-in
     graph.add_node(data_in); positions[data_in.id] = pos(col=0, row=0)
 
     flat = FlattenNode()
     graph.add_node(flat); positions[flat.id] = pos(col=1, row=0)
 
-    h1 = LinearNode()
-    h1.inputs["out_features"].default_value = 128
+    h1 = LayerNode()
+    h1.inputs["kind"].default_value         = "linear"
+    h1.inputs["out_features"].default_value = 256
     h1.inputs["activation"].default_value   = "relu"
     graph.add_node(h1); positions[h1.id] = pos(col=2, row=0)
 
-    h2 = LinearNode()
-    h2.inputs["out_features"].default_value = 10     # 10 MNIST classes
-    h2.inputs["activation"].default_value   = "none"
+    h2 = LayerNode()
+    h2.inputs["kind"].default_value         = "linear"
+    h2.inputs["out_features"].default_value = 128
+    h2.inputs["activation"].default_value   = "relu"
     graph.add_node(h2); positions[h2.id] = pos(col=3, row=0)
+
+    h3 = LayerNode()
+    h3.inputs["kind"].default_value         = "linear"
+    h3.inputs["out_features"].default_value = 64
+    h3.inputs["activation"].default_value   = "relu"
+    graph.add_node(h3); positions[h3.id] = pos(col=4, row=0)
+
+    h_out = LayerNode()
+    h_out.inputs["kind"].default_value         = "linear"
+    h_out.inputs["out_features"].default_value = 10     # 10 MNIST classes — fixed
+    h_out.inputs["activation"].default_value   = "none"
+    graph.add_node(h_out); positions[h_out.id] = pos(col=5, row=0)
 
     train_out = TrainMarkerNode()
     train_out.inputs["group"].default_value  = "mlp"
@@ -97,12 +113,14 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     train_out.inputs["optimizer"].default_value = "adam"
     train_out.inputs["loss"].default_value   = "crossentropy"
     train_out.inputs["epochs"].default_value = 3
-    graph.add_node(train_out); positions[train_out.id] = pos(col=4, row=0)
+    graph.add_node(train_out); positions[train_out.id] = pos(col=6, row=0)
 
     graph.add_connection(data_in.id,   "tensor",     flat.id,      "tensor_in")
     graph.add_connection(flat.id,      "tensor_out", h1.id,        "tensor_in")
     graph.add_connection(h1.id,        "tensor_out", h2.id,        "tensor_in")
-    graph.add_connection(h2.id,        "tensor_out", train_out.id, "tensor_in")
+    graph.add_connection(h2.id,        "tensor_out", h3.id,        "tensor_in")
+    graph.add_connection(h3.id,        "tensor_out", h_out.id,     "tensor_in")
+    graph.add_connection(h_out.id,     "tensor_out", train_out.id, "tensor_in")
 
     # Row 1 — the autoresearch driver
     cli = OllamaClientNode()
@@ -129,12 +147,13 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
 
     # Control wires — these define the search space. Anything not wired
     # here is OFF-LIMITS to the agent. The canvas reads at a glance.
-    # Width is safe to tune because LinearNode now infers its in_features
-    # from the upstream tensor on each forward, so changing h1's
-    # `out_features` automatically reshapes h2 on its next forward.
-    graph.add_connection(agent.id, "control", h1.id,        "out_features")
-    graph.add_connection(agent.id, "control", h1.id,        "activation")
-    graph.add_connection(agent.id, "control", h1.id,        "freeze")
+    # Width is safe to tune because LinearNode infers its in_features
+    # from the upstream tensor on each forward, so when h1's out_features
+    # changes, h2 auto-reshapes on its next forward (and so on down).
+    # h_out is intentionally NOT wired — its out_features must stay 10.
+    for hidden in (h1, h2, h3):
+        graph.add_connection(agent.id, "control", hidden.id, "out_features")
+        graph.add_connection(agent.id, "control", hidden.id, "activation")
     graph.add_connection(agent.id, "control", train_out.id, "lr")
     graph.add_connection(agent.id, "control", data_in.id,   "batch_size")
 

@@ -53,6 +53,15 @@ def run_eval(
         return EvalResult(score=float("inf"), status="crash",
                           wall_clock_s=0.0,
                           error="no training orchestrator registered")
+    # train_start may refuse before actually launching (e.g. no dataset
+    # path, no markers). Surface that directly — otherwise the poll loop
+    # below waits out the full wall_clock budget and reports a misleading
+    # "timeout" for what's really a configuration error.
+    if isinstance(start_resp, dict) and start_resp.get("ok") is False:
+        return EvalResult(score=float("inf"), status="crash",
+                          wall_clock_s=time.time() - t0,
+                          error=str(start_resp.get("error")
+                                    or "train_start refused"))
 
     while True:
         if stop_flag is not None and stop_flag.is_set():

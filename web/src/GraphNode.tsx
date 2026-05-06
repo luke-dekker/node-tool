@@ -71,7 +71,14 @@ function GraphNodeComponent({ id, data, selected }: NodeProps<{ instance: NodeIn
         borderWidth: selected || error ? 2 : 1,
       }}
     >
-      <div style={{ ...styles.header, background: headerColor }}>{instance.label}</div>
+      <div style={{ ...styles.header, background: headerColor }}>
+        <span>{instance.label}</span>
+        {instance.alias && (
+          <span style={styles.alias} title={`Node alias — used in autoresearch history (${instance.alias})`}>
+            {instance.alias}
+          </span>
+        )}
+      </div>
 
       {summary && <div style={styles.summary}>{summary}</div>}
 
@@ -96,7 +103,16 @@ function GraphNodeComponent({ id, data, selected }: NodeProps<{ instance: NodeIn
                         }}
                       />
                       <span
-                        style={{ ...styles.portLabel, color: rgbaToCss(inPort[1].color) }}
+                        title={
+                          inPort[1].description
+                          || (inPort[1].optional ? `${inPort[0]} (${inPort[1].port_type}) — optional` : `${inPort[0]} (${inPort[1].port_type})`)
+                        }
+                        style={{
+                          ...styles.portLabel,
+                          color: rgbaToCss(inPort[1].color),
+                          fontStyle: inPort[1].optional ? "italic" : "normal",
+                          opacity: inPort[1].optional ? 0.6 : 1,
+                        }}
                       >
                         {inPort[0]}
                       </span>
@@ -107,6 +123,7 @@ function GraphNodeComponent({ id, data, selected }: NodeProps<{ instance: NodeIn
                   {outPort && (
                     <>
                       <span
+                        title={outPort[1].description || `${outPort[0]} (${outPort[1].port_type})`}
                         style={{
                           ...styles.portLabel,
                           color: rgbaToCss(outPort[1].color),
@@ -160,6 +177,17 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 0.2,
     borderTopLeftRadius: 7,
     borderTopRightRadius: 7,
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  alias: {
+    fontWeight: 500,
+    fontSize: 10,
+    fontFamily: "monospace",
+    opacity: 0.75,
+    letterSpacing: 0.4,
   },
   summary: {
     padding: "4px 12px 2px",

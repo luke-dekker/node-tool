@@ -106,6 +106,7 @@ export function Canvas() {
       fitView={false}
       proOptions={{ hideAttribution: true }}
       defaultEdgeOptions={{ style: { stroke: theme.accent, strokeWidth: 2 } }}
+      deleteKeyCode={["Delete", "Backspace"]}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#222a3a" />
       <MiniMap

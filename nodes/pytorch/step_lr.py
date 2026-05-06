@@ -76,7 +76,7 @@ class LRSchedulerNode(BaseNode):
 
     def export(self, iv, ov):
         opt = self._val(iv, 'optimizer')
-        stype = (iv.get("scheduler_type") or {}).get("value", "step")
+        stype = (self.inputs["scheduler_type"].default_value or "step")
 
         if stype == "step":
             ss = self._val(iv, 'step_size')

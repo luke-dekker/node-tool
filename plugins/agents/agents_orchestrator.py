@@ -449,6 +449,7 @@ class AgentOrchestrator:
             ledger=ledger, metric=metric, eval_budget_s=eval_budget,
             train_start_params=train_start_params,
             model=model, temperature=temperature,
+            log_fn=self._pending_logs.append,
         )
         self._autoresearch_runs[run_id] = loop
         loop.start()

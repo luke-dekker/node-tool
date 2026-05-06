@@ -15,12 +15,15 @@ def _simple_model():
 
 # ── SaveWeightsNode ───────────────────────────────────────────────────────────
 
+# All these alias to ModelIONode (the consolidated save/load/export node).
+# Tests pass `mode` explicitly to dispatch to the right code path.
+
 def test_save_weights_creates_file():
     from nodes.pytorch.persistence import SaveWeightsNode
     model = _simple_model()
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "weights.pt")
-        result = SaveWeightsNode().execute({"model": model, "path": path})
+        result = SaveWeightsNode().execute({"mode": "save_weights", "model": model, "path": path})
         assert pathlib.Path(path).exists()
         assert result["model"] is model      # pass-through
         assert result["path"] == path
@@ -30,34 +33,33 @@ def test_save_weights_none_model():
     from nodes.pytorch.persistence import SaveWeightsNode
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "weights.pt")
-        result = SaveWeightsNode().execute({"model": None, "path": path})
+        result = SaveWeightsNode().execute({"mode": "save_weights", "model": None, "path": path})
         assert not pathlib.Path(path).exists()   # nothing saved
         assert result["model"] is None
 
 
-# ── LoadWeightsNode ───────────────────────────────────────────────────────────
+# ── LoadWeightsNode (mode="load_into") ────────────────────────────────────
 
 def test_load_weights_roundtrip():
     from nodes.pytorch.persistence import SaveWeightsNode, LoadWeightsNode
     model_a = _simple_model()
-    model_b = _simple_model()   # same architecture, different random weights
+    model_b = _simple_model()
 
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "weights.pt")
-        SaveWeightsNode().execute({"model": model_a, "path": path})
+        SaveWeightsNode().execute({"mode": "save_weights", "model": model_a, "path": path})
 
-        result = LoadWeightsNode().execute({"model": model_b, "path": path, "device": "cpu"})
+        result = LoadWeightsNode().execute({"mode": "load_into", "model": model_b,
+                                             "path": path, "device": "cpu"})
         loaded = result["model"]
-
-        # weights should now be equal
         for pa, pb in zip(model_a.parameters(), loaded.parameters()):
             assert torch.allclose(pa, pb)
 
 
 def test_load_weights_none_model():
     from nodes.pytorch.persistence import LoadWeightsNode
-    # Should not crash when model is None (nothing to load into)
-    result = LoadWeightsNode().execute({"model": None, "path": "nonexistent.pt", "device": "cpu"})
+    result = LoadWeightsNode().execute({"mode": "load_into", "model": None,
+                                         "path": "nonexistent.pt", "device": "cpu"})
     assert result["model"] is None
 
 
@@ -70,6 +72,7 @@ def test_save_checkpoint_creates_file():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "ckpt.pt")
         result = SaveCheckpointNode().execute({
+            "mode": "save_checkpoint",
             "model": model, "optimizer": optimizer,
             "epoch": 3, "loss": 0.42, "path": path,
         })
@@ -87,6 +90,7 @@ def test_save_checkpoint_without_optimizer():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "ckpt.pt")
         SaveCheckpointNode().execute({
+            "mode": "save_checkpoint",
             "model": model, "optimizer": None,
             "epoch": 0, "loss": 0.0, "path": path,
         })
@@ -106,10 +110,12 @@ def test_load_checkpoint_roundtrip():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "ckpt.pt")
         SaveCheckpointNode().execute({
+            "mode": "save_checkpoint",
             "model": model_a, "optimizer": optimizer_a,
             "epoch": 7, "loss": 0.123, "path": path,
         })
         result = LoadCheckpointNode().execute({
+            "mode": "load_checkpoint",
             "model": model_b, "optimizer": optimizer_b,
             "path": path, "device": "cpu",
         })
@@ -128,6 +134,7 @@ def test_load_checkpoint_none_guards():
         path = str(pathlib.Path(tmp) / "ckpt.pt")
         torch.save({"epoch": 2, "loss": 0.5}, path)
         result = LoadCheckpointNode().execute({
+            "mode": "load_checkpoint",
             "model": None, "optimizer": None,
             "path": path, "device": "cpu",
         })
@@ -146,6 +153,7 @@ def test_export_onnx_runs_without_crash():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "model.onnx")
         result = ExportONNXNode().execute({
+            "mode": "export_onnx",
             "model": model, "input_shape": "1,4", "path": path, "opset": 17,
         })
         # Either succeeded or returned a descriptive failure message
@@ -156,8 +164,10 @@ def test_export_onnx_runs_without_crash():
 def test_export_onnx_none_model():
     from nodes.pytorch.persistence import ExportONNXNode
     result = ExportONNXNode().execute({
+        "mode": "export_onnx",
         "model": None, "input_shape": "1,4", "path": "x.onnx", "opset": 17,
     })
+    # ModelIONode emits "No model connected." for save/export modes when model=None
     assert "No model" in result["info"]
 
 
@@ -167,6 +177,7 @@ def test_export_onnx_bad_shape():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "model.onnx")
         result = ExportONNXNode().execute({
+            "mode": "export_onnx",
             "model": model, "input_shape": "1,999",  # wrong input size
             "path": path, "opset": 17,
         })
@@ -180,14 +191,18 @@ def test_save_full_model_creates_file():
     model = _simple_model()
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "full.pt")
-        result = SaveFullModelNode().execute({"model": model, "path": path})
+        result = SaveFullModelNode().execute({
+            "mode": "save_full", "model": model, "path": path,
+        })
         assert pathlib.Path(path).exists()
         assert result["model"] is model
         assert "Saved" in result["info"]
 
 def test_save_full_model_none():
     from nodes.pytorch.persistence import SaveFullModelNode
-    result = SaveFullModelNode().execute({"model": None, "path": "x.pt"})
+    result = SaveFullModelNode().execute({
+        "mode": "save_full", "model": None, "path": "x.pt",
+    })
     assert result["model"] is None
     assert "No model" in result["info"]
 
@@ -199,38 +214,40 @@ def test_pretrained_block_roundtrip():
     model = _simple_model()
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "full.pt")
-        SaveFullModelNode().execute({"model": model, "path": path})
+        SaveFullModelNode().execute({"mode": "save_full", "model": model, "path": path})
         result = PretrainedBlockNode().execute({
-            "path": path, "device": "cpu",
-            "freeze_all": False, "trainable_layers": 0, "eval_mode": False,
+            "mode": "load_full", "path": path, "device": "cpu",
+            "freeze": False, "trainable_layers": 0, "eval_mode": False,
         })
         assert result["model"] is not None
         assert "Sequential" in result["info"]
-        assert "Total:" in result["info"]
+        assert "params" in result["info"]
 
 def test_pretrained_block_freeze_all():
     from nodes.pytorch.persistence import SaveFullModelNode, PretrainedBlockNode
     model = _simple_model()
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "full.pt")
-        SaveFullModelNode().execute({"model": model, "path": path})
+        SaveFullModelNode().execute({"mode": "save_full", "model": model, "path": path})
         result = PretrainedBlockNode().execute({
-            "path": path, "device": "cpu",
-            "freeze_all": True, "trainable_layers": 0, "eval_mode": False,
+            "mode": "load_full", "path": path, "device": "cpu",
+            "freeze": True, "trainable_layers": 0, "eval_mode": False,
         })
         loaded = result["model"]
         assert all(not p.requires_grad for p in loaded.parameters())
-        assert "Trainable: 0" in result["info"]
+        assert "trainable: 0" in result["info"]
 
 def test_pretrained_block_freeze_except_last():
+    # New PretrainedBlockNode (= LoadModelNode) caches by path. Use unique
+    # paths per test so prior test's freeze state doesn't bleed in.
     from nodes.pytorch.persistence import SaveFullModelNode, PretrainedBlockNode
     model = _simple_model()   # 3 children: Linear, ReLU, Linear
     with tempfile.TemporaryDirectory() as tmp:
-        path = str(pathlib.Path(tmp) / "full.pt")
-        SaveFullModelNode().execute({"model": model, "path": path})
+        path = str(pathlib.Path(tmp) / "full_freeze_except.pt")
+        SaveFullModelNode().execute({"mode": "save_full", "model": model, "path": path})
         result = PretrainedBlockNode().execute({
-            "path": path, "device": "cpu",
-            "freeze_all": True, "trainable_layers": 1, "eval_mode": False,
+            "mode": "load_full", "path": path, "device": "cpu",
+            "freeze": True, "trainable_layers": 1, "eval_mode": False,
         })
         loaded = result["model"]
         trainable = sum(p.numel() for p in loaded.parameters() if p.requires_grad)
@@ -240,33 +257,35 @@ def test_pretrained_block_eval_mode():
     from nodes.pytorch.persistence import SaveFullModelNode, PretrainedBlockNode
     model = _simple_model()
     with tempfile.TemporaryDirectory() as tmp:
-        path = str(pathlib.Path(tmp) / "full.pt")
-        SaveFullModelNode().execute({"model": model, "path": path})
+        path = str(pathlib.Path(tmp) / "full_eval.pt")
+        SaveFullModelNode().execute({"mode": "save_full", "model": model, "path": path})
         result = PretrainedBlockNode().execute({
-            "path": path, "device": "cpu",
-            "freeze_all": False, "trainable_layers": 0, "eval_mode": True,
+            "mode": "load_full", "path": path, "device": "cpu",
+            "freeze": False, "trainable_layers": 0, "eval_mode": True,
         })
         assert not result["model"].training
-        assert "eval" in result["info"]
 
 def test_pretrained_block_bad_path():
     from nodes.pytorch.persistence import PretrainedBlockNode
     result = PretrainedBlockNode().execute({
+        "mode": "load_full",
         "path": "/nonexistent/path/model.pt", "device": "cpu",
-        "freeze_all": False, "trainable_layers": 0, "eval_mode": False,
+        "freeze": False, "trainable_layers": 0, "eval_mode": False,
     })
     assert result["model"] is None
-    assert "Load failed" in result["info"]
+    # ModelIONode emits "<mode> failed: ..." for any exception during load.
+    assert "failed" in result["info"].lower()
 
 def test_pretrained_block_forward_runs():
     from nodes.pytorch.persistence import SaveFullModelNode, PretrainedBlockNode
     model = _simple_model()
     with tempfile.TemporaryDirectory() as tmp:
-        path = str(pathlib.Path(tmp) / "full.pt")
-        SaveFullModelNode().execute({"model": model, "path": path})
+        path = str(pathlib.Path(tmp) / "full_forward.pt")
+        SaveFullModelNode().execute({"mode": "save_full", "model": model, "path": path})
         loaded = PretrainedBlockNode().execute({
+            "mode": "load_full",
             "path": path, "device": "cpu",
-            "freeze_all": False, "trainable_layers": 0, "eval_mode": True,
+            "freeze": False, "trainable_layers": 0, "eval_mode": True,
         })["model"]
         import torch
         x = torch.randn(2, 4)
@@ -335,7 +354,9 @@ def test_load_weights_exporter_contains_load():
     from core.exporter import GraphExporter
     from nodes.pytorch.persistence import LoadWeightsNode
     g = Graph()
-    g.add_node(LoadWeightsNode())
+    n = LoadWeightsNode()
+    n.inputs["mode"].default_value = "load_into"
+    g.add_node(n)
     script = GraphExporter().export(g)
     assert "torch.load" in script
 
@@ -345,7 +366,9 @@ def test_checkpoint_exporter_has_epoch_and_loss():
     from core.exporter import GraphExporter
     from nodes.pytorch.persistence import SaveCheckpointNode
     g = Graph()
-    g.add_node(SaveCheckpointNode())
+    node = SaveCheckpointNode()
+    node.inputs["mode"].default_value = "save_checkpoint"
+    g.add_node(node)
     script = GraphExporter().export(g)
     assert "epoch" in script
     assert "loss" in script

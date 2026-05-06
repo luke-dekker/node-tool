@@ -9,10 +9,11 @@ import pytest
 
 def test_io_nodes_registered():
     from nodes import NODE_REGISTRY
+    # File / Network ops collapsed into io_file_write + io_network_send.
+    # Serial nodes kept separate (test monkeypatching depends on per-class layout).
     expected = [
         "io_serial_out", "io_serial_in", "io_serial_list",
-        "io_http_post", "io_mqtt_publish", "io_websocket_send", "io_ros_publish",
-        "io_csv_writer", "io_json_writer", "io_text_log",
+        "io_file_write", "io_network_send", "io_webcam",
     ]
     for tn in expected:
         assert tn in NODE_REGISTRY, f"{tn} not in registry"
@@ -93,8 +94,12 @@ def test_http_post_no_requests(monkeypatch):
         return real_import(name, *args, **kwargs)
     monkeypatch.setattr(builtins, "__import__", mock_import)
     from nodes.io.network_nodes import HTTPPostNode
-    result = HTTPPostNode().execute({"data": [1, 2], "url": "http://x", "headers": "", "timeout": 1})
-    assert "error" in result["response"]
+    # NetworkSendNode reports the requests-missing error on `status`, not
+    # `response` (it never gets to making a request).
+    result = HTTPPostNode().execute({
+        "kind": "http", "data": [1, 2], "url": "http://x", "headers": "", "timeout": 1,
+    })
+    assert "error" in result["status"]
 
 
 def test_http_post_bad_url():
@@ -105,11 +110,11 @@ def test_http_post_bad_url():
     except ImportError:
         pytest.skip("requests not installed")
     result = HTTPPostNode().execute({
-        "data": {"x": 1}, "url": "http://127.0.0.1:19999/nope",
-        "headers": "", "timeout": 0.5
+        "kind": "http", "data": {"x": 1}, "url": "http://127.0.0.1:19999/nope",
+        "headers": "", "timeout": 0.5,
     })
-    assert result["status_code"] == 0
-    assert "error" in result["response"]
+    # Connection refused — NetworkSendNode catches and reports on `status`.
+    assert "error" in result["status"]
 
 
 # ── MQTT — no paho ────────────────────────────────────────────────────────────
@@ -124,8 +129,8 @@ def test_mqtt_no_paho(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", mock_import)
     from nodes.io.network_nodes import MQTTPublishNode
     result = MQTTPublishNode().execute({
-        "data": [1.0], "broker": "localhost", "port": 1883,
-        "topic": "test", "encoding": "json", "qos": 0
+        "kind": "mqtt", "data": [1.0], "broker": "localhost", "port": 1883,
+        "topic": "test", "encoding": "json",
     })
     assert "error" in result["status"]
 
@@ -198,7 +203,8 @@ def test_json_writer_overwrite():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "out.json")
         result = JSONWriterNode().execute({
-            "data": {"epoch": 1, "loss": 0.5}, "path": path, "mode": "overwrite", "indent": 2
+            "kind": "json", "data": {"epoch": 1, "loss": 0.5},
+            "path": path, "json_mode": "overwrite", "indent": 2,
         })
         assert result["status"] == "ok"
         loaded = json.loads(pathlib.Path(path).read_text())
@@ -210,8 +216,8 @@ def test_json_writer_append_jsonl():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "out.jsonl")
         node = JSONWriterNode()
-        node.execute({"data": {"step": 1}, "path": path, "mode": "append", "indent": 0})
-        node.execute({"data": {"step": 2}, "path": path, "mode": "append", "indent": 0})
+        node.execute({"kind": "json", "data": {"step": 1}, "path": path, "json_mode": "append", "indent": 0})
+        node.execute({"kind": "json", "data": {"step": 2}, "path": path, "json_mode": "append", "indent": 0})
         lines = pathlib.Path(path).read_text().strip().split("\n")
         assert len(lines) == 2
         assert json.loads(lines[0])["step"] == 1
@@ -225,7 +231,7 @@ def test_text_log_creates_file():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "run.log")
         result = TextLogNode().execute({
-            "message": "hello", "data": None, "path": path, "timestamp": False
+            "kind": "text", "message": "hello", "data": None, "path": path, "timestamp": False,
         })
         assert result["status"] == "ok"
         assert "hello" in pathlib.Path(path).read_text()
@@ -236,7 +242,7 @@ def test_text_log_with_data():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "run.log")
         TextLogNode().execute({
-            "message": "loss:", "data": 0.123, "path": path, "timestamp": False
+            "kind": "text", "message": "loss:", "data": 0.123, "path": path, "timestamp": False,
         })
         content = pathlib.Path(path).read_text()
         assert "loss:" in content
@@ -248,7 +254,7 @@ def test_text_log_appends():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "run.log")
         node = TextLogNode()
-        node.execute({"message": "line1", "data": None, "path": path, "timestamp": False})
-        node.execute({"message": "line2", "data": None, "path": path, "timestamp": False})
+        node.execute({"kind": "text", "message": "line1", "data": None, "path": path, "timestamp": False})
+        node.execute({"kind": "text", "message": "line2", "data": None, "path": path, "timestamp": False})
         lines = pathlib.Path(path).read_text().strip().split("\n")
         assert len(lines) == 2

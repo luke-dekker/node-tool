@@ -45,7 +45,7 @@ class OptimizerNode(BaseNode):
 
     def export(self, iv, ov):
         m = self._val(iv, 'model')
-        opt_type = (iv.get("optimizer_type") or {}).get("value", "adam")
+        opt_type = (self.inputs["optimizer_type"].default_value or "adam")
         lr = self._val(iv, 'lr')
         wd = self._val(iv, 'weight_decay')
         mom = self._val(iv, 'momentum')

@@ -21,15 +21,11 @@ def register(ctx: PluginContext) -> None:
     from plugins.pytorch.port_types import register_all as register_port_types
     register_port_types()
 
-    # Discover all node classes from the existing nodes/pytorch/ package
+    # Discover all node classes from the existing nodes/pytorch/ package.
+    # discover_nodes inspects the package's namespace, which already includes
+    # everything imported in nodes/pytorch/__init__.py — no second-pass needed.
     import nodes.pytorch as pt_pkg
     ctx.discover_nodes(pt_pkg)
-
-    # Also discover from the sub-shim modules that pt.__init__ imports
-    for attr_name in dir(pt_pkg):
-        obj = getattr(pt_pkg, attr_name)
-        if isinstance(obj, type):
-            ctx.register_node(obj)
 
     # Categories this plugin adds to the palette
     ctx.add_categories([

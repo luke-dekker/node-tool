@@ -13,6 +13,10 @@ export interface PortDef {
   // When set, the Inspector renders a dropdown populated on-demand from
   // this RPC — e.g. ollama's installed-model list for OllamaClient.model.
   dynamic_choices?: string;
+  // True if the node still produces useful output when this port is left
+  // unwired. The canvas card dims optional port labels so users can tell
+  // required ports from skippable ones at a glance.
+  optional?: boolean;
 }
 
 export interface NodeDef {
@@ -34,6 +38,13 @@ export interface Registry {
 // default_value / description on every port.
 export interface NodeInstance extends NodeDef {
   id: string;
+  alias: string;
+  // Per-instance "show only these editable ports" filter, computed by the
+  // node from its current input values. Mega-consolidated nodes (LayerNode,
+  // PdTransformNode, ImageTransformNode) override BaseNode.relevant_inputs
+  // to hide irrelevant fields based on the chosen kind/op/mode. null means
+  // "show all editable ports". Refreshed by the server on each set_input.
+  relevant_inputs?: string[] | null;
 }
 
 // ── Panel spec (core/panel.py) ────────────────────────────────────────────

@@ -37,16 +37,17 @@ target metric. Each call you receive a list of controllable parameters
 with their current values, types, and allowed ranges/choices. You return
 a JSON object naming the changes you'd like to try this trial.
 
-Target ids use the pattern `T<N>.<port>` where N is the target's position
-in the graph's topological order — T1 is closest to the inputs, higher
-numbers are closer to the loss. Each target includes a context line
-"<NodeType> (in: <upstream>; out: <downstream>)" so you can tell, for
-example, which Linear is the first hidden layer vs the output head when
-several of the same type are controllable.
+Target ids use the pattern `<NodeAlias>.<port>` where NodeAlias is the
+node's human-readable alias on the canvas (e.g. `Linear2`, `InputMarker1`,
+`TrainMarker1`). Targets are listed in topological order — first target
+is closest to the inputs, last is closest to the loss. Each target
+includes a context line "<NodeType> (in: <upstream>; out: <downstream>)"
+so you can tell, for example, which Linear is the first hidden layer vs
+the output head when several same-type layers are controllable.
 
 Output JSON ONLY — no prose, no markdown fences:
 
-  {"changes": [{"target": "T<N>.<port>", "value": <new value>}, ...]}
+  {"changes": [{"target": "<NodeAlias>.<port>", "value": <new value>}, ...]}
 
 Rules:
   - Use the EXACT target id strings shown in the prompt (case-sensitive).
@@ -83,7 +84,7 @@ class _Target:
     """One wired (node, port) under agent control."""
     node_id:   str
     port_name: str
-    target_id: str            # short positional id like "T2.out_features"
+    target_id: str            # alias-qualified id like "Linear2.out_features"
     port_type: str            # PortType string (INT/FLOAT/STRING/BOOL/...)
     choices:   list | None
     pmin:      float | None
@@ -104,9 +105,14 @@ def _node_context(graph, node_id: str) -> tuple[str, str]:
     up_types: list[str] = []
     down_types: list[str] = []
     for c in graph.connections:
+        # Skip agent control wires — they're a relationship marker, not
+        # data flow, and mentioning "Autoresearch Agent" as an upstream
+        # would dilute the position signal the LLM is meant to use.
+        if c.from_port == "control":
+            continue
         if c.to_node_id == node_id:
             src = graph.nodes.get(c.from_node_id)
-            if src is not None and c.to_port != "control":
+            if src is not None:
                 up_types.append(src.label or src.type_name)
         if c.from_node_id == node_id:
             dst = graph.nodes.get(c.to_node_id)
@@ -119,10 +125,12 @@ def _node_context(graph, node_id: str) -> tuple[str, str]:
 
 def collect_targets(graph, agent_node_id: str) -> list[_Target]:
     """Walk the graph's connections to find every input port wired to
-    `<agent>.control`. Returns targets in topological order so `T1` is
-    closest to the inputs and `TN` is closest to the loss, giving the
+    `<agent>.control`. Returns targets in topological order — first entry
+    is closest to the inputs, last is closest to the loss, giving the
     LLM positional context — crucial when many same-type layers (e.g.
-    10 Linears) are all agent-controllable."""
+    10 Linears) are all agent-controllable. Target ids are built from
+    the node's canvas alias (`Linear2.out_features`) so users can map
+    history-log entries to the node they see on the canvas."""
     order = graph.topological_order()
     position = {nid: i for i, nid in enumerate(order)}
 
@@ -139,12 +147,15 @@ def collect_targets(graph, agent_node_id: str) -> list[_Target]:
     raw.sort(key=lambda t: (t[0], t[2]))
 
     out: list[_Target] = []
-    for idx, (_pos, node_id, port_name) in enumerate(raw, start=1):
+    for _pos, node_id, port_name in raw:
         target_node = graph.nodes[node_id]
         port = target_node.inputs[port_name]
-        # Positional id: T1, T2, T3 ... (+ port name suffix). Short, readable,
-        # and reflects where the target sits in the shape chain.
-        target_id = f"T{idx}.{port_name}"
+        # Alias-qualified target id — matches the badge the user sees on
+        # the canvas node, so history entries like "Linear2.out_features"
+        # map trivially to a specific node. Falls back to a short id slice
+        # for graphs whose aliases somehow weren't assigned.
+        alias = target_node.alias or f"{target_node.type_name}_{target_node.id[:6]}"
+        target_id = f"{alias}.{port_name}"
         up, down = _node_context(graph, node_id)
         out.append(_Target(
             node_id=node_id,
@@ -297,6 +308,7 @@ class ControlLoop:
         train_start_params: dict | None = None,
         model:         str | None = None,
         temperature:   float = 0.4,
+        log_fn:        Callable[[str], None] | None = None,
     ):
         self.run_id = run_id
         self.graph = graph
@@ -306,6 +318,7 @@ class ControlLoop:
         self.llm = llm
         self.playbook = playbook
         self.budget = budget
+        self.log_fn = log_fn or (lambda _msg: None)
         self.ledger = ledger
         self.metric = metric
         self.eval_budget_s = eval_budget_s
@@ -385,11 +398,33 @@ class ControlLoop:
                                wall=time.time() - trial_t0, error=str(exc))
             return
 
-        proposal_summary = ", ".join(
-            f"{c['target'].split('.')[-1]}={c['value']!r}" for c in changes
-        ) or "no changes (noop)"
+        # Snapshot current values of all targets BEFORE applying so we can
+        # render each change as `{alias}.{port}: old→new`. Reading from the
+        # live graph rather than the snapshot payload keeps the types (int
+        # vs string) clean for the summary.
+        targets_by_id = {t.target_id: t for t in self.targets}
+        old_by_id: dict[str, Any] = {}
+        for tid, t in targets_by_id.items():
+            node = self.graph.nodes.get(t.node_id)
+            if node is not None and t.port_name in node.inputs:
+                old_by_id[tid] = node.inputs[t.port_name].default_value
+
+        def _fmt_val(v: Any) -> str:
+            if isinstance(v, float):
+                return f"{v:g}"      # 0.001 not 0.0010000000000000002
+            return repr(v) if isinstance(v, str) else str(v)
+
+        parts: list[str] = []
+        for c in changes:
+            tid = c["target"]
+            old = old_by_id.get(tid, "?")
+            parts.append(f"{tid}: {_fmt_val(old)}→{_fmt_val(c['value'])}")
+        proposal_summary = ", ".join(parts) or "no changes (noop)"
         print(f"[autoresearch trial {idx}] LLM proposed: {proposal_summary}",
               flush=True)
+        # Mirror into the panel's log buffer so the UI sees what was tried —
+        # `print()` alone only reaches the process stdout.
+        self.log_fn(f"[Autoresearch] trial {idx}: {proposal_summary}")
         # Carry the proposal onto the trial history so the panel can show
         # what was actually tried, not just the op_kind tag.
         self._last_proposal = proposal_summary

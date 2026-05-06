@@ -24,6 +24,7 @@ class Serializer:
             nodes.append({
                 "id": node.id,
                 "type_name": node.type_name,
+                "alias": node.alias,
                 "pos": list(positions.get(node_id, [100, 100])),
                 "inputs": {
                     k: cls._serialize_value(p.default_value)
@@ -55,6 +56,9 @@ class Serializer:
                 continue
             node = cls_()
             node.id = nd["id"]
+            # Restore alias if the saved graph has one; else add_node assigns
+            # a fresh one so the node is never unnamed on the canvas.
+            node.alias = nd.get("alias", "") or ""
             for k, v in nd.get("inputs", {}).items():
                 if k in node.inputs and v is not None:
                     node.inputs[k].default_value = v

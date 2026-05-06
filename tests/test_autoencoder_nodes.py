@@ -12,100 +12,112 @@ import torch
 # ── Freeze parameter on layer nodes ──────────────────────────────────────────
 
 def test_linear_freeze():
-    from nodes.pytorch.layers import LinearNode
-    node = LinearNode()
-    node.execute({"tensor_in": None, "in_features": 4, "out_features": 2,
-                  "bias": True, "activation": "none", "freeze": True})
+    from nodes.pytorch.layer import LayerNode
+    import torch
+    node = LayerNode()
+    node.execute({"tensor_in": torch.randn(2, 4), "kind": "linear",
+                  "out_features": 2, "bias": True, "activation": "none", "freeze": True})
     assert all(not p.requires_grad for p in node._layer.parameters())
 
 def test_linear_no_freeze():
-    from nodes.pytorch.layers import LinearNode
-    node = LinearNode()
-    node.execute({"tensor_in": None, "in_features": 4, "out_features": 2,
-                  "bias": True, "activation": "none", "freeze": False})
+    from nodes.pytorch.layer import LayerNode
+    import torch
+    node = LayerNode()
+    node.execute({"tensor_in": torch.randn(2, 4), "kind": "linear",
+                  "out_features": 2, "bias": True, "activation": "none", "freeze": False})
     assert all(p.requires_grad for p in node._layer.parameters())
 
 def test_conv2d_freeze():
-    from nodes.pytorch.layers import Conv2dNode
-    node = Conv2dNode()
-    node.execute({"tensor_in": None, "in_ch": 1, "out_ch": 16, "kernel": 3,
-                  "stride": 1, "padding": 0, "activation": "none", "freeze": True})
+    from nodes.pytorch.layer import LayerNode
+    import torch
+    node = LayerNode()
+    node.execute({"tensor_in": torch.randn(1, 1, 8, 8), "kind": "conv2d",
+                  "out_ch": 16, "kernel": 3, "stride": 1, "padding": 0,
+                  "activation": "none", "freeze": True})
     assert all(not p.requires_grad for p in node._layer.parameters())
 
 def test_rnn_freeze():
-    from nodes.pytorch.recurrent import RNNLayerNode
-    result = RNNLayerNode().execute({"input_size": 8, "hidden_size": 16, "num_layers": 1,
-                                      "nonlinearity": "tanh", "dropout": 0.0,
-                                      "bidirectional": False, "batch_first": True, "freeze": True})
+    from nodes.pytorch.recurrent_layer import RecurrentLayerNode
+    import torch
+    result = RecurrentLayerNode().execute({
+        "kind": "rnn", "input_seq": torch.randn(1, 1, 8),
+        "hidden_size": 16, "num_layers": 1, "nonlinearity": "tanh",
+        "dropout": 0.0, "bidirectional": False, "batch_first": True, "freeze": True,
+    })
     assert all(not p.requires_grad for p in result["module"].parameters())
 
 def test_gru_freeze():
-    from nodes.pytorch.recurrent import GRULayerNode
-    result = GRULayerNode().execute({"input_size": 8, "hidden_size": 16, "num_layers": 1,
-                                      "dropout": 0.0, "bidirectional": False,
-                                      "batch_first": True, "freeze": True})
+    from nodes.pytorch.recurrent_layer import RecurrentLayerNode
+    import torch
+    result = RecurrentLayerNode().execute({
+        "kind": "gru", "input_seq": torch.randn(1, 1, 8),
+        "hidden_size": 16, "num_layers": 1, "dropout": 0.0,
+        "bidirectional": False, "batch_first": True, "freeze": True,
+    })
     assert all(not p.requires_grad for p in result["module"].parameters())
 
 def test_lstm_freeze():
-    from nodes.pytorch.recurrent import LSTMLayerNode
-    result = LSTMLayerNode().execute({"input_size": 8, "hidden_size": 16, "num_layers": 1,
-                                       "dropout": 0.0, "bidirectional": False,
-                                       "batch_first": True, "freeze": True})
+    from nodes.pytorch.recurrent_layer import RecurrentLayerNode
+    import torch
+    result = RecurrentLayerNode().execute({
+        "kind": "lstm", "input_seq": torch.randn(1, 1, 8),
+        "hidden_size": 16, "num_layers": 1, "dropout": 0.0,
+        "bidirectional": False, "batch_first": True, "freeze": True,
+    })
     assert all(not p.requires_grad for p in result["module"].parameters())
 
 def test_freeze_named_layers():
-    from nodes.pytorch.backbones import ResNet18Node, FreezeNamedLayersNode
+    from nodes.pytorch.backbones import ResNet18Node
+    from nodes.pytorch.freeze_backbone import FreezeLayersNode
     model = ResNet18Node().execute({"pretrained": False, "num_classes": 10})["model"]
-    result = FreezeNamedLayersNode().execute({"model": model, "names": "layer1,layer2", "freeze": True})
+    result = FreezeLayersNode().execute({
+        "model": model, "mode": "by_name", "names": "layer1,layer2", "freeze": True,
+    })
     assert result["model"] is not None
-    assert "Frozen" in result["info"]
+    assert "frozen" in result["info"].lower()
 
 def test_freeze_named_layers_none_guard():
-    from nodes.pytorch.backbones import FreezeNamedLayersNode
-    result = FreezeNamedLayersNode().execute({"model": None, "names": "encoder", "freeze": True})
+    from nodes.pytorch.freeze_backbone import FreezeLayersNode
+    result = FreezeLayersNode().execute({
+        "model": None, "mode": "by_name", "names": "encoder", "freeze": True,
+    })
     assert result["model"] is None
 
 
 # ── Reparameterize ────────────────────────────────────────────────────────────
 
 def test_reparameterize():
-    from nodes.pytorch.reparameterize import ReparameterizeNode
-    mu      = torch.zeros(4, 8)
-    log_var = torch.zeros(4, 8)
-    result  = ReparameterizeNode().execute({"mu": mu, "log_var": log_var})
+    from nodes.pytorch.latent import LatentNode
+    mu      = torch.zeros(4, 8); log_var = torch.zeros(4, 8)
+    result  = LatentNode().execute({"mode": "reparameterize", "mean": mu, "log_variance": log_var})
     z = result["z"]
-    assert z is not None
-    assert z.shape == (4, 8)
-    # z should NOT be all zeros (sampling adds noise)
+    assert z is not None and z.shape == (4, 8)
     assert not torch.all(z == 0)
 
 def test_reparameterize_none_guard():
-    from nodes.pytorch.reparameterize import ReparameterizeNode
-    result = ReparameterizeNode().execute({"mu": None, "log_var": None})
+    from nodes.pytorch.latent import LatentNode
+    result = LatentNode().execute({"mode": "reparameterize", "mean": None, "log_variance": None})
     assert result["z"] is None
 
 
-# ── KL Divergence ─────────────────────────────────────────────────────────────
+# ── KL Divergence (now mode="kl" on VAELossNode) ───────────────────────────
 
 def test_kl_divergence():
-    from nodes.pytorch.kl_divergence import KLDivergenceNode
-    mu      = torch.zeros(4, 8)
-    log_var = torch.zeros(4, 8)
-    result  = KLDivergenceNode().execute({"mu": mu, "log_var": log_var})
+    from nodes.pytorch.vae_loss import VAELossNode
+    mu = torch.zeros(4, 8); log_var = torch.zeros(4, 8)
+    result = VAELossNode().execute({"mode": "kl", "mean": mu, "log_variance": log_var})
     assert result["kl_loss"] is not None
-    # KL(N(0,1) || N(0,1)) = 0
-    assert abs(result["kl_loss"].item()) < 1e-5
+    assert abs(result["kl_loss"].item()) < 1e-5  # KL(N(0,1)||N(0,1)) = 0
 
 def test_kl_divergence_nonzero():
-    from nodes.pytorch.kl_divergence import KLDivergenceNode
-    mu      = torch.ones(4, 8) * 2.0
-    log_var = torch.ones(4, 8) * 0.5
-    result  = KLDivergenceNode().execute({"mu": mu, "log_var": log_var})
+    from nodes.pytorch.vae_loss import VAELossNode
+    mu = torch.ones(4, 8) * 2.0; log_var = torch.ones(4, 8) * 0.5
+    result = VAELossNode().execute({"mode": "kl", "mean": mu, "log_variance": log_var})
     assert result["kl_loss"].item() > 0
 
 def test_kl_none_guard():
-    from nodes.pytorch.kl_divergence import KLDivergenceNode
-    result = KLDivergenceNode().execute({"mu": None, "log_var": None})
+    from nodes.pytorch.vae_loss import VAELossNode
+    result = VAELossNode().execute({"mode": "kl", "mean": None, "log_variance": None})
     assert result["kl_loss"] is None
 
 
@@ -113,41 +125,38 @@ def test_kl_none_guard():
 
 def test_vae_loss_combines():
     from nodes.pytorch.vae_loss import VAELossNode
-    recon = torch.tensor(0.5)
-    kl    = torch.tensor(0.1)
-    result = VAELossNode().execute({"recon_loss": recon, "kl_loss": kl, "beta": 1.0})
+    recon = torch.tensor(0.5); kl = torch.tensor(0.1)
+    result = VAELossNode().execute({"mode": "combine", "recon_loss": recon, "kl_loss": kl, "beta": 1.0})
     assert abs(result["loss"].item() - 0.6) < 1e-5
 
 def test_vae_loss_beta():
     from nodes.pytorch.vae_loss import VAELossNode
-    recon = torch.tensor(0.5)
-    kl    = torch.tensor(0.1)
-    result = VAELossNode().execute({"recon_loss": recon, "kl_loss": kl, "beta": 4.0})
+    recon = torch.tensor(0.5); kl = torch.tensor(0.1)
+    result = VAELossNode().execute({"mode": "combine", "recon_loss": recon, "kl_loss": kl, "beta": 4.0})
     assert abs(result["loss"].item() - 0.9) < 1e-5
 
 def test_vae_loss_none_guard():
     from nodes.pytorch.vae_loss import VAELossNode
-    result = VAELossNode().execute({"recon_loss": None, "kl_loss": None, "beta": 1.0})
+    result = VAELossNode().execute({"mode": "combine", "recon_loss": None, "kl_loss": None, "beta": 1.0})
     assert result["loss"] is None
 
 
 # ── Latent Sampler & Gaussian Noise ──────────────────────────────────────────
 
 def test_latent_sampler():
-    """Use a simple Sequential as the decoder — not the deleted VAENode."""
     import torch.nn as nn
-    from nodes.pytorch.latent_sampler import LatentSamplerNode
+    from nodes.pytorch.latent import LatentNode
     decoder = nn.Sequential(nn.Linear(4, 16), nn.ReLU(), nn.Linear(16, 32))
-    result = LatentSamplerNode().execute({
-        "decoder": decoder, "latent_dim": 4, "n_samples": 6, "device": "cpu"
+    result = LatentNode().execute({
+        "mode": "sample", "decoder": decoder, "latent_dim": 4, "n_samples": 6, "device": "cpu",
     })
     assert result["samples"] is not None
-    assert result["samples"].shape[0] == 6
-    assert result["samples"].shape[1] == 32
+    assert result["samples"].shape == (6, 32)
 
 def test_latent_sampler_none_guard():
-    from nodes.pytorch.latent_sampler import LatentSamplerNode
-    result = LatentSamplerNode().execute({"decoder": None, "latent_dim": 8, "n_samples": 4, "device": "cpu"})
+    from nodes.pytorch.latent import LatentNode
+    result = LatentNode().execute({"mode": "sample", "decoder": None,
+                                    "latent_dim": 8, "n_samples": 4, "device": "cpu"})
     assert result["samples"] is None
 
 def test_gate_noise():
@@ -227,8 +236,11 @@ def test_registry_has_per_layer_blocks():
     """The per-layer building blocks should still be registered after the
     monolithic VAENode/AutoencoderNode/VAETrainingConfigNode hard-delete."""
     from nodes import NODE_REGISTRY
-    expected = ["pt_reparameterize", "pt_kl_divergence", "pt_vae_loss",
-                "pt_latent_sampler", "pt_freeze_named_layers",
+    # Reparameterize + LatentSampler collapsed into pt_latent (LatentNode).
+    # KLDivergence collapsed into pt_vae_loss (mode="kl").
+    # FreezeNamedLayers collapsed into pt_freeze_backbone (mode="by_name").
+    expected = ["pt_latent", "pt_vae_loss",
+                "pt_freeze_backbone",
                 "pt_loss_compute", "pt_gate",
                 "pt_input_marker", "pt_train_marker"]
     for tn in expected:

@@ -3,11 +3,29 @@
 from __future__ import annotations
 import hashlib
 import json
+import re
 from typing import Any
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from core.node import BaseNode
 from core.port_types import PortTypeRegistry
+
+
+_PLUGIN_PREFIX_RE = re.compile(r"^[a-z]{2,3}_")
+
+
+def _compact_type_name(type_name: str) -> str:
+    """Derive a CamelCase alias prefix from a type_name.
+
+    Strips a leading plugin prefix like `pt_` / `ag_` / `io_` (2–3 lowercase
+    letters + underscore) and turns snake_case into CamelCase so the result
+    reads naturally as a node alias: `pt_linear` → `Linear`,
+    `ag_ollama_client` → `OllamaClient`, `pt_input_marker` → `InputMarker`.
+    Falls back to a titlecased version of the raw type_name on odd input.
+    """
+    stripped = _PLUGIN_PREFIX_RE.sub("", type_name or "") or (type_name or "node")
+    parts = [p for p in stripped.split("_") if p]
+    return "".join(p[:1].upper() + p[1:] for p in parts) or "Node"
 
 
 # ── Command stack (undo/redo) ─────────────────────────────────────────────────
@@ -112,7 +130,28 @@ class Graph:
 
     def add_node(self, node: BaseNode) -> BaseNode:
         self.nodes[node.id] = node
+        if not node.alias:
+            node.alias = self._alloc_alias(node.type_name)
         return node
+
+    def _alloc_alias(self, type_name: str) -> str:
+        """Assign a stable, human-readable per-instance alias like 'Linear2'
+        or 'InputMarker1'. Counter is per-type and per-graph; counts nodes
+        of the same type already present. Stays fixed for the node's life —
+        even if other nodes of the same type are added/removed later — so
+        the user can memorize 'Linear2' and have it keep pointing at the
+        same instance. Autoresearch uses this as the target-id prefix so
+        the history table mirrors what's on the canvas.
+        """
+        base = _compact_type_name(type_name)
+        used = {n.alias for n in self.nodes.values() if n.alias}
+        # Count by matching prefix, then scan forward to the first free slot.
+        # Re-use of 'N' is fine: aliases are released on node removal (the
+        # gap would otherwise grow forever over long edit sessions).
+        n = 1
+        while f"{base}{n}" in used:
+            n += 1
+        return f"{base}{n}"
 
     def remove_node(self, node_id: str) -> None:
         self.nodes.pop(node_id, None)
@@ -315,6 +354,7 @@ class Graph:
             nodes.append({
                 "id":        nid,
                 "type_name": node.type_name,
+                "alias":     node.alias,
                 "inputs":    inputs,
             })
         connections = sorted([
@@ -345,6 +385,8 @@ class Graph:
                 node = cls_()
                 node.id = nid
                 self.nodes[nid] = node
+            # Restore alias from snapshot; backfill for pre-alias snapshots.
+            node.alias = snap.get("alias", "") or node.alias or self._alloc_alias(node.type_name)
             for pname, val in snap.get("inputs", {}).items():
                 if pname in node.inputs:
                     node.inputs[pname].default_value = val

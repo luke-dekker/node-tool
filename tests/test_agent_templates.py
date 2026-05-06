@@ -28,7 +28,7 @@ def _register_port_types():
     ("templates.agent_chat", "Agent Chat (Ollama + 1 tool)"),
     ("templates.agent_rag", "Agent RAG (docs → embed → store → retrieve)"),
     ("templates.agent_autoresearch_mlp",
-     "Agent Autoresearch (mutate → eval → keep MLP)"),
+     "Agent Autoresearch (3-hidden MLP — positional id test)"),
     ("templates.agent_research_assistant",
      "Agent Research Assistant (tools + memory + prompt)"),
 ])
@@ -130,8 +130,8 @@ def test_agent_autoresearch_mlp_has_ab_cone_and_agent():
          if n.inputs["group"].default_value == "mlp"]
     assert len(a) == 1 and len(b) == 1
     cone = g.subgraph_between(a[0].id, b[0].id)
-    # A + flatten + 2 linears + B
-    assert len(cone) == 5
+    # A + flatten + 4 linears (3 hidden + output head) + B
+    assert len(cone) == 7
     # Exactly one AutoresearchAgent on the canvas; no leftover floaters.
     types = [n.type_name for n in g.nodes.values()]
     assert types.count("ag_autoresearch") == 1
@@ -173,7 +173,8 @@ def test_agent_autoresearch_control_wires_define_search_space():
     # — shape-safe knobs with big impact on convergence.
     target_ports = {(g.nodes[c.to_node_id].type_name, c.to_port)
                     for c in control_wires}
-    assert ("pt_linear", "activation") in target_ports
+    # LayerNode (pt_layer) absorbed pt_linear; activation port still exists.
+    assert ("pt_layer", "activation") in target_ports
     assert ("pt_train_marker", "lr") in target_ports
 
 
@@ -195,7 +196,7 @@ def test_template_registry_picks_up_agent_templates():
     labels = {t[0] for t in get_templates()}
     assert "Agent Chat (Ollama + 1 tool)" in labels
     assert "Agent RAG (docs → embed → store → retrieve)" in labels
-    assert "Agent Autoresearch (mutate → eval → keep MLP)" in labels
+    assert "Agent Autoresearch (3-hidden MLP — positional id test)" in labels
     assert "Agent Research Assistant (tools + memory + prompt)" in labels
 
 

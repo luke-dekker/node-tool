@@ -1,7 +1,10 @@
-"""Re-export shim — individual network node files are the source of truth."""
-from nodes.io.http_post import HTTPPostNode
-from nodes.io.mqtt_publish import MQTTPublishNode
-from nodes.io.websocket_send import WebSocketSendNode
-from nodes.io.ros_publish import ROSPublishNode
+"""Re-export shim — NetworkSendNode (kind dropdown) replaces HTTP/MQTT/WS/ROS2."""
+from nodes.io.network_send import NetworkSendNode
 
-__all__ = ["HTTPPostNode", "MQTTPublishNode", "WebSocketSendNode", "ROSPublishNode"]
+HTTPPostNode      = NetworkSendNode
+MQTTPublishNode   = NetworkSendNode
+WebSocketSendNode = NetworkSendNode
+ROSPublishNode    = NetworkSendNode
+
+__all__ = ["NetworkSendNode", "HTTPPostNode", "MQTTPublishNode",
+           "WebSocketSendNode", "ROSPublishNode"]

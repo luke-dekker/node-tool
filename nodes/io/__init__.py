@@ -1,12 +1,35 @@
-"""IO / control output nodes."""
-# Serial nodes are kept in serial_nodes.py (real module, not shim) to preserve
-# test monkeypatching compatibility for _serial_available.
-from nodes.io.serial_nodes import SerialOutputNode, SerialInputNode, ListSerialPortsNode
-from nodes.io.csv_writer import CSVWriterNode
-from nodes.io.json_writer import JSONWriterNode
-from nodes.io.text_log import TextLogNode
-from nodes.io.http_post import HTTPPostNode
-from nodes.io.mqtt_publish import MQTTPublishNode
-from nodes.io.websocket_send import WebSocketSendNode
-from nodes.io.ros_publish import ROSPublishNode
-from nodes.io.webcam import WebcamCaptureNode
+"""IO nodes — consolidated 12 → 4 (active).
+
+- FileWriteNode      — kind: csv | json | text  (replaces CSV/JSON/TextLog)
+- NetworkSendNode    — kind: http | mqtt | ws | ros2  (replaces 4 publishers)
+- WebcamCaptureNode  — webcam frame capture (kept; distinct semantics)
+- Serial nodes       — kept as 3 (in/out/list) in serial_nodes.py (test
+                       monkeypatching pattern depends on the per-class layout)
+
+Old class names alias to the consolidated ones. Caller sets `kind` on the
+instance to recover specific behavior.
+"""
+from nodes.io.file_write    import FileWriteNode
+from nodes.io.network_send  import NetworkSendNode
+from nodes.io.webcam        import WebcamCaptureNode
+from nodes.io.serial_nodes  import (
+    SerialOutputNode, SerialInputNode, ListSerialPortsNode,
+)
+
+# Back-compat — FileWriteNode kinds
+CSVWriterNode  = FileWriteNode    # set kind="csv" (default)
+JSONWriterNode = FileWriteNode    # set kind="json"
+TextLogNode    = FileWriteNode    # set kind="text"
+
+# Back-compat — NetworkSendNode kinds
+HTTPPostNode      = NetworkSendNode    # set kind="http" (default)
+MQTTPublishNode   = NetworkSendNode    # set kind="mqtt"
+WebSocketSendNode = NetworkSendNode    # set kind="ws"
+ROSPublishNode    = NetworkSendNode    # set kind="ros2"
+
+__all__ = [
+    "FileWriteNode", "NetworkSendNode", "WebcamCaptureNode",
+    "SerialOutputNode", "SerialInputNode", "ListSerialPortsNode",
+    "CSVWriterNode", "JSONWriterNode", "TextLogNode",
+    "HTTPPostNode", "MQTTPublishNode", "WebSocketSendNode", "ROSPublishNode",
+]

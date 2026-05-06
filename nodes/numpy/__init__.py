@@ -1,23 +1,42 @@
-from nodes.numpy.np_arange import NpArangeNode
-from nodes.numpy.np_linspace import NpLinspaceNode
-from nodes.numpy.np_zeros import NpZerosNode
-from nodes.numpy.np_ones import NpOnesNode
-from nodes.numpy.np_rand import NpRandNode
-from nodes.numpy.np_randn import NpRandnNode
-from nodes.numpy.np_from_list import NpFromListNode
-from nodes.numpy.np_eye import NpEyeNode
-from nodes.numpy.np_clip import NpClipNode
-from nodes.numpy.np_reshape import NpReshapeNode
-from nodes.numpy.np_concat import NpConcatNode
-from nodes.numpy.np_stack import NpStackNode
-from nodes.numpy.np_slice import NpSliceNode
-from nodes.numpy.np_where import NpWhereNode
-from nodes.numpy.np_dot import NpDotNode
-from nodes.numpy.np_matmul import NpMatMulNode
-from nodes.numpy.np_inv import NpInvNode
-from nodes.numpy.np_eig import NpEigNode
-from nodes.numpy.np_svd import NpSVDNode
-from nodes.numpy.np_array_info import NpArrayInfoNode
-from nodes.numpy.np_shape import NpShapeNode
-from nodes.numpy.array_func import NpArrayFuncNode
-from nodes.numpy.reduce import NpReduceNode
+"""NumPy nodes — consolidated 12 → 3.
+
+Active:
+- NpCreateNode  — creator (no array input). kind: arange|linspace|ones|zeros|eye|rand|randn|from_list
+- NpOpNode      — op dropdown over transforms / reductions / element-wise / inspections
+- NpLinalgNode  — multi-output linear algebra (inv|svd|eig|dot|matmul)
+
+All old per-op class names alias to one of the three. Caller sets `op`/`kind`
+on the instance to recover specific behavior.
+"""
+from nodes.numpy.np_create import NpCreateNode
+from nodes.numpy.np_op     import NpOpNode
+from nodes.numpy.np_linalg import NpLinalgNode
+
+# Back-compat — NpCreateNode kinds
+NpArangeNode    = NpCreateNode
+NpLinspaceNode  = NpCreateNode
+NpZerosNode     = NpCreateNode
+NpOnesNode      = NpCreateNode
+NpRandNode      = NpCreateNode
+NpRandnNode     = NpCreateNode
+NpFromListNode  = NpCreateNode
+NpEyeNode       = NpCreateNode
+
+# Back-compat — NpLinalgNode kinds
+NpDotNode    = NpLinalgNode
+NpMatMulNode = NpLinalgNode
+NpInvNode    = NpLinalgNode
+NpEigNode    = NpLinalgNode
+NpSVDNode    = NpLinalgNode
+
+# Back-compat — NpOpNode ops (transforms / reductions / element-wise / inspect)
+NpClipNode      = NpOpNode  # op="clip"
+NpConcatNode    = NpOpNode  # op="concat"
+NpStackNode     = NpOpNode  # op="stack"
+NpSliceNode     = NpOpNode  # op="slice"
+NpWhereNode     = NpOpNode  # op="where"
+NpReshapeNode   = NpOpNode  # op="reshape"
+NpShapeNode     = NpOpNode  # op="shape"
+NpArrayInfoNode = NpOpNode  # op="info"
+NpArrayFuncNode = NpOpNode  # op in {abs,sqrt,log,exp,transpose,flatten,normalize,sign,cumsum,diff}
+NpReduceNode    = NpOpNode  # op in {sum,mean,std,var,min,max,median,prod,any,all}

@@ -381,8 +381,8 @@ function AutoresearchHistory({
           <div style={styles.historyHeader}>
             <span style={{ width: 24 }}>#</span>
             <span style={{ flex: 1 }}>op</span>
-            <span style={{ width: 64, textAlign: "right" }}>score</span>
-            <span style={{ width: 70, textAlign: "right" }}>status</span>
+            <span style={{ width: 56, textAlign: "right" }}>score</span>
+            <span style={{ width: 56, textAlign: "right" }}>status</span>
           </div>
           {history.slice().reverse().map((h: any, i: number) => {
             const score = typeof h.score === "number" && Number.isFinite(h.score)
@@ -392,20 +392,23 @@ function AutoresearchHistory({
               : h.status === "discard" ? theme.textDim
               : theme.err;
             return (
-              <div key={`${h.trial_idx}-${i}`} style={styles.historyRow}>
+              <div key={`${h.trial_idx}-${i}`} style={{ ...styles.historyRow, alignItems: "flex-start" }}>
                 <span style={{ width: 24, color: theme.textDim }}>{h.trial_idx}</span>
-                <span style={{
-                  flex: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  fontFamily: "monospace",
-                  fontSize: 11,
-                }}>{String(h.op_kind ?? "")}</span>
-                <span style={{ width: 64, textAlign: "right", fontFamily: "monospace", fontSize: 11 }}>
+                <span
+                  title={String(h.op_kind ?? "")}
+                  style={{
+                    flex: 1,
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    wordBreak: "break-word",
+                    whiteSpace: "normal",
+                    lineHeight: 1.3,
+                  }}
+                >{String(h.op_kind ?? "")}</span>
+                <span style={{ width: 56, textAlign: "right", fontFamily: "monospace", fontSize: 11 }}>
                   {score}
                 </span>
-                <span style={{ width: 70, textAlign: "right", color: statusColor, fontSize: 11 }}>
+                <span style={{ width: 56, textAlign: "right", color: statusColor, fontSize: 11 }}>
                   {String(h.status ?? "")}
                 </span>
               </div>

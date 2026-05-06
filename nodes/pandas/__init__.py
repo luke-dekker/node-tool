@@ -1,23 +1,52 @@
-from nodes.pandas.pd_from_csv import PdFromCsvNode
-from nodes.pandas.pd_from_numpy import PdFromNumpyNode
-from nodes.pandas.pd_from_dict import PdFromDictNode
-from nodes.pandas.pd_make_sample import PdMakeSampleNode
-from nodes.pandas.pd_head import PdHeadNode
-from nodes.pandas.pd_describe import PdDescribeNode
-from nodes.pandas.pd_info import PdInfoNode
-from nodes.pandas.pd_shape import PdShapeNode
-from nodes.pandas.pd_select_cols import PdSelectColsNode
-from nodes.pandas.pd_drop_cols import PdDropColsNode
-from nodes.pandas.pd_filter_rows import PdFilterRowsNode
-from nodes.pandas.pd_get_column import PdGetColumnNode
-from nodes.pandas.pd_drop_na import PdDropNaNode
-from nodes.pandas.pd_fill_na import PdFillNaNode
-from nodes.pandas.pd_sort import PdSortNode
-from nodes.pandas.pd_reset_index import PdResetIndexNode
-from nodes.pandas.pd_rename_col import PdRenameColNode
-from nodes.pandas.pd_to_numpy import PdToNumpyNode
-from nodes.pandas.pd_normalize import PdNormalizeNode
-from nodes.pandas.pd_groupby import PdGroupByNode
-from nodes.pandas.pd_correlation import PdCorrelationNode
-from nodes.pandas.pd_xy_split import PdXYSplitNode
-from nodes.pandas.pd_merge import PdMergeNode
+"""Pandas nodes — consolidated to 3 mega-nodes.
+
+- PdSourceNode    — kind: csv | json | numpy | sample → DataFrame
+- PdTransformNode — every df→? op: transforms / info / extract (16 ops)
+- PdMergeNode     — multi-input merge (kept; distinct semantics)
+
+Every old class name aliases to one of the three. Caller sets `kind`/`op`
+on the instance to recover specific behavior.
+"""
+from nodes.pandas.pd_source    import PdSourceNode
+from nodes.pandas.pd_transform import PdTransformNode
+from nodes.pandas.pd_merge     import PdMergeNode
+
+# Back-compat — PdSourceNode kinds
+PdFromCsvNode      = PdSourceNode
+PdFromDictNode     = PdSourceNode
+PdFromNumpyNode    = PdSourceNode
+PdMakeSampleNode   = PdSourceNode    # kind="sample"
+
+# Back-compat — PdTransformNode ops (transforms)
+PdDropNaNode       = PdTransformNode
+PdFillNaNode       = PdTransformNode
+PdDropColsNode     = PdTransformNode
+PdSelectColsNode   = PdTransformNode
+PdRenameColNode    = PdTransformNode
+PdResetIndexNode   = PdTransformNode
+PdNormalizeNode    = PdTransformNode
+PdSortNode         = PdTransformNode
+PdFilterRowsNode   = PdTransformNode
+PdCorrelationNode  = PdTransformNode
+PdGroupByNode      = PdTransformNode
+
+# Back-compat — PdTransformNode info ops (was PdInfoNode)
+PdInfoNode         = PdTransformNode
+PdDescribeNode     = PdTransformNode
+PdHeadNode         = PdTransformNode
+PdShapeNode        = PdTransformNode
+
+# Back-compat — PdTransformNode extract ops
+PdGetColumnNode    = PdTransformNode
+PdToNumpyNode      = PdTransformNode
+PdXYSplitNode      = PdTransformNode
+
+__all__ = [
+    "PdSourceNode", "PdTransformNode", "PdMergeNode",
+    "PdFromCsvNode", "PdFromDictNode", "PdFromNumpyNode", "PdMakeSampleNode",
+    "PdDropNaNode", "PdFillNaNode", "PdDropColsNode", "PdSelectColsNode",
+    "PdRenameColNode", "PdResetIndexNode", "PdNormalizeNode", "PdSortNode",
+    "PdFilterRowsNode", "PdCorrelationNode", "PdGroupByNode",
+    "PdInfoNode", "PdDescribeNode", "PdHeadNode", "PdShapeNode",
+    "PdGetColumnNode", "PdToNumpyNode", "PdXYSplitNode",
+]

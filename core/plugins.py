@@ -84,13 +84,19 @@ class PluginContext:
     # ── Nodes ───────────────────────────────────────────────────────────────
 
     def register_node(self, cls: Type) -> None:
-        """Register a single node class."""
+        """Register a single node class. No-op if the same class is already registered."""
         from core.node import BaseNode
         if hasattr(cls, "type_name") and cls.type_name != "base":
-            self._node_classes.append(cls)
+            if not any(c is cls for c in self._node_classes):
+                self._node_classes.append(cls)
 
     def discover_nodes(self, module) -> int:
-        """Auto-discover BaseNode subclasses in a module (same as nodes/__init__._discover)."""
+        """Auto-discover BaseNode subclasses in a module.
+
+        Dedupes by class identity — when a node has back-compat aliases
+        (e.g. `NpArangeNode = NpCreateNode`), getmembers yields the same class
+        under multiple names, but we only want to register it once.
+        """
         import inspect
         from core.node import BaseNode
         count = 0
@@ -98,7 +104,8 @@ class PluginContext:
             if (issubclass(obj, BaseNode)
                     and obj is not BaseNode
                     and hasattr(obj, "type_name")
-                    and obj.type_name != "base"):
+                    and obj.type_name != "base"
+                    and not any(c is obj for c in self._node_classes)):
                 self._node_classes.append(obj)
                 count += 1
         return count

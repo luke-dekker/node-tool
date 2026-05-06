@@ -16,7 +16,7 @@ DESCRIPTION = "Pretrained ResNet18, frozen backbone, new classification head. Ma
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.input_marker          import InputMarkerNode
     from nodes.pytorch.pretrained_backbone   import PretrainedBackboneNode
-    from nodes.pytorch.freeze_named_layers   import FreezeNamedLayersNode
+    from nodes.pytorch.freeze_backbone       import FreezeLayersNode
     from nodes.pytorch.apply_module          import ApplyModuleNode
     from nodes.pytorch.train_marker          import TrainMarkerNode
 
@@ -28,8 +28,9 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     backbone = PretrainedBackboneNode(); backbone.inputs["architecture"].default_value="resnet18"; backbone.inputs["pretrained"].default_value=True; backbone.inputs["num_classes"].default_value=10
     graph.add_node(backbone); positions[backbone.id] = pos(col=1, row=0)
 
-    freeze = FreezeNamedLayersNode()
-    freeze.inputs["names"].default_value = "conv1,bn1,layer1,layer2,layer3,layer4"
+    freeze = FreezeLayersNode()
+    freeze.inputs["mode"].default_value   = "by_name"
+    freeze.inputs["names"].default_value  = "conv1,bn1,layer1,layer2,layer3,layer4"
     freeze.inputs["freeze"].default_value = True
     graph.add_node(freeze); positions[freeze.id] = pos(col=2, row=0)
 

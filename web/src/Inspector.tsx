@@ -32,11 +32,7 @@ function InspectorBody({ instance }: { instance: NodeInstance }) {
   const setNodes = useStore((s) => s.setNodes);
 
   const update = (portName: string, value: unknown) => {
-    // 1. Send to server so execution uses the new value.
-    client
-      .call("set_input", { node_id: instance.id, port_name: portName, value })
-      .catch((err) => console.error("set_input failed:", err));
-    // 2. Patch local state so inspector + canvas summary reflect immediately.
+    // Optimistic local patch first so the widget feels instant.
     setNodes((prev) =>
       prev.map((n) =>
         n.id === instance.id
@@ -56,12 +52,37 @@ function InspectorBody({ instance }: { instance: NodeInstance }) {
           : n,
       ),
     );
+    // Round-trip to server. set_input returns the full updated node dict so
+    // we can refresh `relevant_inputs` after a kind/op/mode change — the
+    // visible field set re-narrows live without a second RPC.
+    client
+      .call<NodeInstance>("set_input", { node_id: instance.id, port_name: portName, value })
+      .then((updated) => {
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === instance.id
+              ? { ...n, data: { ...n.data, instance: updated } }
+              : n,
+          ),
+        );
+      })
+      .catch((err) => console.error("set_input failed:", err));
   };
 
   const cat = instance.category;
   const catColor = CATEGORY_COLORS[cat] ?? theme.textDim;
 
-  const editable = Object.entries(instance.inputs).filter(([, p]) => p.editable);
+  // Mega-consolidated nodes override BaseNode.relevant_inputs to hide ports
+  // that don't apply to the current kind/op/mode. When the server returns a
+  // non-null list, we show ONLY those editable ports; otherwise show all.
+  // Wired data ports are always shown — they represent connections, not config.
+  const relevant = instance.relevant_inputs;
+  const isRelevant = (name: string) =>
+    relevant === null || relevant === undefined ? true : relevant.includes(name);
+
+  const editable = Object.entries(instance.inputs).filter(
+    ([name, p]) => p.editable && isRelevant(name),
+  );
   const dataPorts = Object.entries(instance.inputs).filter(([, p]) => !p.editable);
   const outputs = Object.entries(instance.outputs);
 

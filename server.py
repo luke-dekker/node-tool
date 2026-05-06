@@ -94,6 +94,7 @@ class NodeToolServer:
                 "description": getattr(port, "description", ""),
                 "choices": getattr(port, "choices", None),
                 "dynamic_choices": getattr(port, "dynamic_choices", "") or "",
+                "optional": bool(getattr(port, "optional", False)),
             }
         outputs = {}
         for pname, port in node.outputs.items():
@@ -102,15 +103,26 @@ class NodeToolServer:
                 "color": list(PortTypeRegistry.get_color(port.port_type)),
                 "description": getattr(port, "description", ""),
             }
+        # Per-instance "show only these editable ports" filter, computed
+        # from the node's CURRENT input values. Mega-consolidated nodes
+        # override BaseNode.relevant_inputs to hide irrelevant fields based
+        # on the chosen kind/op/mode. None means "show all editable ports".
+        try:
+            current = {pname: port.default_value for pname, port in node.inputs.items()}
+            relevant = node.relevant_inputs(current)
+        except Exception:
+            relevant = None
         return {
             "id": node.id,
             "type_name": node.type_name,
             "label": node.label,
+            "alias": getattr(node, "alias", ""),
             "category": node.category,
             "subcategory": getattr(node, "subcategory", ""),
             "description": node.description,
             "inputs": inputs,
             "outputs": outputs,
+            "relevant_inputs": list(relevant) if relevant is not None else None,
         }
 
     @staticmethod
@@ -233,7 +245,11 @@ class NodeToolServer:
         return {"ok": True}
 
     def set_input(self, params: dict) -> dict:
-        """Set a config input value on a node."""
+        """Set a config input value on a node.
+
+        Returns the updated node dict so callers can refresh `relevant_inputs`
+        after a kind/op/mode change without a second RPC.
+        """
         node = self.graph.get_node(params["node_id"])
         if node is None:
             raise ValueError(f"Node not found: {params['node_id']}")
@@ -241,7 +257,7 @@ class NodeToolServer:
         if port_name not in node.inputs:
             raise ValueError(f"Port not found: {port_name}")
         node.inputs[port_name].default_value = params["value"]
-        return {"ok": True}
+        return self._node_to_dict(node)
 
     def get_node(self, params: dict) -> dict:
         """Get a node's current state."""

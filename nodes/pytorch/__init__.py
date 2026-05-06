@@ -5,22 +5,29 @@ MultimodalModel, etc.) have been DELETED — not just hidden. The universal
 DatasetNode, TrainOutputNode, and panel-driven training replace them all.
 """
 
-# Layers
+# Layers — LayerNode absorbs 13 single-in single-out layer types via `kind`
+# dropdown (linear, conv2d, batchnorm{1d,2d}, layernorm, dropout, embedding,
+# activation, positional_encoding, transformer_encoder, max_pool2d, avg_pool2d,
+# adaptive_avg_pool2d). Old class names are aliased so imports keep working;
+# callers must set `kind` on the instance to recover specific behavior.
+from nodes.pytorch.layer import LayerNode
+LinearNode                  = LayerNode  # set kind="linear" (default)
+Conv2dNode                  = LayerNode  # set kind="conv2d"
+BatchNorm1dNode             = LayerNode  # set kind="batchnorm1d"
+BatchNorm2dNode             = LayerNode  # set kind="batchnorm2d"
+LayerNormNode               = LayerNode  # set kind="layernorm"
+DropoutNode                 = LayerNode  # set kind="dropout"
+EmbeddingNode               = LayerNode  # set kind="embedding"
+ActivationNode              = LayerNode  # set kind="activation"
+PositionalEncodingNode      = LayerNode  # set kind="positional_encoding"
+TransformerEncoderLayerNode = LayerNode  # set kind="transformer_encoder"
+Pool2dNode                  = LayerNode  # set kind="max_pool2d" / "avg_pool2d" / "adaptive_avg_pool2d"
+MaxPool2dNode               = LayerNode  # set kind="max_pool2d"
+AvgPool2dNode               = LayerNode  # set kind="avg_pool2d"
+AdaptiveAvgPool2dNode       = LayerNode  # set kind="adaptive_avg_pool2d"
+
 from nodes.pytorch.flatten import FlattenNode
-from nodes.pytorch.linear import LinearNode
-from nodes.pytorch.dropout import DropoutNode
-from nodes.pytorch.batchnorm1d import BatchNorm1dNode
-from nodes.pytorch.embedding import EmbeddingNode
-from nodes.pytorch.activation import ActivationNode
-from nodes.pytorch.conv2d import Conv2dNode
-from nodes.pytorch.maxpool2d import MaxPool2dNode
-from nodes.pytorch.avgpool2d import AvgPool2dNode
-from nodes.pytorch.batchnorm2d import BatchNorm2dNode
-from nodes.pytorch.adaptive_avgpool2d import AdaptiveAvgPool2dNode
-from nodes.pytorch.layer_norm import LayerNormNode
 from nodes.pytorch.multihead_attention import MultiheadAttentionNode
-from nodes.pytorch.transformer_encoder_layer import TransformerEncoderLayerNode
-from nodes.pytorch.positional_encoding import PositionalEncodingNode
 
 # Losses
 from nodes.pytorch.mse_loss import LossFnNode
@@ -44,75 +51,81 @@ from nodes.pytorch.apply_transform import ApplyTransformNode
 from nodes.pytorch.train_val_split import TrainValSplitNode
 from nodes.pytorch.train_val_test_split import TrainValTestSplitNode
 from nodes.pytorch.compose_transforms import ComposeTransformsNode
-from nodes.pytorch.to_tensor_transform import ToTensorTransformNode
-from nodes.pytorch.resize_transform import ResizeTransformNode
-from nodes.pytorch.normalize_transform import NormalizeTransformNode
-from nodes.pytorch.random_hflip import RandomHFlipTransformNode
-from nodes.pytorch.random_vflip import RandomVFlipTransformNode
-from nodes.pytorch.center_crop import CenterCropTransformNode
-from nodes.pytorch.random_crop import RandomCropTransformNode
-from nodes.pytorch.grayscale import GrayscaleTransformNode
-from nodes.pytorch.color_jitter import ColorJitterTransformNode
+# Image transforms — ImageTransformNode replaces 9 per-op nodes (resize,
+# normalize, center_crop, random_crop, h_flip, v_flip, grayscale,
+# color_jitter, to_tensor). Audio (mel_spectrogram) and NLP (hf_tokenizer)
+# transforms stay separate because their domains differ.
+from nodes.pytorch.image_transform import ImageTransformNode
 from nodes.pytorch.mel_spectrogram import MelSpectrogramTransformNode
 from nodes.pytorch.hf_tokenizer_transform import HFTokenizerTransformNode
 
-# Tensor data / ops
-from nodes.pytorch.tensor_create import TensorCreateNode
-from nodes.pytorch.tensor_from_list import TensorFromListNode
-from nodes.pytorch.tensor_shape import TensorShapeNode
-from nodes.pytorch.tensor_info import TensorInfoNode
-from nodes.pytorch.tensor_add import TensorAddNode
-from nodes.pytorch.tensor_mul import TensorMulNode
-from nodes.pytorch.argmax import ArgmaxNode
-from nodes.pytorch.softmax_op import SoftmaxOpNode
-from nodes.pytorch.print_tensor import PrintTensorNode
-from nodes.pytorch.tensor_cat import TensorCatNode
-from nodes.pytorch.tensor_stack import TensorStackNode
-from nodes.pytorch.tensor_split import TensorSplitNode
-from nodes.pytorch.tensor_shape_op import TensorShapeOpNode
-from nodes.pytorch.tensor_transpose import TensorTransposeNode
-from nodes.pytorch.tensor_permute import TensorPermuteNode
-from nodes.pytorch.tensor_einsum import TensorEinsumNode
-from nodes.pytorch.tensor_mux import TensorMuxNode
+# Tensor data / ops — consolidated 13 → 5 (with PrintTensor as side-effect node).
+# TensorCreateNode now absorbs from_list (kind="from_list").
+# TensorOpNode absorbs binary (add/sub/mul/div), argmax, softmax, einsum, mux.
+# TensorReshapeNode absorbs cat, stack, split, shape_op (reshape/squeeze/unsqueeze/permute/transpose).
+from nodes.pytorch.tensor_create  import TensorCreateNode
+from nodes.pytorch.tensor_op      import TensorOpNode
+from nodes.pytorch.tensor_reshape import TensorReshapeNode
+from nodes.pytorch.tensor_info    import TensorInfoNode
+from nodes.pytorch.print_tensor   import PrintTensorNode
 
-# Recurrent
-from nodes.pytorch.rnn import RNNNode
-from nodes.pytorch.lstm import LSTMNode
-from nodes.pytorch.gru import GRUNode
+# Back-compat aliases
+TensorFromListNode  = TensorCreateNode  # set fill="from_list"
+TensorAddNode       = TensorOpNode      # set op="add"
+TensorMulNode       = TensorOpNode      # set op="mul"
+TensorBinaryOpNode  = TensorOpNode
+ArgmaxNode          = TensorOpNode      # set op="argmax"
+SoftmaxOpNode       = TensorOpNode      # set op="softmax"
+TensorEinsumNode    = TensorOpNode      # set op="einsum"
+TensorMuxNode       = TensorOpNode      # set op="mux"
+TensorCatNode       = TensorReshapeNode  # set op="cat"
+TensorStackNode     = TensorReshapeNode  # set op="stack"
+TensorSplitNode     = TensorReshapeNode  # set op="split"
+TensorShapeOpNode   = TensorReshapeNode  # set op="reshape"
+
+# Recurrent — RecurrentLayerNode absorbs RNN/LSTM/GRU via `kind` dropdown.
+# `cell` output is populated only when kind=lstm.
+from nodes.pytorch.recurrent_layer import RecurrentLayerNode
+RNNNode  = RecurrentLayerNode  # set kind="rnn"
+LSTMNode = RecurrentLayerNode  # set kind="lstm" (default)
+GRUNode  = RecurrentLayerNode  # set kind="gru"
 from nodes.pytorch.pack_sequence import PackSequenceNode
 from nodes.pytorch.unpack_sequence import UnpackSequenceNode
 from nodes.pytorch.reshape_for_loss import ReshapeForLossNode
 
-# Architecture
+# Architecture — BranchOpNode absorbs AddBranches + ConcatBranches (op dropdown)
 from nodes.pytorch.residual_block import ResidualBlockNode
-from nodes.pytorch.concat_branches import ConcatBranchesNode
-from nodes.pytorch.add_branches import AddBranchesNode
-from nodes.pytorch.custom_module import CustomModuleNode
+from nodes.pytorch.branch_op      import BranchOpNode
+from nodes.pytorch.custom_module  import CustomModuleNode
+ConcatBranchesNode = BranchOpNode  # set op="concat"
+AddBranchesNode    = BranchOpNode  # set op="add"
 
-# Models / persistence
-from nodes.pytorch.save_weights import SaveWeightsNode
-from nodes.pytorch.load_weights import LoadWeightsNode
-from nodes.pytorch.save_checkpoint import SaveCheckpointNode
-from nodes.pytorch.load_checkpoint import LoadCheckpointNode
-from nodes.pytorch.export_onnx import ExportONNXNode
-from nodes.pytorch.save_full_model import SaveFullModelNode
-from nodes.pytorch.pretrained_block import PretrainedBlockNode
-from nodes.pytorch.load_model import LoadModelNode
+# Models / persistence — ModelIONode absorbs Save/Load weights, Load Model, Export ONNX
+from nodes.pytorch.model_io  import ModelIONode
 from nodes.pytorch.apply_module import ApplyModuleNode
 from nodes.pytorch.gate import GateNode
 from nodes.pytorch.class_module_import import ClassModuleImportNode
+SaveWeightsNode = ModelIONode  # set mode="save_weights" (default)
+LoadWeightsNode = ModelIONode  # set mode="load_into"
+ExportONNXNode  = ModelIONode  # set mode="export_onnx"
+LoadModelNode   = ModelIONode  # set mode="load_full"
 
 # Backbones
 from nodes.pytorch.pretrained_backbone import PretrainedBackboneNode
-from nodes.pytorch.freeze_backbone import FreezeLayersNode, FreezeBackboneNode
+# FreezeLayersNode now absorbs FreezeNamedLayersNode (via mode="by_name").
+# Aliases below keep old imports working.
+from nodes.pytorch.freeze_backbone import (
+    FreezeLayersNode, FreezeBackboneNode, FreezeNamedLayersNode,
+)
 from nodes.pytorch.model_info_persist import ModelInfoNode
-from nodes.pytorch.freeze_named_layers import FreezeNamedLayersNode
 
-# VAE/AE per-layer building blocks
-from nodes.pytorch.reparameterize import ReparameterizeNode
-from nodes.pytorch.kl_divergence import KLDivergenceNode
+# VAE/AE — LatentNode absorbs Reparameterize + LatentSampler;
+# VAELossNode absorbs KLDivergence (mode="kl") + the original combine logic
+from nodes.pytorch.latent   import LatentNode
 from nodes.pytorch.vae_loss import VAELossNode
-from nodes.pytorch.latent_sampler import LatentSamplerNode
+ReparameterizeNode = LatentNode    # set mode="reparameterize" (default)
+LatentSamplerNode  = LatentNode    # set mode="sample"
+KLDivergenceNode   = VAELossNode   # set mode="kl"
 
 # Visualization
 from nodes.pytorch.tensor_viz import TensorVizNode

@@ -1,6 +1,8 @@
-"""Re-export shim — individual file node files are the source of truth."""
-from nodes.io.csv_writer import CSVWriterNode
-from nodes.io.json_writer import JSONWriterNode
-from nodes.io.text_log import TextLogNode
+"""Re-export shim — FileWriteNode (kind dropdown) replaces CSV/JSON/TextLog."""
+from nodes.io.file_write import FileWriteNode
 
-__all__ = ["CSVWriterNode", "JSONWriterNode", "TextLogNode"]
+CSVWriterNode  = FileWriteNode
+JSONWriterNode = FileWriteNode
+TextLogNode    = FileWriteNode
+
+__all__ = ["FileWriteNode", "CSVWriterNode", "JSONWriterNode", "TextLogNode"]

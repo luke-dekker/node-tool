@@ -18,9 +18,8 @@ DESCRIPTION = "Minimal sequence LSTM. Marker-based — dataset lives in the pane
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.input_marker       import InputMarkerNode
-    from nodes.pytorch.embedding          import EmbeddingNode
-    from nodes.pytorch.lstm               import LSTMNode
-    from nodes.pytorch.linear             import LinearNode
+    from nodes.pytorch.layer              import LayerNode
+    from nodes.pytorch.recurrent_layer    import RecurrentLayerNode
     from nodes.pytorch.reshape_for_loss   import ReshapeForLossNode
     from nodes.pytorch.loss_compute       import LossComputeNode
     from nodes.pytorch.train_marker       import TrainMarkerNode
@@ -39,22 +38,23 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
 
     # ── Embedding ───────────────────────────────────────────────────────────
     # vocab_size hardcoded to 256 (fallback corpus default)
-    emb = EmbeddingNode()
+    emb = LayerNode()
+    emb.inputs["kind"].default_value           = "embedding"
     emb.inputs["num_embeddings"].default_value = 256
     emb.inputs["embedding_dim"].default_value  = EMBED
     graph.add_node(emb); positions[emb.id] = pos(col=1, row=1)
 
     # ── LSTM ─────────────────────────────────────────────────────────────────
-    lstm = LSTMNode()
-    lstm.inputs["input_size"].default_value  = EMBED
+    lstm = RecurrentLayerNode()
+    lstm.inputs["kind"].default_value        = "lstm"
     lstm.inputs["hidden_size"].default_value = HIDDEN
     lstm.inputs["batch_first"].default_value = True
     graph.add_node(lstm); positions[lstm.id] = pos(col=2, row=1)
 
     # ── Linear head ──────────────────────────────────────────────────────────
     # out_features hardcoded to 256 (fallback corpus default)
-    head = LinearNode()
-    head.inputs["in_features"].default_value  = HIDDEN
+    head = LayerNode()
+    head.inputs["kind"].default_value         = "linear"
     head.inputs["out_features"].default_value = 256
     graph.add_node(head); positions[head.id] = pos(col=3, row=1)
 
@@ -73,7 +73,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
 
     # ── Connections ──────────────────────────────────────────────────────────
     graph.add_connection(x_in.id,     "tensor",     emb.id,      "tensor_in")
-    graph.add_connection(emb.id,      "tensor_out",  lstm.id,     "x")
+    graph.add_connection(emb.id,      "tensor_out",  lstm.id,     "input_seq")
     graph.add_connection(lstm.id,     "output",      head.id,     "tensor_in")
     graph.add_connection(head.id,     "tensor_out",  reshape.id,  "logits")
     graph.add_connection(label_in.id, "tensor",      reshape.id,  "labels")

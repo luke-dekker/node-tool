@@ -92,6 +92,7 @@ class _Widget(BaseNode):
 
 class _InputMarker(BaseNode):
     type_name = "_t_input_marker"
+    label = "A"
     marker_role = MarkerRole.INPUT
     def _setup_ports(self):
         self.add_input("group", PortType.STRING, default="task_1")
@@ -101,6 +102,7 @@ class _InputMarker(BaseNode):
 
 class _TargetMarker(BaseNode):
     type_name = "_t_target_marker"
+    label = "B"
     marker_role = MarkerRole.TRAIN_TARGET
     def _setup_ports(self):
         self.add_input("group", PortType.STRING, default="task_1")
@@ -182,11 +184,12 @@ def test_collect_targets_walks_outgoing_control_wires():
     assert act_t.choices == ["relu", "gelu", "tanh"]
 
 
-def test_collect_targets_uses_positional_ids_in_topo_order():
+def test_collect_targets_uses_alias_qualified_ids_in_topo_order():
     """With multiple same-type layers wired, the agent's prompt must
-    distinguish them by position (T1, T2, T3...) in topological order —
-    not by random hex UUID suffix — so the LLM can tell which Linear is
-    the first hidden layer vs the output head."""
+    distinguish them by their canvas alias (`Linear2`, etc.) — the same
+    name the user sees on the node — so history entries map trivially
+    back to nodes. Targets are still ordered topologically so the first
+    entry is closest to the inputs."""
     from nodes.agents.autoresearch_agent import AutoresearchAgentNode
     from plugins.agents._autoresearch.control_loop import (
         _format_target_lines, collect_targets,
@@ -211,8 +214,10 @@ def test_collect_targets_uses_positional_ids_in_topo_order():
     g.add_connection(agent.id, "control", w3.id, "width")
 
     targets = collect_targets(g, agent.id)
-    # Three targets, numbered T1/T2/T3 in topo order (upstream → downstream).
-    assert [t.target_id for t in targets] == ["T1.width", "T2.width", "T3.width"]
+    # Three targets, ordered topologically (upstream → downstream) and
+    # identified by their canvas aliases. `_t_widget` derives to `TWidget`.
+    expected_ids = [f"{w.alias}.width" for w in (w1, w2, w3)]
+    assert [t.target_id for t in targets] == expected_ids
     assert targets[0].node_id == w1.id
     assert targets[1].node_id == w2.id
     assert targets[2].node_id == w3.id
@@ -221,7 +226,8 @@ def test_collect_targets_uses_positional_ids_in_topo_order():
     assert targets[0].downstream    # points at w2
     # _format_target_lines emits both the context line and the spec line.
     block = _format_target_lines(g, targets)
-    assert "T1.width" in block and "T2.width" in block and "T3.width" in block
+    for tid in expected_ids:
+        assert tid in block
     # Spec line includes the current value + port type.
     assert "current=" in block
     assert "type=INT" in block

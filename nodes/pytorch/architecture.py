@@ -1,9 +1,13 @@
-"""Re-export shim — individual architecture node files are the source of truth."""
+"""Re-export shim — BranchOpNode absorbs Add/Concat branches via op dropdown."""
 from nodes.pytorch.residual_block import ResidualBlockNode
-from nodes.pytorch.concat_branches import ConcatBranchesNode
-from nodes.pytorch.add_branches import AddBranchesNode
-from nodes.pytorch.custom_module import CustomModuleNode
+from nodes.pytorch.branch_op      import BranchOpNode
+from nodes.pytorch.custom_module  import CustomModuleNode
+
+# Back-compat aliases
+ConcatBranchesNode = BranchOpNode  # op="concat"
+AddBranchesNode    = BranchOpNode  # op="add"
 
 __all__ = [
-    "ResidualBlockNode", "ConcatBranchesNode", "AddBranchesNode", "CustomModuleNode",
+    "ResidualBlockNode", "BranchOpNode", "CustomModuleNode",
+    "ConcatBranchesNode", "AddBranchesNode",
 ]

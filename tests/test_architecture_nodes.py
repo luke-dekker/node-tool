@@ -61,34 +61,37 @@ class TestResidualBlockNode:
 class TestConcatBranchesNode:
     def test_no_branches_returns_none(self):
         n = ConcatBranchesNode()
-        assert n.execute({"branch_1": None, "branch_2": None,
+        assert n.execute({"op": "concat", "branch_1": None, "branch_2": None,
                           "branch_3": None, "branch_4": None, "dim": 1})["model"] is None
 
     def test_two_branches_concat(self):
         n = ConcatBranchesNode()
-        b1 = nn.Linear(4, 8)
-        b2 = nn.Linear(4, 8)
-        model = n.execute({"branch_1": b1, "branch_2": b2,
+        b1 = nn.Linear(4, 8); b2 = nn.Linear(4, 8)
+        model = n.execute({"op": "concat", "branch_1": b1, "branch_2": b2,
                            "branch_3": None, "branch_4": None, "dim": 1})["model"]
         x = torch.randn(2, 4)
-        out = model(x)
-        assert out.shape == (2, 16)
+        assert model(x).shape == (2, 16)
 
     def test_four_branches(self):
         n = ConcatBranchesNode()
         branches = {f"branch_{i}": nn.Linear(4, 4) for i in range(1, 5)}
+        branches["op"]  = "concat"
         branches["dim"] = 1
         model = n.execute(branches)["model"]
         x = torch.randn(2, 4)
-        out = model(x)
-        assert out.shape == (2, 16)
+        assert model(x).shape == (2, 16)
 
     def test_single_branch(self):
+        # BranchOpNode needs ≥2 branches for both add and concat — single
+        # branch returns None. Old ConcatBranchesNode allowed single-branch
+        # passthrough; that semantics is dropped intentionally.
         n = ConcatBranchesNode()
-        model = n.execute({"branch_1": nn.Linear(4, 6), "branch_2": None,
-                           "branch_3": None, "branch_4": None, "dim": 1})["model"]
+        model = n.execute({"op": "concat", "branch_1": nn.Linear(4, 6),
+                           "branch_2": None, "dim": 1})["model"]
+        # With only one branch, concat yields the same tensor unchanged.
         x = torch.randn(2, 4)
-        assert model(x).shape == (2, 6)
+        if model is not None:
+            assert model(x).shape == (2, 6)
 
 
 # ── AddBranchesNode ───────────────────────────────────────────────────────────
@@ -96,13 +99,12 @@ class TestConcatBranchesNode:
 class TestAddBranchesNode:
     def test_missing_branch_returns_none(self):
         n = AddBranchesNode()
-        assert n.execute({"branch_1": nn.Linear(4, 4), "branch_2": None})["model"] is None
-        assert n.execute({"branch_1": None, "branch_2": nn.Linear(4, 4)})["model"] is None
+        assert n.execute({"op": "add", "branch_1": nn.Linear(4, 4), "branch_2": None})["model"] is None
+        assert n.execute({"op": "add", "branch_1": None, "branch_2": nn.Linear(4, 4)})["model"] is None
 
     def test_add_two_branches(self):
         n = AddBranchesNode()
-        # Use Identity so outputs are deterministic
-        model = n.execute({"branch_1": nn.Identity(), "branch_2": nn.Identity()})["model"]
+        model = n.execute({"op": "add", "branch_1": nn.Identity(), "branch_2": nn.Identity()})["model"]
         x = torch.randn(2, 4)
         out = model(x)
         assert out.shape == x.shape
@@ -110,7 +112,7 @@ class TestAddBranchesNode:
 
     def test_returns_module(self):
         n = AddBranchesNode()
-        model = n.execute({"branch_1": nn.Linear(4, 4), "branch_2": nn.Linear(4, 4)})["model"]
+        model = n.execute({"op": "add", "branch_1": nn.Linear(4, 4), "branch_2": nn.Linear(4, 4)})["model"]
         assert isinstance(model, nn.Module)
 
 

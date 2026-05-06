@@ -8,58 +8,8 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
-# ── OllamaGenerateNode ────────────────────────────────────────────────────────
-
-class TestOllamaGenerateNode:
-    def _node(self):
-        from nodes.ai.ollama_nodes import OllamaGenerateNode
-        return OllamaGenerateNode()
-
-    def test_no_prompt_returns_empty(self):
-        n = self._node()
-        r = n.execute({"prompt": "", "model": "m", "system": "",
-                        "temperature": 0.7, "max_tokens": 10,
-                        "host": "http://localhost:11434"})
-        assert r["response"] == ""
-        assert "No prompt" in r["__terminal__"]
-
-    def test_successful_call(self):
-        n = self._node()
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"message": {"content": "Hello world"}}
-        mock_resp.raise_for_status = MagicMock()
-        with patch("requests.post", return_value=mock_resp):
-            r = n.execute({"prompt": "Hi", "model": "llama3.1:8b",
-                            "system": "", "temperature": 0.7,
-                            "max_tokens": 100, "host": "http://localhost:11434"})
-        assert r["response"] == "Hello world"
-        assert "llama3.1:8b" in r["__terminal__"]
-
-    def test_with_system_prompt(self):
-        n = self._node()
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"message": {"content": "ok"}}
-        mock_resp.raise_for_status = MagicMock()
-        captured = {}
-        def capture_post(url, json=None, **kw):
-            captured["json"] = json
-            return mock_resp
-        with patch("requests.post", side_effect=capture_post):
-            n.execute({"prompt": "Hi", "model": "m", "system": "Be terse.",
-                        "temperature": 0.7, "max_tokens": 10,
-                        "host": "http://localhost:11434"})
-        msgs = captured["json"]["messages"]
-        assert msgs[0]["role"] == "system"
-        assert msgs[0]["content"] == "Be terse."
-
-    def test_network_error_returns_error_string(self):
-        n = self._node()
-        with patch("requests.post", side_effect=ConnectionError("refused")):
-            r = n.execute({"prompt": "Hi", "model": "m", "system": "",
-                            "temperature": 0.7, "max_tokens": 10,
-                            "host": "http://localhost:11434"})
-        assert r["response"] == ""
-        assert "Error" in r["__terminal__"]
+# OllamaGenerateNode was removed — use the agents plugin's Agent + OllamaClient
+# pattern (chat-style, supports tools and system prompts) for one-shot LLM calls.
 
 
 # ── OllamaEmbedNode ───────────────────────────────────────────────────────────

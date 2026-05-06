@@ -58,6 +58,11 @@ class Port:
     # Inspector can populate a dropdown dynamically (e.g. "ollama list"
     # for the OllamaClient.model port). Empty = static field.
     dynamic_choices: str = ""
+    # If True, the node still produces a useful result when this port is
+    # left unwired (the execute() code has a sensible fallback path). The
+    # canvas dims/italicizes optional port labels so users can tell at a
+    # glance which inputs are required vs. skippable.
+    optional: bool = False
 
     def __post_init__(self) -> None:
         if self.default_value is None:
@@ -79,6 +84,10 @@ class BaseNode(ABC):
 
     def __init__(self) -> None:
         self.id: str = str(uuid.uuid4())
+        # Human-readable per-instance alias ("Linear2", "Flatten1"). Assigned
+        # by Graph.add_node so uniqueness + ordering live there, not here.
+        # Empty until added to a graph; renameable by the user.
+        self.alias: str = ""
         self.inputs: dict[str, Port] = {}
         self.outputs: dict[str, Port] = {}
         self._setup_ports()
@@ -111,10 +120,12 @@ class BaseNode(ABC):
     def add_input(self, name: str, port_type: str,
                   default: Any = None, description: str = "",
                   choices: list | None = None,
-                  dynamic_choices: str = "") -> Port:
+                  dynamic_choices: str = "",
+                  optional: bool = False) -> Port:
         p = Port(name=name, port_type=port_type, is_input=True,
                  default_value=default, description=description,
-                 choices=choices or [], dynamic_choices=dynamic_choices)
+                 choices=choices or [], dynamic_choices=dynamic_choices,
+                 optional=optional)
         if p.default_value is None:
             p.default_value = PortTypeRegistry.get_default(port_type)
         self.inputs[name] = p
@@ -161,6 +172,27 @@ class BaseNode(ABC):
     def export(self, iv: dict, ov: dict) -> tuple[list[str], list[str]]:
         """Override to provide Python code export. Returns (imports, lines)."""
         return [], [f"# [{self.label}]: export not supported"]
+
+    def relevant_inputs(self, values: dict[str, Any]) -> list[str] | None:
+        """Optional: return the subset of input port names that should be
+        shown in the inspector for the current configuration.
+
+        Mega-consolidated nodes (LayerNode, PdTransformNode, ImageTransformNode)
+        override this — they declare ALL the union of their kinds' inputs as
+        ports, then return only the relevant subset for the chosen `kind` /
+        `op` / `mode`. Lets one node serve many functions without burying the
+        user under irrelevant fields.
+
+        Default: None means "show all editable ports". `values` is the dict
+        of current input values (port_name → current value, may be the port
+        default if the user hasn't edited yet); use it to dispatch on the
+        kind/op/mode field.
+
+        The returned list filters EDITABLE ports only (the ones the inspector
+        renders as form widgets). Wired data ports are always shown — they
+        represent connections, not config.
+        """
+        return None
 
     def inspector_spec(self) -> InspectorSpec | None:
         """Optional: GUI-agnostic description of a custom inspector section.

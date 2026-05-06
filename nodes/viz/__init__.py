@@ -1,16 +1,24 @@
-"""Visualization nodes — render matplotlib plots to IMAGE (RGB numpy array)."""
+"""Visualization — single multi-mode node renders matplotlib plots to IMAGE.
+
+Replaces the prior 10 per-kind nodes (viz_bar / box / heatmap / hist /
+image_grid / line / loss_curve / pca_2d / scatter / conf_matrix). Pick a
+chart type from the `kind` dropdown; only the inputs that kind reads are
+consulted, the rest are ignored.
+"""
 from __future__ import annotations
-from core.node import BaseNode
-from core.node import PortType
+from typing import Any
 import numpy as np
+
+from core.node import BaseNode, PortType
+
 
 CATEGORY = "Visualization"
 
 
-class _VizBase(BaseNode):
-    """Shared base for viz nodes — inline rendering only, no code export."""
-    def export(self, iv, ov):
-        return [], [f"# [{self.label}]: visualization nodes render inline - skipped in export"]
+_KINDS = [
+    "line", "scatter", "bar", "hist", "heatmap", "box",
+    "conf_matrix", "pca_2d", "loss_curve", "image_grid",
+]
 
 
 def _render_fig(fig) -> np.ndarray:
@@ -27,7 +35,6 @@ def _render_fig(fig) -> np.ndarray:
 
 
 def _dark_fig(figsize=(5, 3.5)):
-    """Create a dark-themed matplotlib figure."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -39,364 +46,231 @@ def _dark_fig(figsize=(5, 3.5)):
     return fig, ax
 
 
-# ── Line Plot ─────────────────────────────────────────────────────────────────
-
-class VizLineNode(_VizBase):
-    type_name = "viz_line"
-    label = "Line Plot"
-    category = CATEGORY
-    description = "Line plot of y vs x"
+class VizPlotNode(BaseNode):
+    type_name   = "viz_plot"
+    label       = "Plot"
+    category    = CATEGORY
+    subcategory = ""
+    description = (
+        "Render a matplotlib chart to an IMAGE. Pick the chart type via "
+        "`kind`. Each kind reads a different subset of the inputs:\n"
+        "  line       — data=x, data2=y, color, xlabel, ylabel\n"
+        "  scatter    — data=x, data2=y, labels (color groups), alpha\n"
+        "  bar        — data=values, labels (comma-separated), color\n"
+        "  hist       — data=array, bins, color\n"
+        "  heatmap    — data=matrix, cmap\n"
+        "  box        — data=DataFrame\n"
+        "  conf_matrix — data=matrix (annotated cells)\n"
+        "  pca_2d     — data=X (Nx2+), labels (color groups)\n"
+        "  loss_curve — data=train_losses, data2=val_losses (optional)\n"
+        "  image_grid — data=images (B,C,H,W tensor), nrow"
+    )
 
     def _setup_ports(self):
-        self.add_input("x",      PortType.NDARRAY)
-        self.add_input("y",      PortType.NDARRAY)
-        self.add_input("title",  PortType.STRING, "Line Plot")
-        self.add_input("xlabel", PortType.STRING, "x")
-        self.add_input("ylabel", PortType.STRING, "y")
-        self.add_input("color",  PortType.STRING, "cyan")
+        self.add_input("kind",   PortType.STRING, default="line", choices=_KINDS)
+        # Polymorphic: depending on `kind` this can be NDARRAY, DATAFRAME,
+        # TENSOR, or a list. ANY keeps the wire compatible with any of them.
+        self.add_input("data",   PortType.ANY,
+                       description="Primary input (semantics per kind)")
+        self.add_input("data2",  PortType.ANY,
+                       description="Secondary input — y for line/scatter, val_losses for loss_curve")
+        self.add_input("labels", PortType.ANY,
+                       description="Color labels (NDARRAY for scatter/pca_2d) or "
+                                   "comma-separated string (bar)")
+        self.add_input("title",  PortType.STRING, default="")
+        self.add_input("xlabel", PortType.STRING, default="")
+        self.add_input("ylabel", PortType.STRING, default="")
+        self.add_input("cmap",   PortType.STRING, default="viridis",
+                       description="Colormap (heatmap)")
+        self.add_input("bins",   PortType.INT,    default=30,
+                       description="Bin count (hist)")
+        self.add_input("color",  PortType.STRING, default="cyan",
+                       description="Series color (line/bar/hist)")
+        self.add_input("nrow",   PortType.INT,    default=8,
+                       description="Grid columns (image_grid)")
+        self.add_input("alpha",  PortType.FLOAT,  default=0.7,
+                       description="Marker alpha (scatter)")
         self.add_output("image", PortType.IMAGE)
 
     def execute(self, inputs):
-        null = {"image": None}
+        kind = (inputs.get("kind") or "line").strip().lower()
         try:
-            x      = inputs.get("x")
-            y      = inputs.get("y")
-            title  = inputs.get("title",  "Line Plot") or "Line Plot"
-            xlabel = inputs.get("xlabel", "x")         or "x"
-            ylabel = inputs.get("ylabel", "y")         or "y"
-            color  = inputs.get("color",  "cyan")      or "cyan"
-            if x is None or y is None:
-                return null
-            fig, ax = _dark_fig()
-            ax.plot(x, y, color=color)
-            ax.set_title(title)
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
-            return {"image": _render_fig(fig)}
+            fn = _RENDERERS.get(kind)
+            if fn is None:
+                return {"image": None}
+            return {"image": fn(inputs)}
         except Exception:
-            return null
+            return {"image": None}
+
+    def export(self, iv, ov):
+        return [], [f"# [{self.label}]: visualization nodes render inline - skipped in export"]
 
 
-# ── Scatter Plot ──────────────────────────────────────────────────────────────
+# ── Per-kind renderers ────────────────────────────────────────────────────────
 
-class VizScatterNode(_VizBase):
-    type_name = "viz_scatter"
-    label = "Scatter Plot"
-    category = CATEGORY
-    description = "Scatter plot — colored by labels if provided"
-
-    def _setup_ports(self):
-        self.add_input("x",      PortType.NDARRAY)
-        self.add_input("y",      PortType.NDARRAY)
-        self.add_input("labels", PortType.NDARRAY)
-        self.add_input("title",  PortType.STRING, "Scatter")
-        self.add_input("alpha",  PortType.FLOAT,  0.7)
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            x      = inputs.get("x")
-            y      = inputs.get("y")
-            labels = inputs.get("labels")
-            title  = inputs.get("title", "Scatter") or "Scatter"
-            alpha  = inputs.get("alpha", 0.7)
-            if x is None or y is None:
-                return null
-            fig, ax = _dark_fig()
-            if labels is not None:
-                scatter = ax.scatter(x, y, c=labels, alpha=float(alpha), cmap="tab10")
-                fig.colorbar(scatter, ax=ax)
-            else:
-                ax.scatter(x, y, alpha=float(alpha))
-            ax.set_title(title)
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_line(inp: dict) -> Any:
+    x, y = inp.get("data"), inp.get("data2")
+    if x is None or y is None:
+        return None
+    fig, ax = _dark_fig()
+    ax.plot(x, y, color=inp.get("color") or "cyan")
+    ax.set_title(inp.get("title") or "Line Plot")
+    ax.set_xlabel(inp.get("xlabel") or "x")
+    ax.set_ylabel(inp.get("ylabel") or "y")
+    return _render_fig(fig)
 
 
-# ── Bar Chart ─────────────────────────────────────────────────────────────────
-
-class VizBarNode(_VizBase):
-    type_name = "viz_bar"
-    label = "Bar Chart"
-    category = CATEGORY
-    description = "Bar chart — labels is comma-separated string"
-
-    def _setup_ports(self):
-        self.add_input("values", PortType.NDARRAY)
-        self.add_input("labels", PortType.STRING, "")
-        self.add_input("title",  PortType.STRING, "Bar Chart")
-        self.add_input("color",  PortType.STRING, "steelblue")
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            values    = inputs.get("values")
-            labels_str = inputs.get("labels", "") or ""
-            title     = inputs.get("title",  "Bar Chart") or "Bar Chart"
-            color     = inputs.get("color",  "steelblue") or "steelblue"
-            if values is None:
-                return null
-            labels = ([l.strip() for l in labels_str.split(",") if l.strip()]
-                      if labels_str.strip() else list(range(len(values))))
-            fig, ax = _dark_fig()
-            ax.bar(labels, values, color=color)
-            ax.set_title(title)
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_scatter(inp: dict) -> Any:
+    x, y, labels = inp.get("data"), inp.get("data2"), inp.get("labels")
+    if x is None or y is None:
+        return None
+    fig, ax = _dark_fig()
+    alpha = float(inp.get("alpha") or 0.7)
+    if labels is not None:
+        sc = ax.scatter(x, y, c=labels, cmap="tab10", alpha=alpha)
+        fig.colorbar(sc, ax=ax)
+    else:
+        ax.scatter(x, y, alpha=alpha)
+    ax.set_title(inp.get("title") or "Scatter")
+    if inp.get("xlabel"): ax.set_xlabel(inp["xlabel"])
+    if inp.get("ylabel"): ax.set_ylabel(inp["ylabel"])
+    return _render_fig(fig)
 
 
-# ── Histogram ─────────────────────────────────────────────────────────────────
-
-class VizHistNode(_VizBase):
-    type_name = "viz_hist"
-    label = "Histogram"
-    category = CATEGORY
-    description = "Histogram of array"
-
-    def _setup_ports(self):
-        self.add_input("array", PortType.NDARRAY)
-        self.add_input("bins",  PortType.INT,    30)
-        self.add_input("title", PortType.STRING, "Histogram")
-        self.add_input("color", PortType.STRING, "steelblue")
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            arr   = inputs.get("array")
-            bins  = inputs.get("bins",  30)
-            title = inputs.get("title", "Histogram") or "Histogram"
-            color = inputs.get("color", "steelblue")  or "steelblue"
-            if arr is None:
-                return null
-            fig, ax = _dark_fig()
-            ax.hist(arr.flatten(), bins=int(bins), color=color, edgecolor="none")
-            ax.set_title(title)
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_bar(inp: dict) -> Any:
+    values = inp.get("data")
+    if values is None:
+        return None
+    raw = inp.get("labels") or ""
+    if isinstance(raw, str):
+        labels = [s.strip() for s in raw.split(",") if s.strip()] or list(range(len(values)))
+    else:
+        labels = list(raw) if raw is not None else list(range(len(values)))
+    fig, ax = _dark_fig()
+    ax.bar(labels, values, color=inp.get("color") or "steelblue")
+    ax.set_title(inp.get("title") or "Bar Chart")
+    return _render_fig(fig)
 
 
-# ── Heatmap ───────────────────────────────────────────────────────────────────
-
-class VizHeatmapNode(_VizBase):
-    type_name = "viz_heatmap"
-    label = "Heatmap"
-    category = CATEGORY
-    description = "Heatmap via imshow"
-
-    def _setup_ports(self):
-        self.add_input("matrix", PortType.NDARRAY)
-        self.add_input("title",  PortType.STRING, "Heatmap")
-        self.add_input("cmap",   PortType.STRING, "viridis")
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            import matplotlib.pyplot as plt
-            matrix = inputs.get("matrix")
-            title  = inputs.get("title", "Heatmap") or "Heatmap"
-            cmap   = inputs.get("cmap",  "viridis") or "viridis"
-            if matrix is None:
-                return null
-            fig, ax = _dark_fig()
-            im = ax.imshow(matrix, cmap=cmap, aspect="auto")
-            fig.colorbar(im, ax=ax)
-            ax.set_title(title)
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_hist(inp: dict) -> Any:
+    arr = inp.get("data")
+    if arr is None:
+        return None
+    fig, ax = _dark_fig()
+    ax.hist(np.asarray(arr).flatten(),
+            bins=int(inp.get("bins") or 30),
+            color=inp.get("color") or "steelblue",
+            edgecolor="none")
+    ax.set_title(inp.get("title") or "Histogram")
+    return _render_fig(fig)
 
 
-# ── Box Plot ──────────────────────────────────────────────────────────────────
-
-class VizBoxNode(_VizBase):
-    type_name = "viz_box"
-    label = "Box Plot"
-    category = CATEGORY
-    description = "Box plot of DataFrame columns"
-
-    def _setup_ports(self):
-        self.add_input("df",    PortType.DATAFRAME)
-        self.add_input("title", PortType.STRING, "Box Plot")
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-            df    = inputs.get("df")
-            title = inputs.get("title", "Box Plot") or "Box Plot"
-            if df is None:
-                return null
-            plt.style.use("dark_background")
-            fig, ax = plt.subplots(figsize=(5, 3.5))
-            fig.patch.set_facecolor("#0A0A10")
-            ax.set_facecolor("#0F0F1A")
-            num_df = df.select_dtypes(include="number")
-            num_df.plot.box(ax=ax)
-            ax.set_title(title)
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_heatmap(inp: dict) -> Any:
+    m = inp.get("data")
+    if m is None:
+        return None
+    fig, ax = _dark_fig()
+    im = ax.imshow(m, cmap=inp.get("cmap") or "viridis", aspect="auto")
+    fig.colorbar(im, ax=ax)
+    ax.set_title(inp.get("title") or "Heatmap")
+    return _render_fig(fig)
 
 
-# ── Confusion Matrix Viz ──────────────────────────────────────────────────────
-
-class VizConfMatrixNode(_VizBase):
-    type_name = "viz_conf_matrix"
-    label = "Confusion Matrix"
-    category = CATEGORY
-    description = "Heatmap of confusion matrix with annotations"
-
-    def _setup_ports(self):
-        self.add_input("matrix", PortType.NDARRAY)
-        self.add_input("title",  PortType.STRING, "Confusion Matrix")
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            matrix = inputs.get("matrix")
-            title  = inputs.get("title", "Confusion Matrix") or "Confusion Matrix"
-            if matrix is None:
-                return null
-            fig, ax = _dark_fig()
-            im = ax.imshow(matrix, cmap="Blues")
-            ax.set_title(title)
-            for i in range(matrix.shape[0]):
-                for j in range(matrix.shape[1]):
-                    ax.text(j, i, str(matrix[i, j]),
-                            ha="center", va="center",
-                            color="white" if matrix[i, j] < matrix.max() / 2 else "black",
-                            fontsize=10)
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_box(inp: dict) -> Any:
+    df = inp.get("data")
+    if df is None:
+        return None
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig.patch.set_facecolor("#0A0A10")
+    ax.set_facecolor("#0F0F1A")
+    df.select_dtypes(include="number").plot.box(ax=ax)
+    ax.set_title(inp.get("title") or "Box Plot")
+    return _render_fig(fig)
 
 
-# ── PCA 2D Scatter ────────────────────────────────────────────────────────────
-
-class VizPCANode(_VizBase):
-    type_name = "viz_pca_2d"
-    label = "PCA 2D"
-    category = CATEGORY
-    description = "Scatter of first 2 PCA dims colored by labels"
-
-    def _setup_ports(self):
-        self.add_input("X",      PortType.NDARRAY)
-        self.add_input("labels", PortType.NDARRAY)
-        self.add_input("title",  PortType.STRING, "PCA 2D")
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            X      = inputs.get("X")
-            labels = inputs.get("labels")
-            title  = inputs.get("title", "PCA 2D") or "PCA 2D"
-            if X is None or X.shape[1] < 2:
-                return null
-            fig, ax = _dark_fig()
-            if labels is not None:
-                sc = ax.scatter(X[:, 0], X[:, 1], c=labels, cmap="tab10", alpha=0.7)
-                fig.colorbar(sc, ax=ax)
-            else:
-                ax.scatter(X[:, 0], X[:, 1], alpha=0.7)
-            ax.set_title(title)
-            ax.set_xlabel("PC1")
-            ax.set_ylabel("PC2")
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_conf_matrix(inp: dict) -> Any:
+    m = inp.get("data")
+    if m is None:
+        return None
+    fig, ax = _dark_fig()
+    ax.imshow(m, cmap="Blues")
+    ax.set_title(inp.get("title") or "Confusion Matrix")
+    mx = m.max() if hasattr(m, "max") else float(np.max(m))
+    for i in range(m.shape[0]):
+        for j in range(m.shape[1]):
+            v = m[i, j]
+            ax.text(j, i, str(v), ha="center", va="center",
+                    color="white" if v < mx / 2 else "black", fontsize=10)
+    return _render_fig(fig)
 
 
-# ── Loss Curve ────────────────────────────────────────────────────────────────
-
-class VizLossNode(_VizBase):
-    type_name = "viz_loss_curve"
-    label = "Loss Curve"
-    category = CATEGORY
-    description = "Training and optional validation loss curves"
-
-    def _setup_ports(self):
-        self.add_input("train_losses", PortType.NDARRAY)
-        self.add_input("val_losses",   PortType.NDARRAY)
-        self.add_input("title",        PortType.STRING, "Loss Curve")
-        self.add_output("image",       PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            train = inputs.get("train_losses")
-            val   = inputs.get("val_losses")
-            title = inputs.get("title", "Loss Curve") or "Loss Curve"
-            if train is None:
-                return null
-            fig, ax = _dark_fig()
-            epochs = list(range(1, len(train) + 1))
-            ax.plot(epochs, train, color="cyan",  label="train")
-            if val is not None:
-                vepochs = list(range(1, len(val) + 1))
-                ax.plot(vepochs, val, color="orange", label="val")
-                ax.legend()
-            ax.set_title(title)
-            ax.set_xlabel("Epoch")
-            ax.set_ylabel("Loss")
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_pca_2d(inp: dict) -> Any:
+    X = inp.get("data")
+    if X is None or X.shape[1] < 2:
+        return None
+    labels = inp.get("labels")
+    fig, ax = _dark_fig()
+    if labels is not None:
+        sc = ax.scatter(X[:, 0], X[:, 1], c=labels, cmap="tab10", alpha=0.7)
+        fig.colorbar(sc, ax=ax)
+    else:
+        ax.scatter(X[:, 0], X[:, 1], alpha=0.7)
+    ax.set_title(inp.get("title") or "PCA 2D")
+    ax.set_xlabel(inp.get("xlabel") or "PC1")
+    ax.set_ylabel(inp.get("ylabel") or "PC2")
+    return _render_fig(fig)
 
 
-# ── Image Grid ────────────────────────────────────────────────────────────────
-
-class VizImageGridNode(_VizBase):
-    type_name = "viz_image_grid"
-    label = "Image Grid"
-    category = CATEGORY
-    description = "Grid of image tensors (e.g. MNIST batch)"
-
-    def _setup_ports(self):
-        self.add_input("images", PortType.TENSOR)
-        self.add_input("title",  PortType.STRING, "Image Grid")
-        self.add_input("nrow",   PortType.INT,    8)
-        self.add_output("image", PortType.IMAGE)
-
-    def execute(self, inputs):
-        null = {"image": None}
-        try:
-            import torch
-            from torchvision.utils import make_grid
-            images = inputs.get("images")
-            title  = inputs.get("title", "Image Grid") or "Image Grid"
-            nrow   = inputs.get("nrow",  8)
-            if images is None:
-                return null
-            if not isinstance(images, torch.Tensor):
-                return null
-            grid = make_grid(images, nrow=int(nrow), normalize=True, value_range=(0, 1))
-            # grid: (C, H, W) float
-            arr = (grid.permute(1, 2, 0).cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-            if arr.shape[2] == 1:
-                arr = np.repeat(arr, 3, axis=2)
-            fig, ax = _dark_fig(figsize=(8, 4))
-            ax.imshow(arr)
-            ax.axis("off")
-            ax.set_title(title)
-            return {"image": _render_fig(fig)}
-        except Exception:
-            return null
+def _r_loss_curve(inp: dict) -> Any:
+    train = inp.get("data")
+    if train is None:
+        return None
+    val = inp.get("data2")
+    fig, ax = _dark_fig()
+    epochs = list(range(1, len(train) + 1))
+    ax.plot(epochs, train, color="cyan", label="train")
+    if val is not None:
+        ax.plot(list(range(1, len(val) + 1)), val, color="orange", label="val")
+        ax.legend()
+    ax.set_title(inp.get("title") or "Loss Curve")
+    ax.set_xlabel(inp.get("xlabel") or "Epoch")
+    ax.set_ylabel(inp.get("ylabel") or "Loss")
+    return _render_fig(fig)
 
 
-# Subcategory stamp
-from core.node import BaseNode as _BN
-for _n, _c in list(globals().items()):
-    if isinstance(_c, type) and issubclass(_c, _BN) and _c is not _BN:
-        _c.subcategory = ""
+def _r_image_grid(inp: dict) -> Any:
+    images = inp.get("data")
+    if images is None:
+        return None
+    import torch
+    from torchvision.utils import make_grid
+    if not isinstance(images, torch.Tensor):
+        return None
+    grid = make_grid(images, nrow=int(inp.get("nrow") or 8),
+                     normalize=True, value_range=(0, 1))
+    arr = (grid.permute(1, 2, 0).cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+    if arr.shape[2] == 1:
+        arr = np.repeat(arr, 3, axis=2)
+    fig, ax = _dark_fig(figsize=(8, 4))
+    ax.imshow(arr)
+    ax.axis("off")
+    ax.set_title(inp.get("title") or "Image Grid")
+    return _render_fig(fig)
+
+
+_RENDERERS = {
+    "line":         _r_line,
+    "scatter":      _r_scatter,
+    "bar":          _r_bar,
+    "hist":         _r_hist,
+    "heatmap":      _r_heatmap,
+    "box":          _r_box,
+    "conf_matrix":  _r_conf_matrix,
+    "pca_2d":       _r_pca_2d,
+    "loss_curve":   _r_loss_curve,
+    "image_grid":   _r_image_grid,
+}

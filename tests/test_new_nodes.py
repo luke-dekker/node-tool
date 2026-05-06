@@ -5,162 +5,158 @@ import torch
 
 # ── Tensor ops ────────────────────────────────────────────────────────────────
 
+def _reshape():
+    from nodes.pytorch.tensor_reshape import TensorReshapeNode
+    return TensorReshapeNode()
+
+def _op():
+    from nodes.pytorch.tensor_op import TensorOpNode
+    return TensorOpNode()
+
 def test_tensor_cat():
-    from nodes.pytorch.tensor_ops import TensorCatNode
-    t1 = torch.ones(2, 3)
-    t2 = torch.ones(2, 4)
-    result = TensorCatNode().execute({"t1": t1, "t2": t2, "t3": None, "t4": None, "dim": 1})
+    t1 = torch.ones(2, 3); t2 = torch.ones(2, 4)
+    result = _reshape().execute({"op": "cat", "t1": t1, "t2": t2, "dim": 1})
     assert result["tensor"].shape == (2, 7)
 
 def test_tensor_cat_none_guard():
-    from nodes.pytorch.tensor_ops import TensorCatNode
-    result = TensorCatNode().execute({"t1": None, "t2": None, "t3": None, "t4": None, "dim": 0})
+    result = _reshape().execute({"op": "cat", "t1": None, "t2": None, "dim": 0})
     assert result["tensor"] is None
 
 def test_tensor_stack():
-    from nodes.pytorch.tensor_ops import TensorStackNode
-    t1 = torch.ones(3)
-    t2 = torch.ones(3)
-    result = TensorStackNode().execute({"t1": t1, "t2": t2, "t3": None, "t4": None, "dim": 0})
+    t1 = torch.ones(3); t2 = torch.ones(3)
+    result = _reshape().execute({"op": "stack", "t1": t1, "t2": t2, "dim": 0})
     assert result["tensor"].shape == (2, 3)
 
 def test_tensor_split():
-    from nodes.pytorch.tensor_ops import TensorSplitNode
     t = torch.ones(6, 4)
-    result = TensorSplitNode().execute({"tensor": t, "split_size": 3, "dim": 0})
+    result = _reshape().execute({"op": "split", "t1": t, "split_size": 3, "dim": 0})
     assert result["chunk_0"].shape == (3, 4)
     assert result["chunk_1"].shape == (3, 4)
 
 def test_tensor_reshape():
-    from nodes.pytorch.tensor_ops import TensorReshapeNode
     t = torch.ones(2, 3)
-    result = TensorReshapeNode().execute({"tensor": t, "shape": "6"})
+    result = _reshape().execute({"op": "reshape", "t1": t, "shape": "6"})
     assert result["tensor"].shape == (6,)
 
 def test_tensor_reshape_infer():
-    from nodes.pytorch.tensor_shape_op import TensorShapeOpNode
     t = torch.ones(2, 3)
-    result = TensorShapeOpNode().execute({"mode": "reshape", "tensor": t, "shape": "3,-1"})
+    result = _reshape().execute({"op": "reshape", "t1": t, "shape": "3,-1"})
     assert result["tensor"].shape == (3, 2)
 
 def test_tensor_unsqueeze():
-    from nodes.pytorch.tensor_shape_op import TensorShapeOpNode
     t = torch.ones(4)
-    result = TensorShapeOpNode().execute({"mode": "unsqueeze", "tensor": t, "dim": 0})
+    result = _reshape().execute({"op": "unsqueeze", "t1": t, "dim": 0})
     assert result["tensor"].shape == (1, 4)
 
 def test_tensor_squeeze():
-    from nodes.pytorch.tensor_shape_op import TensorShapeOpNode
     t = torch.ones(1, 4, 1)
-    result = TensorShapeOpNode().execute({"mode": "squeeze", "tensor": t, "dim": -1})
+    result = _reshape().execute({"op": "squeeze", "t1": t, "dim": -1})
     assert result["tensor"].shape == (4,)
 
 def test_tensor_transpose():
-    from nodes.pytorch.tensor_ops import TensorTransposeNode
     t = torch.ones(2, 3)
-    result = TensorTransposeNode().execute({"tensor": t, "dim0": 0, "dim1": 1})
+    result = _reshape().execute({"op": "transpose", "t1": t, "dim": 0, "dim_b": 1})
     assert result["tensor"].shape == (3, 2)
 
 def test_tensor_permute():
-    from nodes.pytorch.tensor_ops import TensorPermuteNode
     t = torch.ones(2, 3, 4)
-    result = TensorPermuteNode().execute({"tensor": t, "dims": "2,0,1"})
+    result = _reshape().execute({"op": "permute", "t1": t, "shape": "2,0,1"})
     assert result["tensor"].shape == (4, 2, 3)
 
 def test_tensor_einsum():
-    from nodes.pytorch.tensor_ops import TensorEinsumNode
-    t1 = torch.ones(2, 3)
-    t2 = torch.ones(3, 4)
-    result = TensorEinsumNode().execute({"equation": "ij,jk->ik", "t1": t1, "t2": t2})
-    assert result["tensor"].shape == (2, 4)
+    t1 = torch.ones(2, 3); t2 = torch.ones(3, 4)
+    result = _op().execute({"op": "einsum", "equation": "ij,jk->ik", "a": t1, "b": t2})
+    assert result["result"].shape == (2, 4)
 
 def test_tensor_none_guards():
-    from nodes.pytorch.tensor_shape_op import TensorShapeOpNode
-    from nodes.pytorch.tensor_ops import (TensorTransposeNode,
-                                           TensorPermuteNode, TensorEinsumNode)
-    for NodeCls, kwargs in [
-        (TensorShapeOpNode,   {"mode": "reshape", "tensor": None, "shape": "4"}),
-        (TensorShapeOpNode,   {"mode": "unsqueeze", "tensor": None, "dim": 0}),
-        (TensorShapeOpNode,   {"mode": "squeeze", "tensor": None, "dim": 0}),
-        (TensorTransposeNode, {"tensor": None, "dim0": 0, "dim1": 1}),
-        (TensorPermuteNode,   {"tensor": None, "dims": "0,1"}),
-        (TensorEinsumNode,    {"equation": "ij,jk->ik", "t1": None, "t2": None}),
+    for kwargs in [
+        {"op": "reshape",   "t1": None, "shape": "4"},
+        {"op": "unsqueeze", "t1": None, "dim": 0},
+        {"op": "squeeze",   "t1": None, "dim": 0},
+        {"op": "transpose", "t1": None, "dim": 0, "dim_b": 1},
+        {"op": "permute",   "t1": None, "shape": "0,1"},
     ]:
-        result = NodeCls().execute(kwargs)
-        assert result["tensor"] is None, f"{NodeCls.__name__} should return None"
+        result = _reshape().execute(kwargs)
+        assert result["tensor"] is None, f"{kwargs['op']} should return None"
+    result = _op().execute({"op": "einsum", "equation": "ij,jk->ik", "a": None, "b": None})
+    assert result["result"] is None
 
 
 # ── Recurrent ─────────────────────────────────────────────────────────────────
 
+def _recurrent_node():
+    """RNN/LSTM/GRU all live in RecurrentLayerNode (kind dropdown)."""
+    from nodes.pytorch.recurrent_layer import RecurrentLayerNode
+    return RecurrentLayerNode()
+
 def test_rnn_creates_module():
-    from nodes.pytorch.rnn import RNNNode
     import torch.nn as nn
-    result = RNNNode().execute({"input_size": 16, "hidden_size": 32, "num_layers": 1,
-                                 "nonlinearity": "tanh", "dropout": 0.0,
-                                 "bidirectional": False, "batch_first": True})
+    result = _recurrent_node().execute({"kind": "rnn", "input_seq": torch.randn(1, 1, 16),
+                                         "hidden_size": 32, "num_layers": 1,
+                                         "nonlinearity": "tanh", "dropout": 0.0,
+                                         "bidirectional": False, "batch_first": True})
     assert isinstance(result["module"], nn.RNN)
     assert result["module"].hidden_size == 32
 
 def test_gru_creates_module():
-    from nodes.pytorch.gru import GRUNode
     import torch.nn as nn
-    result = GRUNode().execute({"input_size": 16, "hidden_size": 32, "num_layers": 1,
-                                 "dropout": 0.0, "bidirectional": False, "batch_first": True})
+    result = _recurrent_node().execute({"kind": "gru", "input_seq": torch.randn(1, 1, 16),
+                                         "hidden_size": 32, "num_layers": 1,
+                                         "dropout": 0.0, "bidirectional": False, "batch_first": True})
     assert isinstance(result["module"], nn.GRU)
 
 def test_lstm_creates_module():
-    from nodes.pytorch.lstm import LSTMNode
     import torch.nn as nn
-    result = LSTMNode().execute({"input_size": 16, "hidden_size": 32, "num_layers": 1,
-                                  "dropout": 0.0, "bidirectional": False, "batch_first": True})
+    result = _recurrent_node().execute({"kind": "lstm", "input_seq": torch.randn(1, 1, 16),
+                                         "hidden_size": 32, "num_layers": 1,
+                                         "dropout": 0.0, "bidirectional": False, "batch_first": True})
     assert isinstance(result["module"], nn.LSTM)
 
 def test_rnn_forward():
-    from nodes.pytorch.rnn import RNNNode
-    x = torch.randn(4, 10, 8)  # (batch=4, seq=10, input=8)
-    result = RNNNode().execute({"input_size": 8, "hidden_size": 16, "num_layers": 1,
-                                 "nonlinearity": "tanh", "dropout": 0.0,
-                                 "bidirectional": False, "batch_first": True,
-                                 "x": x, "h0": None})
+    x = torch.randn(4, 10, 8)
+    result = _recurrent_node().execute({"kind": "rnn", "input_seq": x,
+                                         "hidden_size": 16, "num_layers": 1,
+                                         "nonlinearity": "tanh", "dropout": 0.0,
+                                         "bidirectional": False, "batch_first": True,
+                                         "init_hidden": None})
     assert result["output"].shape == (4, 10, 16)
     assert result["hidden"] is not None
 
 def test_lstm_forward():
-    from nodes.pytorch.lstm import LSTMNode
     x = torch.randn(4, 10, 8)
-    result = LSTMNode().execute({"input_size": 8, "hidden_size": 16, "num_layers": 1,
-                                  "dropout": 0.0, "bidirectional": False, "batch_first": True,
-                                  "x": x, "h0": None, "c0": None})
+    result = _recurrent_node().execute({"kind": "lstm", "input_seq": x,
+                                         "hidden_size": 16, "num_layers": 1,
+                                         "dropout": 0.0, "bidirectional": False, "batch_first": True,
+                                         "init_hidden": None, "init_cell": None})
     assert result["output"].shape == (4, 10, 16)
     assert result["hidden"] is not None
     assert result["cell"] is not None
 
 def test_lstm_forward_with_hidden():
-    from nodes.pytorch.lstm import LSTMNode
     x  = torch.randn(2, 5, 8)
     h0 = torch.zeros(1, 2, 16)
     c0 = torch.zeros(1, 2, 16)
-    result = LSTMNode().execute({"input_size": 8, "hidden_size": 16, "num_layers": 1,
-                                  "dropout": 0.0, "bidirectional": False, "batch_first": True,
-                                  "x": x, "h0": h0, "c0": c0})
+    result = _recurrent_node().execute({"kind": "lstm", "input_seq": x,
+                                         "hidden_size": 16, "num_layers": 1,
+                                         "dropout": 0.0, "bidirectional": False, "batch_first": True,
+                                         "init_hidden": h0, "init_cell": c0})
     assert result["output"].shape == (2, 5, 16)
 
 def test_rnn_none_guard():
-    from nodes.pytorch.rnn import RNNNode
-    result = RNNNode().execute({"x": None, "h0": None})
+    result = _recurrent_node().execute({"kind": "rnn", "input_seq": None, "init_hidden": None})
     assert result["output"] is None and result["hidden"] is None
 
 def test_lstm_none_guard():
-    from nodes.pytorch.lstm import LSTMNode
-    result = LSTMNode().execute({"x": None, "h0": None, "c0": None})
+    result = _recurrent_node().execute({"kind": "lstm", "input_seq": None,
+                                         "init_hidden": None, "init_cell": None})
     assert result["output"] is None
 
 def test_bidirectional_gru():
-    from nodes.pytorch.gru import GRUNode
     x = torch.randn(2, 5, 8)
-    result = GRUNode().execute({"input_size": 8, "hidden_size": 16, "num_layers": 1,
-                                 "dropout": 0.0, "bidirectional": True, "batch_first": True,
-                                 "x": x, "h0": None})
+    result = _recurrent_node().execute({"kind": "gru", "input_seq": x,
+                                         "hidden_size": 16, "num_layers": 1,
+                                         "dropout": 0.0, "bidirectional": True, "batch_first": True,
+                                         "init_hidden": None})
     # bidirectional doubles output features
     assert result["output"].shape == (2, 5, 32)
 
@@ -224,11 +220,12 @@ def test_model_info_none_guard():
 
 def test_registry_has_new_nodes():
     from nodes import NODE_REGISTRY
+    # 13 per-op tensor nodes collapsed into pt_tensor_op + pt_tensor_reshape
+    # (plus pt_tensor_create/info/print). RNN/LSTM/GRU collapsed into pt_recurrent.
     expected = [
-        "pt_tensor_cat", "pt_tensor_stack", "pt_tensor_split",
-        "pt_tensor_shape_op", "pt_tensor_create",
-        "pt_tensor_transpose", "pt_tensor_permute", "pt_tensor_einsum",
-        "pt_rnn", "pt_lstm", "pt_gru",
+        "pt_tensor_create", "pt_tensor_op", "pt_tensor_reshape",
+        "pt_tensor_info", "pt_print_tensor",
+        "pt_recurrent",
         "pt_pretrained_backbone",
         "pt_freeze_backbone", "pt_model_info",
     ]
@@ -238,11 +235,11 @@ def test_registry_has_new_nodes():
 def test_subcategories_set():
     from nodes import NODE_REGISTRY
     checks = {
-        "pt_tensor_cat":   "",
-        "pt_rnn":          "Recurrent",
-        "pt_lstm":         "Recurrent",
+        "pt_tensor_op":           "",
+        "pt_tensor_reshape":      "",
+        "pt_recurrent":           "Recurrent",
         "pt_pretrained_backbone": "Pretrained",
-        "pt_freeze_backbone": "Pretrained",
+        "pt_freeze_backbone":     "Pretrained",
     }
     for tn, expected_sub in checks.items():
         cls = NODE_REGISTRY[tn]

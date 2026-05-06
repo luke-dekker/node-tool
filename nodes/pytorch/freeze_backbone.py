@@ -1,20 +1,16 @@
 """Freeze Layers node — granular freeze controls for any nn.Module.
 
-Replaces the old "freeze everything or nothing" behavior with explicit modes:
+Single mode-dispatched node that absorbs the old FreezeNamedLayersNode:
 
   - "all":     freeze every parameter (feature extractor mode)
   - "none":    unfreeze every parameter (full fine-tuning)
-  - "first_n": freeze the first N top-level children, leave the rest trainable
-               (the canonical 'freeze early layers, fine-tune later layers' for
-               transfer learning — though for ResNet etc. you usually want
-               FreezeNamedLayersNode with the explicit name list)
-  - "last_n":  freeze the last N top-level children, leave earlier ones trainable
+  - "first_n": freeze the first N top-level children
+  - "last_n":  freeze the last N top-level children
+  - "by_name": freeze parameters whose name starts with any prefix in `names`
+               (comma-separated, e.g. 'encoder,layer1')
 
 The legacy `freeze_all` BOOL is still accepted for backward compat with saved
-graphs and tests, but new graphs should use `mode` instead. The class was
-originally named FreezeBackboneNode but never actually did anything backbone-
-specific — it was just "freeze all parameters". The new name reflects what
-it actually does, and the alias keeps existing imports working.
+graphs and tests; new graphs should set `mode` instead.
 """
 from __future__ import annotations
 from core.node import BaseNode, PortType
@@ -29,17 +25,20 @@ class FreezeLayersNode(BaseNode):
         "Set requires_grad on a model's parameters. "
         "mode='all' freezes everything (feature extractor); "
         "'none' unfreezes everything; "
-        "'first_n'/'last_n' freeze the first or last N top-level children. "
-        "For named-prefix freezing (e.g. ResNet's 'conv1,bn1,layer1..layer4') "
-        "use Freeze Named Layers instead."
+        "'first_n'/'last_n' freeze the first or last N top-level children; "
+        "'by_name' freezes params matching any prefix in `names` (CSV)."
     )
 
     def _setup_ports(self):
         self.add_input("model", PortType.MODULE, default=None)
         self.add_input("mode",  PortType.STRING, default="all",
-                       choices=["all", "none", "first_n", "last_n"])
+                       choices=["all", "none", "first_n", "last_n", "by_name"])
         self.add_input("n",     PortType.INT,    default=0,
                        description="Count for first_n / last_n modes")
+        self.add_input("names", PortType.STRING, default="encoder",
+                       description="by_name mode: CSV of name prefixes")
+        self.add_input("freeze", PortType.BOOL, default=True,
+                       description="by_name mode: True freezes, False unfreezes the matched params")
         # Legacy boolean — still accepted for backward compat with old graphs
         # and tests. If `mode` is the default "all" and freeze_all is explicitly
         # set, we honor freeze_all. New graphs should leave this and use mode.
@@ -47,6 +46,14 @@ class FreezeLayersNode(BaseNode):
                        description="DEPRECATED: use `mode` instead.")
         self.add_output("model", PortType.MODULE)
         self.add_output("info",  PortType.STRING)
+
+    def relevant_inputs(self, values):
+        mode = (values.get("mode") or "all").strip().lower()
+        if mode == "all":          return ["mode", "freeze_all"]
+        if mode == "none":         return ["mode"]
+        if mode in ("first_n", "last_n"): return ["mode", "n"]
+        if mode == "by_name":      return ["mode", "names", "freeze"]
+        return ["mode"]
 
     def execute(self, inputs):
         try:
@@ -82,6 +89,15 @@ class FreezeLayersNode(BaseNode):
                     for p in child.parameters():
                         p.requires_grad = False
                 action = f"frozen last {min(n, len(children))} of {len(children)} children"
+            elif mode == "by_name":
+                prefixes = [s.strip() for s in str(inputs.get("names") or "").split(",") if s.strip()]
+                freeze   = bool(inputs.get("freeze", True))
+                count = 0
+                for name, param in model.named_parameters():
+                    if any(name.startswith(prefix) for prefix in prefixes):
+                        param.requires_grad = not freeze
+                        count += 1
+                action = f"{'frozen' if freeze else 'unfrozen'} {count} params matching {prefixes}"
             else:
                 return {"model": model, "info": f"Unknown mode: {mode}"}
 
@@ -131,5 +147,8 @@ class FreezeLayersNode(BaseNode):
         return ["import torch"], lines
 
 
-# Backward-compat alias — old code paths importing FreezeBackboneNode still work
-FreezeBackboneNode = FreezeLayersNode
+# Backward-compat aliases — old code paths importing FreezeBackboneNode or
+# FreezeNamedLayersNode still work. For FreezeNamedLayersNode behavior, set
+# mode="by_name" on the instance.
+FreezeBackboneNode    = FreezeLayersNode
+FreezeNamedLayersNode = FreezeLayersNode

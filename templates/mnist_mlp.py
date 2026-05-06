@@ -6,7 +6,7 @@ marker marks the logits as the training target. All dataset config
 (mnist/cifar/whatever path, batch_size, shuffle) lives in the Training
 Panel.
 
-    Data In (A:x) → Flatten → Linear+ReLU → Linear → Data Out (B:logits)
+    Data In (A:x) -> Flatten -> Linear+ReLU -> Linear -> Data Out (B:logits)
 """
 from __future__ import annotations
 from core.graph import Graph
@@ -17,10 +17,10 @@ DESCRIPTION = "Hello-world MLP on MNIST. Marker-based — dataset lives in the p
 
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pytorch.input_marker   import InputMarkerNode
-    from nodes.pytorch.flatten        import FlattenNode
-    from nodes.pytorch.linear         import LinearNode
-    from nodes.pytorch.train_marker   import TrainMarkerNode
+    from nodes.pytorch.input_marker import InputMarkerNode
+    from nodes.pytorch.flatten      import FlattenNode
+    from nodes.pytorch.layer        import LayerNode
+    from nodes.pytorch.train_marker import TrainMarkerNode
 
     pos = grid(step_x=240)
     positions: dict[str, tuple[int, int]] = {}
@@ -32,20 +32,20 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     flat = FlattenNode()
     graph.add_node(flat); positions[flat.id] = pos()
 
-    h1 = LinearNode()
-    h1.inputs["in_features"].default_value  = 784
+    h1 = LayerNode()
+    h1.inputs["kind"].default_value         = "linear"
     h1.inputs["out_features"].default_value = 128
     h1.inputs["activation"].default_value   = "relu"
     graph.add_node(h1); positions[h1.id] = pos()
 
-    h2 = LinearNode()
-    h2.inputs["in_features"].default_value  = 128
+    h2 = LayerNode()
+    h2.inputs["kind"].default_value         = "linear"
     h2.inputs["out_features"].default_value = 10
     h2.inputs["activation"].default_value   = "none"
     graph.add_node(h2); positions[h2.id] = pos()
 
     data_out = TrainMarkerNode()
-    data_out.inputs["kind"].default_value = "logits"
+    data_out.inputs["kind"].default_value   = "logits"
     data_out.inputs["target"].default_value = "label"
     graph.add_node(data_out); positions[data_out.id] = pos()
 

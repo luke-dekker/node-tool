@@ -1,4 +1,9 @@
-[2026-04-04 13:41:49]
-[2026-04-04 13:42:10]
-[2026-04-04 13:44:00]
-[2026-04-04 13:44:41]
+[plugins] agents: registered (16 nodes, 0 panels, 18 port types)
+[plugins] io: registered (27 nodes, 0 panels, 18 port types)
+[plugins] numpy: registered (39 nodes, 0 panels, 18 port types)
+[plugins] pandas: registered (49 nodes, 0 panels, 18 port types)
+[plugins] python: registered (50 nodes, 0 panels, 18 port types)
+[plugins] pytorch: registered (117 nodes, 0 panels, 26 port types)
+[plugins] robotics: registered (142 nodes, 0 panels, 31 port types)
+[plugins] scipy: registered (145 nodes, 0 panels, 31 port types)
+[plugins] sklearn: registered (156 nodes, 0 panels, 31 port types)

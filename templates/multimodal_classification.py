@@ -38,11 +38,18 @@ def _ensure_data():
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.input_marker  import InputMarkerNode
-    from nodes.pytorch.linear        import LinearNode
+    from nodes.pytorch.layer         import LayerNode
     from nodes.pytorch.flatten       import FlattenNode
-    from nodes.pytorch.tensor_cat    import TensorCatNode
+    from nodes.pytorch.tensor_reshape import TensorReshapeNode
     from nodes.pytorch.loss_compute  import LossComputeNode
     from nodes.pytorch.train_marker  import TrainMarkerNode
+
+    def _lin(out_f, act="none"):
+        n = LayerNode()
+        n.inputs["kind"].default_value         = "linear"
+        n.inputs["out_features"].default_value = out_f
+        n.inputs["activation"].default_value   = act
+        return n
 
     pos = grid(step_x=220); positions = {}
 
@@ -55,18 +62,17 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     label_in = InputMarkerNode(); label_in.inputs["modality"].default_value = "label"
     graph.add_node(label_in); positions[label_in.id] = pos(col=0, row=5)
 
-    a1 = LinearNode(); a1.inputs["in_features"].default_value=64; a1.inputs["out_features"].default_value=16; a1.inputs["activation"].default_value="relu"
-    graph.add_node(a1); positions[a1.id] = pos(col=1, row=1)
+    a1 = _lin(16, "relu"); graph.add_node(a1); positions[a1.id] = pos(col=1, row=1)
 
     img_flat = FlattenNode(); graph.add_node(img_flat); positions[img_flat.id] = pos(col=1, row=3)
-    i1 = LinearNode(); i1.inputs["in_features"].default_value=192; i1.inputs["out_features"].default_value=16; i1.inputs["activation"].default_value="relu"
-    graph.add_node(i1); positions[i1.id] = pos(col=2, row=3)
+    i1 = _lin(16, "relu"); graph.add_node(i1); positions[i1.id] = pos(col=2, row=3)
 
-    fuse = TensorCatNode(); fuse.inputs["dim"].default_value=1
+    fuse = TensorReshapeNode()
+    fuse.inputs["op"].default_value  = "cat"
+    fuse.inputs["dim"].default_value = 1
     graph.add_node(fuse); positions[fuse.id] = pos(col=3, row=2)
 
-    head = LinearNode(); head.inputs["in_features"].default_value=32; head.inputs["out_features"].default_value=2
-    graph.add_node(head); positions[head.id] = pos(col=4, row=2)
+    head = _lin(2); graph.add_node(head); positions[head.id] = pos(col=4, row=2)
 
     loss = LossComputeNode(); loss.inputs["loss_type"].default_value="cross_entropy"
     graph.add_node(loss); positions[loss.id] = pos(col=5, row=2)
@@ -78,6 +84,8 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     graph.add_connection(image_in.id,"tensor",img_flat.id,"tensor_in"); graph.add_connection(img_flat.id,"tensor_out",i1.id,"tensor_in")
     graph.add_connection(a1.id,"tensor_out",fuse.id,"t1"); graph.add_connection(i1.id,"tensor_out",fuse.id,"t2")
     graph.add_connection(fuse.id,"tensor",head.id,"tensor_in")
+    # (output port is `tensor` for both the legacy TensorCatNode and the
+    # consolidated TensorReshapeNode, so the wire above stays valid.)
     graph.add_connection(head.id,"tensor_out",loss.id,"pred"); graph.add_connection(label_in.id,"tensor",loss.id,"target")
     graph.add_connection(loss.id,"loss",data_out.id,"tensor_in")
     return positions

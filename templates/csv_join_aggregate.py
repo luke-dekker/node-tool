@@ -13,20 +13,20 @@ DESCRIPTION = "Load two CSVs -> merge -> filter -> groupby -> describe."
 
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pandas.pd_from_csv     import PdFromCsvNode
-    from nodes.pandas.pd_merge        import PdMergeNode
-    from nodes.pandas.pd_filter_rows  import PdFilterRowsNode
-    from nodes.pandas.pd_groupby      import PdGroupByNode
-    from nodes.pandas.pd_describe     import PdDescribeNode
+    from nodes.pandas import (
+        PdSourceNode, PdMergeNode, PdTransformNode, PdGroupByNode, PdInfoNode,
+    )
 
     pos = grid(step_x=240)
     positions: dict[str, tuple[int, int]] = {}
 
-    left = PdFromCsvNode()
+    left = PdSourceNode()
+    left.inputs["kind"].default_value = "csv"
     left.inputs["path"].default_value = "left.csv"
     graph.add_node(left); positions[left.id] = pos(col=0, row=0)
 
-    right = PdFromCsvNode()
+    right = PdSourceNode()
+    right.inputs["kind"].default_value = "csv"
     right.inputs["path"].default_value = "right.csv"
     graph.add_node(right); positions[right.id] = pos(col=0, row=1)
 
@@ -35,10 +35,11 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     merge.inputs["how"].default_value = "inner"
     graph.add_node(merge); positions[merge.id] = pos(col=1, row=0)
 
-    filt = PdFilterRowsNode()
-    filt.inputs["column"].default_value = "value"
-    filt.inputs["op"].default_value     = ">"
-    filt.inputs["value"].default_value  = 0.0
+    filt = PdTransformNode()
+    filt.inputs["op"].default_value      = "filter_rows"
+    filt.inputs["column"].default_value  = "value"
+    filt.inputs["compare"].default_value = ">"
+    filt.inputs["value"].default_value   = 0.0
     graph.add_node(filt); positions[filt.id] = pos(col=2, row=0)
 
     grp = PdGroupByNode()
@@ -46,7 +47,8 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     grp.inputs["agg"].default_value = "mean"
     graph.add_node(grp); positions[grp.id] = pos(col=3, row=0)
 
-    desc = PdDescribeNode()
+    desc = PdInfoNode()
+    desc.inputs["op"].default_value = "describe"
     graph.add_node(desc); positions[desc.id] = pos(col=4, row=0)
 
     graph.add_connection(left.id,  "df",     merge.id, "left")

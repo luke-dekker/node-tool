@@ -1,21 +1,25 @@
-"""Re-export shim — RNN/LSTM/GRU merged nodes are the source of truth.
+"""Re-export shim — RecurrentLayerNode is the consolidated source of truth.
 
-Old per-layer class names kept as aliases for backward compatibility.
+RNN/LSTM/GRU all share the same input/output shape pattern (varying only
+in whether `cell` is populated), so they collapse into one mode-dispatched
+node. Old class names below are aliases — set `kind` on the instance.
 """
-from nodes.pytorch.rnn import RNNNode
-from nodes.pytorch.lstm import LSTMNode
-from nodes.pytorch.gru import GRUNode
-from nodes.pytorch.pack_sequence import PackSequenceNode
+from nodes.pytorch.recurrent_layer import RecurrentLayerNode
+from nodes.pytorch.pack_sequence   import PackSequenceNode
 from nodes.pytorch.unpack_sequence import UnpackSequenceNode
 
-# Backward-compat aliases
-RNNLayerNode = RNNNode
-GRULayerNode = GRUNode
-LSTMLayerNode = LSTMNode
-RNNForwardNode = RNNNode
-LSTMForwardNode = LSTMNode
+# Back-compat aliases — same class.
+RNNNode         = RecurrentLayerNode
+LSTMNode        = RecurrentLayerNode
+GRUNode         = RecurrentLayerNode
+RNNLayerNode    = RecurrentLayerNode
+GRULayerNode    = RecurrentLayerNode
+LSTMLayerNode   = RecurrentLayerNode
+RNNForwardNode  = RecurrentLayerNode
+LSTMForwardNode = RecurrentLayerNode
 
 __all__ = [
+    "RecurrentLayerNode",
     "RNNNode", "LSTMNode", "GRUNode",
     "RNNLayerNode", "GRULayerNode", "LSTMLayerNode",
     "RNNForwardNode", "LSTMForwardNode",

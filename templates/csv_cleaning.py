@@ -14,41 +14,42 @@ DESCRIPTION = "Real ETL: load -> drop NA -> fill NA -> normalize -> sort -> sele
 
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
-    from nodes.pandas.pd_from_csv     import PdFromCsvNode
-    from nodes.pandas.pd_drop_na      import PdDropNaNode
-    from nodes.pandas.pd_fill_na      import PdFillNaNode
-    from nodes.pandas.pd_normalize    import PdNormalizeNode
-    from nodes.pandas.pd_sort         import PdSortNode
-    from nodes.pandas.pd_select_cols  import PdSelectColsNode
-    from nodes.pandas.pd_describe     import PdDescribeNode
+    from nodes.pandas import PdSourceNode, PdTransformNode, PdInfoNode
 
     pos = grid(step_x=220)
     positions: dict[str, tuple[int, int]] = {}
 
-    csv = PdFromCsvNode()
+    csv = PdSourceNode()
+    csv.inputs["kind"].default_value = "csv"
     csv.inputs["path"].default_value = "data.csv"
     graph.add_node(csv); positions[csv.id] = pos()
 
-    drop_na = PdDropNaNode()
+    drop_na = PdTransformNode()
+    drop_na.inputs["op"].default_value = "dropna"
     graph.add_node(drop_na); positions[drop_na.id] = pos()
 
-    fill_na = PdFillNaNode()
+    fill_na = PdTransformNode()
+    fill_na.inputs["op"].default_value    = "fillna"
     fill_na.inputs["value"].default_value = 0.0
     graph.add_node(fill_na); positions[fill_na.id] = pos()
 
-    norm = PdNormalizeNode()
+    norm = PdTransformNode()
+    norm.inputs["op"].default_value = "normalize"
     graph.add_node(norm); positions[norm.id] = pos()
 
-    sort = PdSortNode()
-    sort.inputs["by"].default_value = "col_0"
+    sort = PdTransformNode()
+    sort.inputs["op"].default_value        = "sort"
+    sort.inputs["by"].default_value        = "col_0"
     sort.inputs["ascending"].default_value = True
     graph.add_node(sort); positions[sort.id] = pos()
 
-    select = PdSelectColsNode()
+    select = PdTransformNode()
+    select.inputs["op"].default_value      = "select_cols"
     select.inputs["columns"].default_value = "col_0,col_1,col_2"
     graph.add_node(select); positions[select.id] = pos()
 
-    desc = PdDescribeNode()
+    desc = PdInfoNode()
+    desc.inputs["op"].default_value = "describe"
     graph.add_node(desc); positions[desc.id] = pos()
 
     graph.add_connection(csv.id,     "df",     drop_na.id, "df")

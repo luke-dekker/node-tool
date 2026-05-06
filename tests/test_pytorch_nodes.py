@@ -3,11 +3,13 @@ import pytest
 
 
 def test_linear_node():
+    # LinearNode is now an alias for LayerNode; in_features is shape-inferred
+    # from the upstream tensor. Provide one to test materialization.
     from nodes.pytorch import LinearNode
     import torch, torch.nn as nn
     node = LinearNode()
-    node.execute({"tensor_in": None, "in_features": 4, "out_features": 2,
-                  "bias": True, "activation": "none", "freeze": False})
+    node.execute({"tensor_in": torch.randn(1, 4), "kind": "linear",
+                  "out_features": 2, "bias": True, "activation": "none", "freeze": False})
     assert isinstance(node._layer, nn.Linear)
     assert node._layer.in_features == 4
 
@@ -16,7 +18,7 @@ def test_linear_node_tensor_out():
     from nodes.pytorch import LinearNode
     import torch
     node = LinearNode()
-    result = node.execute({"tensor_in": torch.randn(1, 4), "in_features": 4,
+    result = node.execute({"tensor_in": torch.randn(1, 4), "kind": "linear",
                            "out_features": 2, "bias": True, "activation": "none", "freeze": False})
     assert result["tensor_out"].shape == (1, 2)
 
