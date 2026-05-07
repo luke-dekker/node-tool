@@ -6,23 +6,33 @@ provides a DataLoader for the Training Panel.
 
 Supported sources (auto-detected from path):
 
-  Local folder with samples.csv    → CSV manifest mode
-  Local folder with *.parquet      → Parquet mode (including HF/LeRobot format)
+  Local folder with clips/ + *.tsv  → Common Voice mode (Mozilla CV)
+  Local folder with samples.csv     → CSV manifest mode
+  Local folder with top-level *.tsv → TSV manifest mode (generic)
+  Local folder with *.parquet       → Parquet mode (HF/LeRobot)
   Local folder with class subfolders of images → ImageFolder mode
-  Local .txt file                  → Character-level text mode
-  Local .csv file                  → Single CSV file mode
-  Local .parquet file              → Single Parquet file mode
-  Local .json / .jsonl file        → JSON manifest mode
-  "mnist", "cifar10", etc.         → Torchvision built-in
-  "org/repo" (not a local path)    → HuggingFace Hub download
+  Local .txt file                   → Character-level text mode
+  Local .csv / .tsv file            → Single manifest file
+  Local .parquet file               → Single Parquet file mode
+  Local .json / .jsonl file         → JSON manifest mode
+  "mnist", "cifar10", etc.          → Torchvision built-in
+  "org/repo" (not a local path)     → HuggingFace Hub download
 
 Column type detection:
   .png/.jpg/.bmp paths → image (loaded as float tensor)
   .npy paths           → numpy array (loaded as float tensor)
-  .wav/.mp3 paths      → audio (loaded as float tensor)
+  .wav/.mp3/.flac/.ogg → audio waveform via torchaudio (mono FloatTensor;
+                          auto-resampled to 16 kHz unless overridden)
   all numeric          → FLOAT tensor
   all strings          → integer-encoded label (LONG tensor)
+  long strings (>40c)  → text passthrough (e.g. CV `sentence`)
   "id"/"index"         → skipped
+
+Common Voice quirks:
+  - clips are 48 kHz mp3 → resampled to 16 kHz mono on load
+  - splits live as `train.tsv` / `dev.tsv` / `test.tsv` / `validated.tsv`;
+    the dataset node's `split` input picks which TSV to read
+  - text column is `sentence`; audio column is `path` (relative to clips/)
 """
 from __future__ import annotations
 import os
@@ -64,8 +74,9 @@ _FALLBACK_CORPUS = (
 def _detect_format(path: str) -> str:
     """Determine the dataset format from the path string.
 
-    Returns one of: csv_manifest, parquet_dir, imagefolder, text, csv_file,
-    parquet_file, json_file, torchvision, huggingface, unknown.
+    Returns one of: common_voice, csv_manifest, tsv_manifest, parquet_dir,
+    imagefolder, text, csv_file, tsv_file, parquet_file, json_file,
+    torchvision, huggingface, unknown.
     """
     low = path.strip().lower()
 
@@ -79,6 +90,8 @@ def _detect_format(path: str) -> str:
         return "text"
     if ext == ".csv":
         return "csv_file"
+    if ext == ".tsv":
+        return "tsv_file"
     if ext == ".parquet":
         return "parquet_file"
     if ext in (".json", ".jsonl"):
@@ -90,12 +103,25 @@ def _detect_format(path: str) -> str:
 
     # Local folder — detect from contents
     if os.path.isdir(path):
+        # Common Voice: clips/ subdir + at least one canonical CV TSV
+        clips = os.path.join(path, "clips")
+        if os.path.isdir(clips):
+            for cv_tsv in ("validated.tsv", "train.tsv", "dev.tsv", "test.tsv"):
+                if os.path.exists(os.path.join(path, cv_tsv)):
+                    return "common_voice"
         # HF / LeRobot format (meta/info.json + data/*.parquet)
         if os.path.exists(os.path.join(path, "meta", "info.json")):
             return "parquet_dir"
         # CSV manifest
         if os.path.exists(os.path.join(path, "samples.csv")):
             return "csv_manifest"
+        # Generic TSV manifest (any .tsv at top level)
+        try:
+            if any(p.suffix.lower() == ".tsv"
+                   for p in Path(path).iterdir() if p.is_file()):
+                return "tsv_manifest"
+        except (PermissionError, OSError):
+            pass
         # Parquet files anywhere in the folder
         pq = list(Path(path).rglob("*.parquet"))
         if pq:
@@ -130,7 +156,8 @@ def _detect_format(path: str) -> str:
 # ── Column type detection (for CSV / Parquet / JSON) ────────────────────
 
 def _detect_column_type(values: list[str]) -> str:
-    """Classify a column from sample values: image/numpy/audio/numeric/label/skip."""
+    """Classify a column from sample values:
+    image / numpy / audio / numeric / label / text / skip."""
     non_empty = [v.strip() for v in values if v.strip()]
     if not non_empty:
         return "skip"
@@ -147,10 +174,65 @@ def _detect_column_type(values: list[str]) -> str:
         return "numeric"
     except (ValueError, TypeError):
         pass
+    # Strings: distinguish short categorical labels from long-form text
+    # (e.g. Common Voice `sentence` column). >40 chars or whitespace inside
+    # a token = text passthrough rather than label-encode.
+    if any(len(v) > 40 or " " in v for v in sample):
+        return "text"
     return "label"
 
 
-def _load_cell(value: str, col_type: str, root: str):
+# Cache for torchaudio resamplers keyed by (orig_sr, target_sr) — building one
+# is expensive, but the same dataset usually has a single source sample rate.
+_RESAMPLERS: dict[tuple[int, int], Any] = {}
+
+
+def _load_audio(abs_path: str, target_sr: int = 16000):
+    """Load `abs_path` as a mono FloatTensor of shape (samples,) at `target_sr`.
+
+    Tries torchaudio first (handles wav/mp3/flac/ogg via the configured
+    backend; ffmpeg-on-PATH gets you mp3 on Windows). Falls back to
+    soundfile for wav/flac/ogg if torchaudio is missing. Returns None on
+    failure so the dataset call site can keep iterating.
+    """
+    import torch
+    try:
+        import torchaudio
+    except ImportError:
+        torchaudio = None
+    if torchaudio is not None:
+        try:
+            wav, sr = torchaudio.load(abs_path)   # (channels, samples)
+            if wav.shape[0] > 1:
+                wav = wav.mean(0, keepdim=True)
+            if sr != target_sr:
+                key = (sr, target_sr)
+                rs = _RESAMPLERS.get(key)
+                if rs is None:
+                    rs = torchaudio.transforms.Resample(sr, target_sr)
+                    _RESAMPLERS[key] = rs
+                wav = rs(wav)
+            return wav.squeeze(0).contiguous()
+        except Exception:
+            pass
+    # soundfile fallback (no mp3 support, but covers wav/flac/ogg)
+    try:
+        import soundfile as sf
+        import numpy as np
+        data, sr = sf.read(abs_path, dtype="float32", always_2d=True)
+        mono = data.mean(axis=1)
+        if sr != target_sr:
+            # Cheap linear resample fallback — good enough for sanity tests
+            n = int(round(len(mono) * (target_sr / sr)))
+            xp = np.linspace(0, 1, len(mono), endpoint=False)
+            x  = np.linspace(0, 1, n,           endpoint=False)
+            mono = np.interp(x, xp, mono).astype(np.float32)
+        return torch.from_numpy(mono)
+    except Exception:
+        return None
+
+
+def _load_cell(value: str, col_type: str, root: str, target_sr: int = 16000):
     """Load a single cell value based on its detected column type."""
     import torch
     import numpy as np
@@ -172,30 +254,39 @@ def _load_cell(value: str, col_type: str, root: str):
         except Exception:
             return None
     if col_type == "audio":
-        try:
-            arr = np.load(os.path.join(root, value))
-            return torch.from_numpy(arr.astype(np.float32))
-        except Exception:
-            return None
+        # Audio path — load via torchaudio. NOTE: the previous implementation
+        # incorrectly did `np.load(...)` here, which crashed on every real
+        # .wav/.mp3 file. Now produces a mono FloatTensor at `target_sr`.
+        return _load_audio(os.path.join(root, value), target_sr=target_sr)
     if col_type == "numeric":
         try:
             return torch.tensor(float(value))
         except (ValueError, TypeError):
             return None
-    return value  # label — integer-encoded by the dataset class
+    if col_type == "text":
+        return value   # raw string passthrough
+    return value      # label — integer-encoded by the dataset class
 
 
 # ── Dataset wrappers ────────────────────────────────────────────────────
 
 class _ManifestDataset:
-    """Dataset from a row-oriented manifest (CSV, JSON, Parquet)."""
+    """Dataset from a row-oriented manifest (CSV, TSV, JSON, Parquet).
 
-    def __init__(self, root, columns, col_types, rows, label_maps):
-        self.root = root
-        self.columns = columns
-        self.col_types = col_types
-        self.rows = rows
-        self.label_maps = label_maps
+    `audio_root` overrides where audio paths are resolved (Common Voice clips
+    live under `<root>/clips/`, not at the manifest root). `target_sr` is the
+    sample rate to resample audio to on load (default 16 kHz).
+    """
+
+    def __init__(self, root, columns, col_types, rows, label_maps,
+                 audio_root: str | None = None, target_sr: int = 16000):
+        self.root        = root
+        self.audio_root  = audio_root or root
+        self.target_sr   = target_sr
+        self.columns     = columns
+        self.col_types   = col_types
+        self.rows        = rows
+        self.label_maps  = label_maps
 
     def __len__(self):
         return len(self.rows)
@@ -210,31 +301,45 @@ class _ManifestDataset:
             if ct == "label":
                 lm = self.label_maps.get(col, {})
                 sample[col] = torch.tensor(lm.get(str(raw).strip(), 0), dtype=torch.long)
+            elif ct == "audio":
+                # Audio uses audio_root (Common Voice clips/ subdir, etc.).
+                val = _load_cell(str(raw), ct, self.audio_root, target_sr=self.target_sr)
+                sample[col] = val if val is not None else torch.tensor(0.0)
             else:
-                val = _load_cell(str(raw), ct, self.root)
+                val = _load_cell(str(raw), ct, self.root, target_sr=self.target_sr)
                 sample[col] = val if val is not None else torch.tensor(0.0)
         return sample
 
 
 def _collate_manifest(samples):
-    """Collate list of {col: tensor} dicts into a batched dict."""
+    """Collate list of {col: tensor|str} dicts into a batched dict.
+
+    Variable-length tensors (audio waveforms, target strings) can't be stacked
+    cleanly — we fall back to returning the per-sample list so the downstream
+    graph can pad / pack as needed (see PackSequenceNode for CTC).
+    """
     import torch
     if not samples:
         return {}
     keys = list(samples[0].keys())
     batch = {}
     for k in keys:
-        tensors = [s[k] for s in samples]
+        vals = [s[k] for s in samples]
+        # Pure string column → list passthrough (e.g. CV `sentence`).
+        if all(isinstance(v, str) for v in vals):
+            batch[k] = vals
+            continue
         try:
-            batch[k] = torch.stack(tensors)
+            batch[k] = torch.stack(vals)
         except Exception:
-            batch[k] = tensors
+            # Variable-length tensors / mixed shapes — keep as list.
+            batch[k] = vals
     return batch
 
 
 # ── Loaders (one per format) ────────────────────────────────────────────
 
-def _load_csv_manifest(root, columns_filter):
+def _load_csv_manifest(root, columns_filter, target_sr=16000):
     """Load from a folder containing samples.csv."""
     manifest_path = os.path.join(root, "samples.csv")
     if not os.path.exists(manifest_path):
@@ -245,10 +350,11 @@ def _load_csv_manifest(root, columns_filter):
         rows = list(reader)
     if not rows:
         return None, "samples.csv is empty"
-    return _build_manifest(root, fieldnames, rows, columns_filter)
+    return _build_manifest(root, fieldnames, rows, columns_filter,
+                           target_sr=target_sr)
 
 
-def _load_csv_file(path, columns_filter):
+def _load_csv_file(path, columns_filter, target_sr=16000):
     """Load from a single .csv file."""
     with open(path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -257,7 +363,88 @@ def _load_csv_file(path, columns_filter):
     if not rows:
         return None, "CSV file is empty"
     root = str(Path(path).parent)
-    return _build_manifest(root, fieldnames, rows, columns_filter)
+    return _build_manifest(root, fieldnames, rows, columns_filter,
+                           target_sr=target_sr)
+
+
+def _read_tsv(path: str) -> tuple[list[str], list[dict]]:
+    """Tiny TSV reader (Common Voice format). Returns (fieldnames, rows)."""
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        fieldnames = reader.fieldnames or []
+        rows = list(reader)
+    return fieldnames, rows
+
+
+def _load_tsv_file(path, columns_filter, target_sr=16000):
+    """Load from a single .tsv file."""
+    fieldnames, rows = _read_tsv(path)
+    if not rows:
+        return None, f"TSV file {path} is empty"
+    root = str(Path(path).parent)
+    return _build_manifest(root, fieldnames, rows, columns_filter,
+                           target_sr=target_sr)
+
+
+def _load_tsv_manifest(root, columns_filter, split, target_sr=16000):
+    """Load from a folder containing one or more .tsv files. `split` picks
+    which file (e.g. 'train' → train.tsv); falls back to the first .tsv."""
+    candidates = [f"{split}.tsv", "train.tsv", "validated.tsv", "data.tsv"]
+    chosen = next((c for c in candidates
+                   if os.path.exists(os.path.join(root, c))), None)
+    if chosen is None:
+        # Pick any .tsv at top level
+        for p in Path(root).iterdir():
+            if p.is_file() and p.suffix.lower() == ".tsv":
+                chosen = p.name
+                break
+    if chosen is None:
+        return None, f"No .tsv files found in {root}"
+    return _load_tsv_file(os.path.join(root, chosen), columns_filter,
+                          target_sr=target_sr)
+
+
+def _load_common_voice(root, columns_filter, split, target_sr=16000):
+    """Load a Mozilla Common Voice extract.
+
+    Layout: `<root>/clips/*.mp3` + `<root>/{train,dev,test,validated}.tsv`.
+    The TSV `path` column is a clip filename relative to `clips/`. Standard
+    columns: client_id, path, sentence_id, sentence, sentence_domain,
+    up_votes, down_votes, age, gender, accents, variant, locale, segment.
+
+    `split` picks the TSV. If the requested split doesn't exist (e.g. 'val'
+    on a CV dump that only has dev), fall back to validated.tsv.
+    """
+    # Map common-but-non-CV split names
+    split_aliases = {"val": "dev", "validation": "dev"}
+    split_name = split_aliases.get(split, split)
+    tsv_path = os.path.join(root, f"{split_name}.tsv")
+    if not os.path.exists(tsv_path):
+        # Fallbacks in priority order
+        for fallback in ("validated.tsv", "train.tsv", "dev.tsv", "test.tsv"):
+            cand = os.path.join(root, fallback)
+            if os.path.exists(cand):
+                tsv_path = cand
+                break
+        else:
+            return None, f"No CV TSV found in {root}"
+
+    fieldnames, rows = _read_tsv(tsv_path)
+    if not rows:
+        return None, f"Common Voice TSV {tsv_path} is empty"
+
+    # Default to (path, sentence) when the user didn't filter — keeps the
+    # output node's surface tight for ASR. Other columns (gender, accents…)
+    # are available via columns_filter.
+    if not columns_filter.strip():
+        columns_filter = "path,sentence"
+
+    audio_root = os.path.join(root, "clips")
+    return _build_manifest(root, fieldnames, rows, columns_filter,
+                           audio_root=audio_root,
+                           audio_col="path", text_col="sentence",
+                           target_sr=target_sr,
+                           cv_split=Path(tsv_path).stem)
 
 
 def _load_parquet_dir(root, columns_filter):
@@ -394,8 +581,21 @@ def _build_parquet_manifest(root, columns_data, rows, columns_filter, schema):
     return (ds, columns, col_types, label_maps, info), None
 
 
-def _build_manifest(root, fieldnames, rows, columns_filter):
-    """Build a ManifestDataset from CSV/JSON rows."""
+def _build_manifest(root, fieldnames, rows, columns_filter,
+                    audio_root: str | None = None,
+                    audio_col: str | None = None,
+                    text_col: str | None = None,
+                    target_sr: int = 16000,
+                    cv_split: str | None = None):
+    """Build a ManifestDataset from CSV/TSV/JSON rows.
+
+    Optional kwargs (used by Common Voice / TSV-with-known-schema):
+      audio_root  — override root for audio files (e.g. <root>/clips/ for CV)
+      audio_col   — force a column to type "audio" (e.g. CV `path`)
+      text_col    — force a column to type "text" (e.g. CV `sentence`)
+      target_sr   — sample rate to resample audio to
+      cv_split    — CV-specific tag for the info string ('train.tsv', etc.)
+    """
     if columns_filter.strip():
         selected = [c.strip() for c in columns_filter.split(",") if c.strip()]
         columns = [c for c in selected if c in fieldnames]
@@ -407,6 +607,12 @@ def _build_manifest(root, fieldnames, rows, columns_filter):
         values = [row.get(col, "") for row in rows]
         col_types[col] = _detect_column_type(values)
 
+    # Schema hints from the caller (Common Voice etc.) override auto-detection
+    if audio_col and audio_col in col_types:
+        col_types[audio_col] = "audio"
+    if text_col and text_col in col_types:
+        col_types[text_col] = "text"
+
     columns = [c for c in columns if col_types[c] != "skip"]
 
     label_maps = {}
@@ -415,13 +621,15 @@ def _build_manifest(root, fieldnames, rows, columns_filter):
             unique = sorted(set(row.get(col, "").strip() for row in rows))
             label_maps[col] = {v: i for i, v in enumerate(unique)}
 
-    ds = _ManifestDataset(root, columns, col_types, rows, label_maps)
+    ds = _ManifestDataset(root, columns, col_types, rows, label_maps,
+                          audio_root=audio_root, target_sr=target_sr)
     n = len(rows)
     col_summary = ", ".join(f"{c}({col_types[c]})" for c in columns)
     label_info = ""
     for col, lm in label_maps.items():
         label_info += f"\n  {col}: {len(lm)} classes ({', '.join(list(lm.keys())[:5])})"
-    info = f"{n} samples, {len(columns)} columns\n  {col_summary}{label_info}"
+    cv_tag = f" [{cv_split}]" if cv_split else ""
+    info = f"{n} samples{cv_tag}, {len(columns)} columns\n  {col_summary}{label_info}"
     return (ds, columns, col_types, label_maps, info), None
 
 
@@ -711,6 +919,9 @@ class DatasetNode(BaseNode):
                        description="train/test/val (for built-ins and HF datasets)")
         self.add_input("seq_len",    PortType.INT,    default=0,
                        description="Sequence length for text mode (0 = disabled)")
+        self.add_input("target_sample_rate", PortType.INT, default=16000,
+                       description="Resample audio to this rate on load. "
+                                   "Common Voice clips are 48 kHz mp3 → 16 kHz by default.")
         self.add_input("task_id",    PortType.STRING, default="default",
                        description="Pairs this dataset with a Train Output of the same task_name")
         # Always-present outputs
@@ -742,8 +953,9 @@ class DatasetNode(BaseNode):
         shuffle    = bool(inputs.get("shuffle", True))
         split      = str(inputs.get("split") or "train")
         seq_len    = max(0, int(inputs.get("seq_len") or 0))
+        target_sr  = max(1000, int(inputs.get("target_sample_rate") or 16000))
 
-        cfg = (path, columns_f, batch_size, shuffle, split, seq_len)
+        cfg = (path, columns_f, batch_size, shuffle, split, seq_len, target_sr)
         empty = {"x": None, "label": None, "dataloader": None,
                  "vocab_size": 0, "info": ""}
 
@@ -755,10 +967,16 @@ class DatasetNode(BaseNode):
             result = None
             error = None
 
-            if fmt == "csv_manifest":
-                result, error = _load_csv_manifest(path, columns_f)
+            if fmt == "common_voice":
+                result, error = _load_common_voice(path, columns_f, split, target_sr=target_sr)
+            elif fmt == "csv_manifest":
+                result, error = _load_csv_manifest(path, columns_f, target_sr=target_sr)
             elif fmt == "csv_file":
-                result, error = _load_csv_file(path, columns_f)
+                result, error = _load_csv_file(path, columns_f, target_sr=target_sr)
+            elif fmt == "tsv_file":
+                result, error = _load_tsv_file(path, columns_f, target_sr=target_sr)
+            elif fmt == "tsv_manifest":
+                result, error = _load_tsv_manifest(path, columns_f, split, target_sr=target_sr)
             elif fmt == "parquet_dir":
                 result, error = _load_parquet_dir(path, columns_f)
             elif fmt == "parquet_file":
