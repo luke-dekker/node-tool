@@ -39,20 +39,39 @@ class MelSpectrogramTransformNode(BaseNode):
                         description="torchaudio MelSpectrogram callable — wire into ApplyTransform.")
         self.add_output("spectrogram", PortType.TENSOR,
                         description="Inline output: MelSpectrogram(waveform). None unless waveform is wired.")
+        self.add_output("info",        PortType.STRING,
+                        description="Status: 'ok (factory)', 'ok (inline (B, n_mels, T))', "
+                                    "or an error like 'torchaudio not installed — pip install torchaudio'.")
 
     def execute(self, inputs):
+        # Distinguish "torchaudio missing" from "waveform unwired" so the
+        # user can tell why `spectrogram` is None instead of staring at
+        # silent failure. Surface the reason on `info`.
         try:
             import torchaudio.transforms as T
+        except ImportError:
+            return {"transform": None, "spectrogram": None,
+                    "info": "torchaudio not installed — pip install torchaudio"}
+        try:
             tf = T.MelSpectrogram(
                 sample_rate=int(inputs.get("sample_rate") or 16000),
                 n_mels=int(inputs.get("n_mels") or 64),
                 n_fft=int(inputs.get("n_fft") or 400),
             )
-            wav = inputs.get("waveform")
-            spec = tf(wav) if wav is not None else None
-            return {"transform": tf, "spectrogram": spec}
-        except Exception:
-            return {"transform": None, "spectrogram": None}
+        except Exception as exc:
+            return {"transform": None, "spectrogram": None,
+                    "info": f"failed to build MelSpectrogram: {exc}"}
+        wav = inputs.get("waveform")
+        if wav is None:
+            return {"transform": tf, "spectrogram": None,
+                    "info": "ok (factory) — wire `transform` into ApplyTransform"}
+        try:
+            spec = tf(wav)
+            return {"transform": tf, "spectrogram": spec,
+                    "info": f"ok (inline) — spectrogram shape {tuple(spec.shape)}"}
+        except Exception as exc:
+            return {"transform": tf, "spectrogram": None,
+                    "info": f"transform built; inline call failed: {exc}"}
 
     def export(self, iv, ov):
         sr = self._val(iv, 'sample_rate')
