@@ -74,6 +74,14 @@ def _apply_ctc(pred, target, input_lengths, target_lengths,
     if pred.max().item() > 0:
         pred = F.log_softmax(pred, dim=-1)
 
+    # Clamp input_lengths to pred's actual T axis. Mel hop framing rarely
+    # matches an upstream lengths-from-samples calculation exactly, and
+    # F.ctc_loss raises if any input_length > T.
+    import torch
+    T_actual = pred.shape[0]
+    if input_lengths is not None:
+        input_lengths = torch.clamp(input_lengths.long(), max=T_actual)
+
     return F.ctc_loss(
         pred, target, input_lengths, target_lengths,
         blank=blank, zero_infinity=zero_infinity, reduction="mean",

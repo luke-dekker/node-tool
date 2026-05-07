@@ -109,6 +109,15 @@ def _detect_format(path: str) -> str:
             for cv_tsv in ("validated.tsv", "train.tsv", "dev.tsv", "test.tsv"):
                 if os.path.exists(os.path.join(path, cv_tsv)):
                     return "common_voice"
+        # LibriSpeech: speaker/chapter/*.flac with chapter.trans.txt files.
+        # Detect by finding any .trans.txt anywhere under the path.
+        try:
+            for trans in Path(path).rglob("*.trans.txt"):
+                # First match wins — librispeech has hundreds of these
+                _ = trans
+                return "librispeech"
+        except (PermissionError, OSError):
+            pass
         # HF / LeRobot format (meta/info.json + data/*.parquet)
         if os.path.exists(os.path.join(path, "meta", "info.json")):
             return "parquet_dir"
@@ -402,6 +411,51 @@ def _load_tsv_manifest(root, columns_filter, split, target_sr=16000):
         return None, f"No .tsv files found in {root}"
     return _load_tsv_file(os.path.join(root, chosen), columns_filter,
                           target_sr=target_sr)
+
+
+def _load_librispeech(root, columns_filter, target_sr=16000):
+    """Load a LibriSpeech extract.
+
+    Layout: `<root>/<speaker>/<chapter>/<id>.flac` plus a
+    `<chapter>.trans.txt` per chapter with one line per clip:
+        <id> <UPPERCASE TRANSCRIPT TEXT>
+
+    LibriSpeech transcripts are uppercase ASCII. We lowercase them on load
+    so they line up with our default CharTokenizer vocab (a-z, space, ').
+
+    Splits don't apply here — each LibriSpeech tarball is already one split
+    (e.g. dev-clean, train-clean-100). Point at the matching extract dir.
+    """
+    root = str(root)
+    rows: list[dict] = []
+    for trans in Path(root).rglob("*.trans.txt"):
+        chapter_dir = trans.parent
+        with open(trans, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                clip_id, _, text = line.partition(" ")
+                flac = chapter_dir / f"{clip_id}.flac"
+                if not flac.exists():
+                    continue
+                rows.append({
+                    "path":     str(flac.relative_to(root)).replace("\\", "/"),
+                    "sentence": text.lower(),
+                    "speaker":  chapter_dir.parent.name,
+                    "chapter":  chapter_dir.name,
+                    "id":       clip_id,
+                })
+    if not rows:
+        return None, f"No LibriSpeech .trans.txt → .flac pairs found under {root}"
+    if not columns_filter.strip():
+        columns_filter = "path,sentence"
+    fieldnames = list(rows[0].keys())
+    return _build_manifest(root, fieldnames, rows, columns_filter,
+                           audio_root=root,         # paths are root-relative
+                           audio_col="path", text_col="sentence",
+                           target_sr=target_sr,
+                           cv_split=Path(root).name)
 
 
 def _load_common_voice(root, columns_filter, split, target_sr=16000):
@@ -969,6 +1023,8 @@ class DatasetNode(BaseNode):
 
             if fmt == "common_voice":
                 result, error = _load_common_voice(path, columns_f, split, target_sr=target_sr)
+            elif fmt == "librispeech":
+                result, error = _load_librispeech(path, columns_f, target_sr=target_sr)
             elif fmt == "csv_manifest":
                 result, error = _load_csv_manifest(path, columns_f, target_sr=target_sr)
             elif fmt == "csv_file":

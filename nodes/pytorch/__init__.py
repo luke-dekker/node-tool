@@ -58,6 +58,8 @@ from nodes.pytorch.compose_transforms import ComposeTransformsNode
 from nodes.pytorch.image_transform import ImageTransformNode
 from nodes.pytorch.mel_spectrogram import MelSpectrogramTransformNode
 from nodes.pytorch.hf_tokenizer_transform import HFTokenizerTransformNode
+from nodes.pytorch.char_tokenizer import CharTokenizerNode
+from nodes.pytorch.audio_pad_collate import AudioPadCollateNode
 
 # Tensor data / ops — consolidated 13 → 5 (with PrintTensor as side-effect node).
 # TensorCreateNode now absorbs from_list (kind="from_list").

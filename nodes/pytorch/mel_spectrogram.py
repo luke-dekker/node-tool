@@ -35,6 +35,13 @@ class MelSpectrogramTransformNode(BaseNode):
         self.add_input("sample_rate", PortType.INT, default=16000)
         self.add_input("n_mels",      PortType.INT, default=64)
         self.add_input("n_fft",       PortType.INT, default=400)
+        # hop_length defaults to None → torchaudio uses win_length // 2 (= n_fft / 2).
+        # Set explicitly to match downstream expectations (e.g. AudioPadCollate's
+        # frames_per_sample, which converts sample-time lengths to frame-time
+        # lengths for CTC). Common ASR setups use 160 (10 ms @ 16 kHz).
+        self.add_input("hop_length",  PortType.INT, default=0,
+                       description="Hop between FFT windows (samples). 0 = torchaudio "
+                                   "default (n_fft // 2). Set to 160 for 10 ms @ 16 kHz.")
         self.add_output("transform",   PortType.TRANSFORM,
                         description="torchaudio MelSpectrogram callable — wire into ApplyTransform.")
         self.add_output("spectrogram", PortType.TENSOR,
@@ -53,11 +60,15 @@ class MelSpectrogramTransformNode(BaseNode):
             return {"transform": None, "spectrogram": None,
                     "info": "torchaudio not installed — pip install torchaudio"}
         try:
-            tf = T.MelSpectrogram(
+            kwargs = dict(
                 sample_rate=int(inputs.get("sample_rate") or 16000),
                 n_mels=int(inputs.get("n_mels") or 64),
                 n_fft=int(inputs.get("n_fft") or 400),
             )
+            hop = int(inputs.get("hop_length") or 0)
+            if hop > 0:
+                kwargs["hop_length"] = hop
+            tf = T.MelSpectrogram(**kwargs)
         except Exception as exc:
             return {"transform": None, "spectrogram": None,
                     "info": f"failed to build MelSpectrogram: {exc}"}
@@ -74,14 +85,19 @@ class MelSpectrogramTransformNode(BaseNode):
                     "info": f"transform built; inline call failed: {exc}"}
 
     def export(self, iv, ov):
-        sr = self._val(iv, 'sample_rate')
-        nm = self._val(iv, 'n_mels')
-        nf = self._val(iv, 'n_fft')
+        sr  = self._val(iv, 'sample_rate')
+        nm  = self._val(iv, 'n_mels')
+        nf  = self._val(iv, 'n_fft')
+        hop = int(self.inputs["hop_length"].default_value or 0)
         tf_var   = ov.get("transform",   "_mel_tf")
         spec_var = ov.get("spectrogram", "_mel_spec")
         wav      = iv.get("waveform")   # connected variable name, or None
 
-        lines = [f"{tf_var} = T.MelSpectrogram(sample_rate={sr}, n_mels={nm}, n_fft={nf})"]
+        ctor = f"T.MelSpectrogram(sample_rate={sr}, n_mels={nm}, n_fft={nf}"
+        if hop > 0:
+            ctor += f", hop_length={hop}"
+        ctor += ")"
+        lines = [f"{tf_var} = {ctor}"]
         if wav:
             lines.append(f"{spec_var} = {tf_var}({wav})")
         else:
