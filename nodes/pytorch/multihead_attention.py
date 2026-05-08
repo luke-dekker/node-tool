@@ -74,9 +74,6 @@ class MultiheadAttentionNode(BaseNode):
                                    "`window` past hidden states.")
         self.add_input("residual",   PortType.BOOL, default=False,
                        description="Add query to the attention output (drop-in block).")
-        # Legacy: embed_dim inferred from query.shape[-1].
-        self.add_input("embed_dim",  PortType.INT, default=0,
-                       description="(legacy; ignored) — inferred from query")
         self.add_output("tensor_out",         PortType.TENSOR,
                         description="(B, T, embed_dim) attended output (+ query if residual).")
         self.add_output("attention_weights",  PortType.TENSOR,
@@ -116,7 +113,7 @@ class MultiheadAttentionNode(BaseNode):
     def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         from nodes.pytorch._helpers import _infer_feature_dim
         q = inputs.get("query")
-        embed_dim = _infer_feature_dim(q, inputs.get("embed_dim"), axis=-1)
+        embed_dim = _infer_feature_dim(q, None, axis=-1)
         if q is None or embed_dim <= 0:
             return {"tensor_out": None, "attention_weights": None}
         layer = self._get_layer(
