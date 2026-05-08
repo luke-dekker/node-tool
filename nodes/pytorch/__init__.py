@@ -61,7 +61,6 @@ from nodes.pytorch.hf_tokenizer_transform import HFTokenizerTransformNode
 from nodes.pytorch.char_tokenizer import CharTokenizerNode
 from nodes.pytorch.preview          import PreviewNode
 from nodes.pytorch.qdrant_memory    import QdrantMemoryNode
-from nodes.pytorch.scan             import ScanNode
 
 # Tensor data / ops — consolidated 13 → 5 (with PrintTensor as side-effect node).
 # TensorCreateNode now absorbs from_list (kind="from_list").
