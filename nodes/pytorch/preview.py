@@ -12,6 +12,10 @@ appropriately for its type:
   - 2-D tensor (H, W)  → shape/dtype/range + image preview
                          (grayscale, normalised to 0..255)
   - 3-D tensor (C,H,W) → image preview (RGB if C==3, else channel mean)
+                         OR — if `vocab` is non-empty — CTC greedy decode
+                         of (B, T, vocab) logits into text (collapse runs
+                         of dupes, drop blanks). Sits in the loss path as
+                         a passthrough so it runs every training step.
   - 4-D tensor batch   → image preview of sample 0
   - any other tensor   → shape/dtype/min/max/mean + first 8 values
   - everything else    → repr (truncated past 200 chars)
@@ -39,11 +43,43 @@ def _short(s: str, n: int = _TEXT_TRUNCATE) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _format_lines(value: Any, sample_rate: int) -> tuple[list[str], str]:
+def _ctc_greedy_decode(logits, vocab: str, blank_idx: int = 0) -> list[str]:
+    """logits: (B, T, C) or (T, B, C) tensor → one decoded string per sample.
+
+    Greedy decode: argmax along C, drop runs of consecutive duplicates,
+    then drop the blank token (index 0 by convention). Index 0 is reserved
+    for blank, indices 1..N map to vocab[0..N-1].
+    """
+    import torch
+    if logits is None or logits.dim() != 3:
+        return []
+    # Heuristic from LossCompute: smaller dim is usually batch.
+    if logits.shape[0] > logits.shape[1] and logits.shape[1] < 64:
+        logits = logits.transpose(0, 1).contiguous()
+    i2c = {i + 1: ch for i, ch in enumerate(vocab)}
+    out: list[str] = []
+    with torch.no_grad():
+        ids = logits.argmax(dim=-1)
+        for row in ids.tolist():
+            collapsed: list[int] = []
+            prev = None
+            for v in row:
+                if v != prev:
+                    collapsed.append(v)
+                    prev = v
+            out.append("".join(i2c.get(v, "") for v in collapsed if v != blank_idx))
+    return out
+
+
+def _format_lines(
+    value: Any, sample_rate: int, vocab: str = "", blank_idx: int = 0,
+) -> tuple[list[str], str]:
     """Return (lines, kind) describing `value` for the inspector spec.
 
     `kind` is one of: text, text_list, audio, image, tensor, scalar, repr,
     none — used by `inspector_spec()` to decide which actions to attach.
+    When `vocab` is non-empty and `value` is a 3-D float tensor, treat it
+    as CTC logits and append decoded text lines.
     """
     if value is None:
         return ["(no value yet — wire something into `value`)"], "none"
@@ -95,6 +131,23 @@ def _format_lines(value: Any, sample_rate: int) -> tuple[list[str], str]:
         # 2-D float tensor → image (grayscale)
         if len(shape) == 2 and "float" in dtype:
             return lines, "image"
+        # 3-D tensor (B, T, C) with a vocab → CTC greedy decode → text.
+        # Only kicks in for float tensors with a non-empty vocab; without
+        # vocab, falls through to image preview as before.
+        if len(shape) == 3 and "float" in dtype and vocab and is_tensor:
+            try:
+                decoded = _ctc_greedy_decode(value, vocab, blank_idx=blank_idx)
+                if decoded:
+                    head = decoded[:_LIST_PREVIEW]
+                    more = (f"  (+{len(decoded) - len(head)} more)"
+                            if len(decoded) > len(head) else "")
+                    lines.append(f"ctc decoded ({len(decoded)} samples):")
+                    lines.extend(f"  [{i}] {_short(s)!r}" for i, s in enumerate(head))
+                    if more:
+                        lines.append(more)
+                    return lines, "text_list"
+            except Exception as exc:
+                lines.append(f"ctc decode failed: {exc}")
         # 3-D tensor (C,H,W) or (H,W,C) → image
         if len(shape) == 3:
             return lines, "image"
@@ -127,6 +180,8 @@ class PreviewNode(BaseNode):
         self._last_kind: str = "none"
         self._last_lines: list[str] = []
         self._sample_rate: int = 16000
+        self._vocab: str = ""
+        self._blank_idx: int = 0
         super().__init__()
 
     def _setup_ports(self):
@@ -134,6 +189,11 @@ class PreviewNode(BaseNode):
                        description="Anything — text, tensor, audio waveform, image, list, scalar.")
         self.add_input("sample_rate", PortType.INT, default=16000,
                        description="Sample rate for audio playback (1-D float tensor inputs).")
+        self.add_input("vocab",       PortType.STRING, default="", optional=True,
+                       description="If set, decode 3-D float tensors (B, T, C) as CTC logits "
+                                   "into text using this vocabulary (blank at index 0).")
+        self.add_input("blank_idx",   PortType.INT, default=0, optional=True,
+                       description="CTC blank token index (default 0).")
         self.add_output("value_out",  PortType.ANY,
                         description="Passthrough of `value` — wire downstream just like the input was direct.")
         self.add_output("info",       PortType.STRING,
@@ -146,9 +206,14 @@ class PreviewNode(BaseNode):
         if value is not None:
             self._last_value = value
             self._sample_rate = max(1, int(inputs.get("sample_rate") or 16000))
+        self._vocab     = str(inputs.get("vocab") or "")
+        self._blank_idx = int(inputs.get("blank_idx") or 0)
         # Always recompute the lines from cached value so the inspector
         # gets the latest formatting after a sample-rate change.
-        lines, kind = _format_lines(self._last_value, self._sample_rate)
+        lines, kind = _format_lines(
+            self._last_value, self._sample_rate,
+            vocab=self._vocab, blank_idx=self._blank_idx,
+        )
         self._last_lines = lines
         self._last_kind  = kind
         info = lines[0] if lines else "(empty)"
@@ -174,7 +239,10 @@ class PreviewNode(BaseNode):
 
     def refresh(self, app=None) -> dict:
         """No-op trigger so the inspector re-fetches the spec lines."""
-        lines, kind = _format_lines(self._last_value, self._sample_rate)
+        lines, kind = _format_lines(
+            self._last_value, self._sample_rate,
+            vocab=self._vocab, blank_idx=self._blank_idx,
+        )
         self._last_lines = lines
         self._last_kind  = kind
         return {"ok": True, "lines": lines, "kind": kind}

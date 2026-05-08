@@ -12,14 +12,12 @@ Pipeline (pure-RNN, no conv, no attention):
                               ↓                                          │
                           target_lengths                                 │
                               ↓                                          ↓
-                                                       CtcGreedyDecode (passthrough)
+                                                              Preview (passthrough,
+                                                              CTC-decodes if vocab set)
                                                                       ↓
                                                               LossCompute(ctc)
                                                                       ↓
                                                             Data Out (B:loss)
-                                                                      │
-                                                            Preview ◄──┘
-                                                            (decoded text in inspector)
 
 Dataset: works against any audio + transcript dataset that DatasetNode can
 load. Tested against LibriSpeech dev-clean (~330 MB, free, no account needed)
@@ -67,7 +65,6 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.layer               import LayerNode
     from nodes.pytorch.recurrent_layer     import RecurrentLayerNode
     from nodes.pytorch.char_tokenizer      import CharTokenizerNode
-    from nodes.pytorch.ctc_greedy_decode   import CtcGreedyDecodeNode
     from nodes.pytorch.loss_compute        import LossComputeNode
     from nodes.pytorch.train_marker        import TrainMarkerNode
     from nodes.pytorch.preview             import PreviewNode
@@ -131,17 +128,16 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     tok.inputs["blank_idx"].default_value = 0
     graph.add_node(tok); positions[tok.id] = pos(col=4, row=2)
 
-    # ── Greedy CTC decode (passthrough on the loss path) ────────────────────
+    # ── Preview (passthrough; CTC-decodes when vocab is set) ────────────────
     # Sits between head → loss as a passthrough so it runs every training
-    # step (it's on GraphAsModule's active cone). Stdout printing is off —
-    # the downstream PreviewNode renders the decoded text live in the
-    # right-hand inspector instead, so you can see what the model believes
-    # it heard while training is running.
-    decode = CtcGreedyDecodeNode()
-    decode.inputs["vocab"].default_value       = _VOCAB
-    decode.inputs["blank_idx"].default_value   = 0
-    decode.inputs["print_every"].default_value = 0
-    graph.add_node(decode); positions[decode.id] = pos(col=6, row=0)
+    # step (it's on GraphAsModule's active cone). With `vocab` set, it
+    # interprets the (B, T, vocab) logit tensor as CTC output and renders
+    # decoded transcripts in the right-hand inspector — select this node
+    # to watch the model converge in real time.
+    preview = PreviewNode()
+    preview.inputs["vocab"].default_value     = _VOCAB
+    preview.inputs["blank_idx"].default_value = 0
+    graph.add_node(preview); positions[preview.id] = pos(col=6, row=0)
 
     # ── CTC loss ────────────────────────────────────────────────────────────
     # Pred shape from the head is (B, T, vocab); LossCompute auto-transposes
@@ -157,15 +153,6 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     data_out.inputs["task_name"].default_value = "asr_ctc"
     graph.add_node(data_out); positions[data_out.id] = pos(col=8, row=1)
 
-    # ── Off-cone: Preview decoded predictions ────────────────────────────────
-    # PreviewNode caches whatever was last wired through it and exposes a
-    # render in the right-hand inspector. Wired to `decode.decoded_text`
-    # (a list[str], one decoded transcript per batch sample), so during
-    # training you can select this node to see the latest model predictions
-    # update live. No save/load, no stdout printing — just look at it.
-    preview = PreviewNode()
-    graph.add_node(preview); positions[preview.id] = pos(col=8, row=3)
-
     # ── Wires ───────────────────────────────────────────────────────────────
     # Audio path
     graph.add_connection(audio_in.id, "tensor",      pad.id,    "audio")
@@ -177,20 +164,17 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     # Text path
     graph.add_connection(sent_in.id,  "tensor",      tok.id,    "texts")
 
-    # Decode (passthrough) sits between head and loss + reads truth for display
-    graph.add_connection(head.id,     "tensor_out",     decode.id, "pred_in")
-    graph.add_connection(tok.id,      "targets",        decode.id, "targets")
-    graph.add_connection(tok.id,      "target_lengths", decode.id, "target_lengths")
+    # Preview sits as a passthrough between head and loss. With `vocab` set,
+    # it CTC-decodes the logits for the inspector while passing the tensor
+    # through unchanged into LossCompute.
+    graph.add_connection(head.id,     "tensor_out",     preview.id, "value")
 
-    # CTC inputs: pred (passed through decode) + target + both lengths
-    graph.add_connection(decode.id,   "pred_out",       loss.id, "pred")
+    # CTC inputs: pred (passed through preview) + target + both lengths
+    graph.add_connection(preview.id,  "value_out",      loss.id, "pred")
     graph.add_connection(tok.id,      "targets",        loss.id, "target")
     graph.add_connection(pad.id,      "lengths",        loss.id, "input_lengths")
     graph.add_connection(tok.id,      "target_lengths", loss.id, "target_lengths")
 
     # Train marker
     graph.add_connection(loss.id,     "loss",        data_out.id, "tensor_in")
-
-    # Preview — show the decoded prediction text live in the inspector.
-    graph.add_connection(decode.id,   "decoded_text",   preview.id, "value")
     return positions
