@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useStore } from "./store";
 import { CATEGORY_COLORS, theme } from "./theme";
-import type { NodeInstance, PortDef } from "./types";
+import type { InspectorSpecPayload, NodeInstance, PortDef } from "./types";
 
 export function Inspector() {
   const selectedId = useStore((s) => s.selectedId);
@@ -120,7 +120,120 @@ function InspectorBody({ instance }: { instance: NodeInstance }) {
           ))}
         </>
       )}
+
+      {instance.inspector_spec && (
+        <CustomInspectorSection
+          nodeId={instance.id}
+          spec={instance.inspector_spec}
+        />
+      )}
     </div>
+  );
+}
+
+// Renders a node's `inspector_spec` payload — a free-form preview section
+// (lines + action buttons) defined by the node's `inspector_spec()` method.
+// PreviewNode uses this to show the cached value's shape/dtype/text and
+// expose ▶Play / Show-image buttons. Action results may carry an
+// `audio_url` or `image_url` (data: URLs) which we render inline.
+function CustomInspectorSection({
+  nodeId,
+  spec,
+}: {
+  nodeId: string;
+  spec: InspectorSpecPayload;
+}) {
+  const client = useStore((s) => s.client);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [text, setText] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const setNodes = useStore((s) => s.setNodes);
+
+  const trigger = (method: string) => {
+    setBusy(method);
+    setErr(null);
+    client
+      .call<{
+        audio_url?: string;
+        image_url?: string;
+        text?: string;
+        info?: string;
+        error?: string;
+        kind?: string;
+      }>("node_action", { node_id: nodeId, method })
+      .then((res) => {
+        if (res.error) {
+          setErr(res.error);
+          return;
+        }
+        if (res.audio_url) setAudioUrl(res.audio_url);
+        if (res.image_url) setImageUrl(res.image_url);
+        if (res.text) setText(res.text);
+        // Re-fetch the node so the spec lines reflect any cache mutation
+        // the action did (e.g. PreviewNode.refresh re-formats from latest).
+        client
+          .call<NodeInstance>("get_node", { node_id: nodeId })
+          .then((updated) => {
+            setNodes((prev) =>
+              prev.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, instance: updated } }
+                  : n,
+              ),
+            );
+          })
+          .catch(() => undefined);
+      })
+      .catch((e) => setErr(String(e?.message ?? e)))
+      .finally(() => setBusy(null));
+  };
+
+  const lines = spec.lines ?? [];
+  const actions = spec.actions ?? [];
+
+  return (
+    <>
+      <SectionHeader label={spec.section || "Preview"} />
+      {lines.length > 0 && (
+        <pre style={styles.specLines}>{lines.join("\n")}</pre>
+      )}
+      {actions.length > 0 && (
+        <div style={styles.specActions}>
+          {actions.map((a) => (
+            <button
+              key={a.method}
+              style={styles.specButton}
+              disabled={busy !== null}
+              onClick={() => trigger(a.method)}
+            >
+              {busy === a.method ? "…" : a.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {err && <div style={styles.specError}>{err}</div>}
+      {audioUrl && (
+        <audio
+          key={audioUrl}
+          src={audioUrl}
+          controls
+          autoPlay
+          style={styles.specAudio}
+        />
+      )}
+      {imageUrl && (
+        <img
+          key={imageUrl}
+          src={imageUrl}
+          alt="preview"
+          style={styles.specImage}
+        />
+      )}
+      {text && <pre style={styles.specLines}>{text}</pre>}
+    </>
   );
 }
 
@@ -424,5 +537,54 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 3,
     fontSize: 12,
     outline: "none",
+  },
+  specLines: {
+    margin: "4px 0 8px",
+    padding: "6px 8px",
+    background: theme.bgDark,
+    color: theme.text,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 3,
+    fontSize: 11,
+    fontFamily: "monospace",
+    whiteSpace: "pre-wrap",
+    overflowX: "auto",
+    lineHeight: 1.4,
+  },
+  specActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 8,
+  },
+  specButton: {
+    padding: "4px 10px",
+    background: theme.bgDark,
+    color: theme.textBright,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 3,
+    fontSize: 12,
+    cursor: "pointer",
+  },
+  specError: {
+    margin: "4px 0 8px",
+    padding: "6px 8px",
+    background: "#3a1f1f",
+    color: "#ff8888",
+    border: "1px solid #5a2f2f",
+    borderRadius: 3,
+    fontSize: 11,
+    fontFamily: "monospace",
+  },
+  specAudio: {
+    width: "100%",
+    marginBottom: 8,
+  },
+  specImage: {
+    maxWidth: "100%",
+    marginBottom: 8,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 3,
+    imageRendering: "pixelated",
   },
 };

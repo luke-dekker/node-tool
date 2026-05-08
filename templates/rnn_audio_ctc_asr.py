@@ -12,9 +12,14 @@ Pipeline (pure-RNN, no conv, no attention):
                               ↓                                          │
                           target_lengths                                 │
                               ↓                                          ↓
+                                                       CtcGreedyDecode (passthrough)
+                                                                      ↓
                                                               LossCompute(ctc)
                                                                       ↓
                                                             Data Out (B:loss)
+                                                                      │
+                                                            Preview ◄──┘
+                                                            (decoded text in inspector)
 
 Dataset: works against any audio + transcript dataset that DatasetNode can
 load. Tested against LibriSpeech dev-clean (~330 MB, free, no account needed)
@@ -65,8 +70,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.ctc_greedy_decode   import CtcGreedyDecodeNode
     from nodes.pytorch.loss_compute        import LossComputeNode
     from nodes.pytorch.train_marker        import TrainMarkerNode
-    from nodes.pytorch.model_io            import ModelIONode
-    from nodes.pytorch.apply_module        import ApplyModuleNode
+    from nodes.pytorch.preview             import PreviewNode
 
     pos = grid(step_x=240, step_y=160)
     positions: dict[str, tuple[int, int]] = {}
@@ -129,13 +133,14 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
 
     # ── Greedy CTC decode (passthrough on the loss path) ────────────────────
     # Sits between head → loss as a passthrough so it runs every training
-    # step (it's on GraphAsModule's active cone). Throttled stdout prints
-    # 'truth → pred' every 25 batches — watch the `python launch_web.py`
-    # terminal to see the model converge in real time.
+    # step (it's on GraphAsModule's active cone). Stdout printing is off —
+    # the downstream PreviewNode renders the decoded text live in the
+    # right-hand inspector instead, so you can see what the model believes
+    # it heard while training is running.
     decode = CtcGreedyDecodeNode()
     decode.inputs["vocab"].default_value       = _VOCAB
     decode.inputs["blank_idx"].default_value   = 0
-    decode.inputs["print_every"].default_value = 25
+    decode.inputs["print_every"].default_value = 0
     graph.add_node(decode); positions[decode.id] = pos(col=6, row=0)
 
     # ── CTC loss ────────────────────────────────────────────────────────────
@@ -152,15 +157,14 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     data_out.inputs["task_name"].default_value = "asr_ctc"
     graph.add_node(data_out); positions[data_out.id] = pos(col=8, row=1)
 
-    # ── Off-cone: Save full model ────────────────────────────────────────────
-    # Disconnected from the train marker — won't run during training. Right-click
-    # this node and execute it manually after training to dump the encoder +
-    # head as a single torch.save bundle. Reload with another ModelIONode set
-    # to mode="load_full" to do inference outside the graph.
-    save = ModelIONode()
-    save.inputs["mode"].default_value = "save_full"
-    save.inputs["path"].default_value = "data/checkpoints/asr_ctc_model.pt"
-    graph.add_node(save); positions[save.id] = pos(col=8, row=3)
+    # ── Off-cone: Preview decoded predictions ────────────────────────────────
+    # PreviewNode caches whatever was last wired through it and exposes a
+    # render in the right-hand inspector. Wired to `decode.decoded_text`
+    # (a list[str], one decoded transcript per batch sample), so during
+    # training you can select this node to see the latest model predictions
+    # update live. No save/load, no stdout printing — just look at it.
+    preview = PreviewNode()
+    graph.add_node(preview); positions[preview.id] = pos(col=8, row=3)
 
     # ── Wires ───────────────────────────────────────────────────────────────
     # Audio path
@@ -187,8 +191,6 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     # Train marker
     graph.add_connection(loss.id,     "loss",        data_out.id, "tensor_in")
 
-    # Save node — wire encoder.module from the LSTM into Save's `model` input
-    # so the full LSTM stack gets serialized (left dangling on purpose; user
-    # can wire/unwire as desired without breaking the train path).
-    graph.add_connection(lstm.id,     "module",         save.id, "model")
+    # Preview — show the decoded prediction text live in the inspector.
+    graph.add_connection(decode.id,   "decoded_text",   preview.id, "value")
     return positions

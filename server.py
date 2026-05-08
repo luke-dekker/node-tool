@@ -112,6 +112,24 @@ class NodeToolServer:
             relevant = node.relevant_inputs(current)
         except Exception:
             relevant = None
+        # Per-instance custom inspector content (lines + actions). Nodes that
+        # cache live state (PreviewNode, StreamingBuffer) populate this so the
+        # React Inspector can show "what was last received" / "▶ Play" buttons
+        # without needing custom widgets per node type.
+        spec_payload = None
+        try:
+            spec = node.inspector_spec()
+            if spec is not None:
+                spec_payload = {
+                    "section": getattr(spec, "section", "") or "",
+                    "lines":   list(getattr(spec, "lines", []) or []),
+                    "actions": [
+                        {"label": label, "method": method}
+                        for (label, method) in (getattr(spec, "actions", []) or [])
+                    ],
+                }
+        except Exception:
+            spec_payload = None
         return {
             "id": node.id,
             "type_name": node.type_name,
@@ -123,6 +141,7 @@ class NodeToolServer:
             "inputs": inputs,
             "outputs": outputs,
             "relevant_inputs": list(relevant) if relevant is not None else None,
+            "inspector_spec": spec_payload,
         }
 
     @staticmethod
@@ -265,6 +284,39 @@ class NodeToolServer:
         if node is None:
             raise ValueError(f"Node not found: {params['node_id']}")
         return self._node_to_dict(node)
+
+    def node_action(self, params: dict) -> dict:
+        """Invoke a named method on a node — used for inspector_spec actions.
+
+        Looks up `node_id`, finds the bound method named `method`, calls it
+        with `params.get("args", {})` plus a reference to this server, and
+        returns whatever the method returned. The returned dict travels back
+        to the React Inspector, which interprets known keys (`audio_url`,
+        `image_url`, `text`, `error`) to render the result.
+
+        Bound methods are referenced by name from `inspector_spec().actions`
+        so node code can stay GUI-agnostic — this server just dispatches.
+        """
+        node = self.graph.get_node(params["node_id"])
+        if node is None:
+            raise ValueError(f"Node not found: {params['node_id']}")
+        method_name = params.get("method")
+        if not method_name:
+            raise ValueError("node_action: missing 'method'")
+        fn = getattr(node, method_name, None)
+        if not callable(fn):
+            raise ValueError(f"Node {node.type_name} has no method '{method_name}'")
+        try:
+            result = fn(self, **(params.get("args") or {}))
+        except TypeError:
+            # Method may not accept the `app=` kwarg — fall back to no-arg call.
+            try:
+                result = fn(**(params.get("args") or {}))
+            except TypeError:
+                result = fn()
+        if not isinstance(result, dict):
+            result = {"value": self._safe_value(result)}
+        return result
 
     def get_graph(self, params: dict) -> dict:
         """Get the full graph state."""
@@ -597,6 +649,7 @@ class NodeToolServer:
         "disconnect": "disconnect",
         "set_input": "set_input",
         "get_node": "get_node",
+        "node_action": "node_action",
         "get_graph": "get_graph",
         "execute": "execute",
         "clear": "clear",

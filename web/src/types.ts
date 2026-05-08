@@ -34,6 +34,17 @@ export interface Registry {
   category_order: string[];
 }
 
+// Per-instance custom inspector surface (BaseNode.inspector_spec). Lets a
+// node push a "Preview" section + action buttons into the right panel — used
+// by PreviewNode to show whatever was last wired through it (audio/image/
+// text/tensor) and offer ▶Play / Show-image buttons whose responses come
+// back via the `node_action` RPC.
+export interface InspectorSpecPayload {
+  section: string;
+  lines: string[];
+  actions: Array<{ label: string; method: string }>;
+}
+
 // Full node instance returned by add_node / get_node — includes id and live
 // default_value / description on every port.
 export interface NodeInstance extends NodeDef {
@@ -45,6 +56,7 @@ export interface NodeInstance extends NodeDef {
   // to hide irrelevant fields based on the chosen kind/op/mode. null means
   // "show all editable ports". Refreshed by the server on each set_input.
   relevant_inputs?: string[] | null;
+  inspector_spec?: InspectorSpecPayload | null;
 }
 
 // ── Panel spec (core/panel.py) ────────────────────────────────────────────

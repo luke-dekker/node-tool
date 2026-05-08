@@ -61,6 +61,7 @@ from nodes.pytorch.hf_tokenizer_transform import HFTokenizerTransformNode
 from nodes.pytorch.char_tokenizer import CharTokenizerNode
 from nodes.pytorch.audio_pad_collate import AudioPadCollateNode
 from nodes.pytorch.ctc_greedy_decode import CtcGreedyDecodeNode
+from nodes.pytorch.preview          import PreviewNode
 
 # Tensor data / ops — consolidated 13 → 5 (with PrintTensor as side-effect node).
 # TensorCreateNode now absorbs from_list (kind="from_list").
