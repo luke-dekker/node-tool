@@ -10,21 +10,19 @@ Pick `mode`:
   load_checkpoint  — load checkpoint into pre-built model + optimizer
   load_full        — torch.load(path) → model (with optional surgery / freeze)
 
-Outputs (each mode populates the relevant subset; others stay None / 0 / ""):
-  model        — module passthrough (save) or loaded module (load)
-  optimizer    — optimizer passthrough (save_checkpoint) or restored (load_checkpoint)
-  path         — path that was written / loaded
-  info         — human-readable summary
-  epoch        — int (load_checkpoint)
-  loss         — float (load_checkpoint)
-  param_count  — int (load_full)
-  trainable_count — int (load_full)
-  layer_names  — comma-separated child names (load_full)
+Outputs:
+  model      — module passthrough (save) or loaded module (load)
+  optimizer  — optimizer passthrough (save_checkpoint) or restored (load_checkpoint)
+
+Everything else (path, info string, epoch, loss, param_count,
+trainable_count, layer_names) is metadata that nobody wires downstream
+— it shows up in the right-hand inspector as live status lines, not
+on the canvas as wire sockets.
 """
 from __future__ import annotations
 import re
 from typing import Any
-from core.node import BaseNode, PortType
+from core.node import BaseNode, InspectorSpec, PortType
 
 
 _SAVE_MODES = ["save_weights", "save_checkpoint", "save_full", "export_onnx"]
@@ -70,6 +68,17 @@ class ModelIONode(BaseNode):
     def __init__(self):
         self._loaded: Any = None
         self._loaded_cfg: tuple | None = None
+        # Cached status from the most recent execute(), surfaced via
+        # inspector_spec instead of as wire-able output ports.
+        self._status: dict[str, Any] = {
+            "info": "(not run yet)",
+            "path": "",
+            "epoch": 0,
+            "loss": 0.0,
+            "param_count": 0,
+            "trainable_count": 0,
+            "layer_names": "",
+        }
         super().__init__()
 
     def get_layers(self) -> list:
@@ -104,18 +113,26 @@ class ModelIONode(BaseNode):
         self.add_input("remove_last_n",    PortType.INT,    0,          optional=True)
         self.add_input("replace_head",     PortType.STRING, "",         optional=True)
         self.add_input("eval_mode",        PortType.BOOL,   False,      optional=True)
-        # outputs — each mode populates a subset
-        self.add_output("model",           PortType.MODULE)
-        self.add_output("optimizer",       PortType.OPTIMIZER)
-        self.add_output("path",            PortType.STRING)
-        self.add_output("info",            PortType.STRING)
-        self.add_output("epoch",           PortType.INT)
-        self.add_output("loss",            PortType.FLOAT)
-        self.add_output("param_count",     PortType.INT)
-        self.add_output("trainable_count", PortType.INT)
-        self.add_output("layer_names",     PortType.STRING)
+        # Two outputs — the things downstream nodes actually consume.
+        # Status (path/info/epoch/loss/param_count/trainable_count/layer_names)
+        # lives in inspector_spec instead.
+        self.add_output("model",     PortType.MODULE)
+        self.add_output("optimizer", PortType.OPTIMIZER)
+
+    def inspector_spec(self):
+        s = self._status
+        lines = [f"info:  {s['info']}", f"path:  {s['path']}"]
+        # Mode-specific status — only show fields the last operation populated.
+        if s["epoch"]:           lines.append(f"epoch: {s['epoch']}")
+        if s["loss"]:            lines.append(f"loss:  {s['loss']:.6f}")
+        if s["param_count"]:     lines.append(f"params:    {s['param_count']:,}")
+        if s["trainable_count"]: lines.append(f"trainable: {s['trainable_count']:,}")
+        if s["layer_names"]:     lines.append(f"layers: {s['layer_names']}")
+        return InspectorSpec(section="Model I/O", lines=lines, actions=[])
 
     def _empty(self):
+        # Used by execute() to fill the status cache; only model/optimizer
+        # come back out as actual ports.
         return {"model": None, "optimizer": None, "path": "", "info": "",
                 "epoch": 0, "loss": 0.0, "param_count": 0, "trainable_count": 0,
                 "layer_names": ""}
@@ -127,6 +144,14 @@ class ModelIONode(BaseNode):
         path = inputs.get("path") or "model.pt"
         out["path"] = path
 
+        try:
+            return self._execute_inner(inputs, mode, path, out)
+        finally:
+            # Cache everything *except* the wire-out ports for the inspector.
+            self._status = {k: v for k, v in out.items() if k not in ("model", "optimizer")}
+
+    def _execute_inner(self, inputs, mode, path, out):
+        import torch
         try:
             if mode in _SAVE_MODES:
                 model = inputs.get("model")

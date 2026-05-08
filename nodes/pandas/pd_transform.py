@@ -10,17 +10,18 @@ Absorbs all the df-input nodes:
   - PdToNumpyNode (to_numpy → array)
   - PdShapeNode (shape → rows, cols)
 
-Outputs (each populated by the relevant op; others stay None/0/""):
-  result   — DATAFRAME (transforms, groupby, X side of xy_split)
-  series   — SERIES    (get_column, y side of xy_split)
-  array    — NDARRAY   (to_numpy)
-  info     — STRING    (describe, head, info, shape summary)
-  rows     — INT       (shape)
-  cols     — INT       (shape)
+Outputs (each populated by the relevant op; others stay None):
+  result — DATAFRAME (transforms, groupby, X side of xy_split)
+  series — SERIES    (get_column, y side of xy_split)
+  array  — NDARRAY   (to_numpy)
+
+Status from describe / head / info / shape (text summary, row+col counts)
+goes to the right-hand inspector via inspector_spec — these are display-
+only readouts, not values downstream nodes consume.
 """
 from __future__ import annotations
 import operator as _op
-from core.node import BaseNode, PortType
+from core.node import BaseNode, InspectorSpec, PortType
 
 
 _TRANSFORMS  = ["dropna", "fillna", "drop_cols", "select_cols", "rename_col",
@@ -49,6 +50,21 @@ class PdTransformNode(BaseNode):
         "  describe / head / info   → info   (STRING)\n"
         "  shape                    → rows, cols (INT) + info"
     )
+
+    def __init__(self):
+        self._status: dict = {"info": "", "rows": 0, "cols": 0}
+        super().__init__()
+
+    def inspector_spec(self):
+        s = self._status
+        if not s["info"] and not s["rows"]:
+            return None
+        lines = []
+        if s["rows"] or s["cols"]:
+            lines.append(f"shape: {s['rows']} x {s['cols']}")
+        if s["info"]:
+            lines.extend(s["info"].splitlines()[:50])  # cap at 50 lines
+        return InspectorSpec(section="DataFrame Info", lines=lines, actions=[])
 
     def relevant_inputs(self, values):
         op = (values.get("op") or "dropna").strip()
@@ -93,17 +109,15 @@ class PdTransformNode(BaseNode):
         self.add_input("agg",       PortType.STRING, "mean",      optional=True)
         self.add_input("n",         PortType.INT,    5,           optional=True)
         self.add_input("label_col", PortType.STRING, "label",     optional=True)
-        # outputs — each op populates a subset
+        # outputs — each op populates a subset. Display-only metadata
+        # (describe/head/info text, shape rows+cols) lives in inspector_spec.
         self.add_output("result", PortType.DATAFRAME)
         self.add_output("series", PortType.SERIES)
         self.add_output("array",  PortType.NDARRAY)
-        self.add_output("info",   PortType.STRING)
-        self.add_output("rows",   PortType.INT)
-        self.add_output("cols",   PortType.INT)
 
     def _empty(self) -> dict:
-        return {"result": None, "series": None, "array": None,
-                "info": "", "rows": 0, "cols": 0}
+        # Wire-out keys only. Status updates go to self._status directly.
+        return {"result": None, "series": None, "array": None}
 
     def execute(self, inputs):
         out = self._empty()
@@ -153,18 +167,23 @@ class PdTransformNode(BaseNode):
                                    .reset_index())
                 return out
 
-            # ── info (df → string / int outputs) ────────────────────────────
+            # ── info ops (df → status lines in the inspector) ───────────────
             if op == "describe":
-                out["info"] = df.describe().to_string(); return out
+                self._status = {"info": df.describe().to_string(), "rows": 0, "cols": 0}
+                return out
             if op == "head":
-                out["info"] = df.head(int(inputs.get("n", 5) or 5)).to_string(); return out
+                self._status = {"info": df.head(int(inputs.get("n", 5) or 5)).to_string(),
+                                "rows": 0, "cols": 0}
+                return out
             if op == "info":
                 dtypes = {col: str(dt) for col, dt in df.dtypes.items()}
-                out["info"] = f"shape={df.shape} columns={list(df.columns)} dtypes={dtypes}"
+                self._status = {
+                    "info": f"shape={df.shape} columns={list(df.columns)} dtypes={dtypes}",
+                    "rows": int(df.shape[0]), "cols": int(df.shape[1]),
+                }
                 return out
             if op == "shape":
-                out["rows"] = int(df.shape[0]); out["cols"] = int(df.shape[1])
-                out["info"] = f"{out['rows']} x {out['cols']}"
+                self._status = {"info": "", "rows": int(df.shape[0]), "cols": int(df.shape[1])}
                 return out
 
             # ── extract (df → series / array / X+y) ─────────────────────────
@@ -189,9 +208,6 @@ class PdTransformNode(BaseNode):
         out = ov.get("result", "_pd_result")
         ser = ov.get("series", "_pd_series")
         arr = ov.get("array",  "_pd_array")
-        info = ov.get("info",  "_pd_info")
-        rows = ov.get("rows",  "_pd_rows")
-        cols = ov.get("cols",  "_pd_cols")
 
         if op == "dropna":      return [], [f"{out} = {df}.dropna()"]
         if op == "fillna":      return [], [f"{out} = {df}.fillna({self._val(iv, 'value')})"]
@@ -227,16 +243,14 @@ class PdTransformNode(BaseNode):
         if op == "groupby":
             by = self._val(iv, "by"); agg = self._val(iv, "agg")
             return [], [f"{out} = {df}.groupby({by}).agg({agg}).reset_index()"]
-        if op == "describe": return [], [f"{info} = {df}.describe().to_string()"]
-        if op == "head":     return [], [f"{info} = {df}.head({self._val(iv, 'n')}).to_string()"]
+        if op == "describe": return [], [f"print({df}.describe().to_string())"]
+        if op == "head":     return [], [f"print({df}.head({self._val(iv, 'n')}).to_string())"]
         if op == "info":
             return [], [
-                f"{info} = f\"shape={{{df}.shape}} columns={{list({df}.columns)}} \""
-                f"f\"dtypes={{{{c: str(t) for c, t in {df}.dtypes.items()}}}}\""
+                f"print(f\"shape={{{df}.shape}} columns={{list({df}.columns)}}\")",
             ]
         if op == "shape":
-            return [], [f"{rows} = {df}.shape[0]", f"{cols} = {df}.shape[1]",
-                        f"{info} = f\"{{{rows}}} x {{{cols}}}\""]
+            return [], [f"print(f'{{{df}.shape[0]}} x {{{df}.shape[1]}}')"]
         if op == "get_column":
             return [], [f"{ser} = {df}[{self._val(iv, 'column')}]"]
         if op == "to_numpy":   return [], [f"{arr} = {df}.values"]

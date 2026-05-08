@@ -2,9 +2,9 @@
 
 Replaces SkTrainTestSplitNode + SkCrossValScoreNode. Pick `mode`:
   train_test  — outputs X_train, X_test, y_train, y_test
-  cross_val   — outputs scores, mean_score (uses `model` input)
+  cross_val   — outputs scores (mean shown in the inspector)
 """
-from core.node import BaseNode, PortType
+from core.node import BaseNode, InspectorSpec, PortType
 
 
 _MODES = ["train_test", "cross_val"]
@@ -19,6 +19,10 @@ class SkSplitNode(BaseNode):
         "  train_test — sklearn train_test_split → X_train, X_test, y_train, y_test\n"
         "  cross_val  — cross_val_score(model, X, y, cv) → scores, mean_score"
     )
+
+    def __init__(self):
+        self._mean_score: float = 0.0
+        super().__init__()
 
     def relevant_inputs(self, values):
         mode = (values.get("mode") or "train_test").strip()
@@ -39,13 +43,22 @@ class SkSplitNode(BaseNode):
         self.add_output("X_test",     PortType.DATAFRAME)
         self.add_output("y_train",    PortType.SERIES)
         self.add_output("y_test",     PortType.SERIES)
-        # cross_val outputs
+        # cross_val output (mean shown in inspector instead of as a wire port —
+        # it's a summary statistic, not something downstream nodes consume).
         self.add_output("scores",     PortType.NDARRAY)
-        self.add_output("mean_score", PortType.FLOAT)
+
+    def inspector_spec(self):
+        if self._mean_score == 0.0:
+            return None
+        return InspectorSpec(
+            section="Cross-val",
+            lines=[f"mean_score: {self._mean_score:.4f}"],
+            actions=[],
+        )
 
     def execute(self, inputs):
         out = {"X_train": None, "X_test": None, "y_train": None, "y_test": None,
-               "scores": None, "mean_score": 0.0}
+               "scores": None}
         try:
             X, y = inputs.get("X"), inputs.get("y")
             if X is None or y is None:
@@ -66,7 +79,7 @@ class SkSplitNode(BaseNode):
                     return out
                 scores = cross_val_score(model, X, y, cv=int(inputs.get("cv", 5)))
                 out["scores"] = scores
-                out["mean_score"] = float(scores.mean())
+                self._mean_score = float(scores.mean())
                 return out
             return out
         except Exception:
@@ -85,6 +98,6 @@ class SkSplitNode(BaseNode):
             m = self._val(iv, "model"); cv = self._val(iv, "cv")
             return ["from sklearn.model_selection import cross_val_score"], [
                 f"{ov['scores']} = cross_val_score({m}, {X}, {y}, cv={cv})",
-                f"{ov['mean_score']} = float({ov['scores']}.mean())",
+                f"print('cross_val mean_score:', float({ov['scores']}.mean()))",
             ]
         return [], [f"# unknown split mode {mode!r}"]
