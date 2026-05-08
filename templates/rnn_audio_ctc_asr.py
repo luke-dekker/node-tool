@@ -7,7 +7,7 @@ the Graves 2013 / original DeepSpeech 2014 architecture.
 
 Pipeline (pure-RNN, no conv, no attention):
 
-    Data In (A:audio)    → MelSpec(inline) → BiLSTM × 3 → Linear(vocab) ─┐
+    Data In (A:audio)    → MelSpec(batch) → BiLSTM × 3 → Linear(vocab) ──┐
     Data In (A:sentence) → CharTokenizer ────────────────────────────────┤
                               ↓                                          │
                           target_lengths                                 │
@@ -27,8 +27,10 @@ Set the InputMarker(audio) `path` to either:
     data/librispeech/LibriSpeech/dev-clean        # LibriSpeech
     /path/to/cv-corpus-21.0/en                    # Common Voice extract
 
-The DatasetNode auto-detects the format. Audio comes through as variable-
-length tensors and gets padded by AudioPadCollate before the encoder.
+The DatasetNode auto-detects the format. Audio comes through as a
+list[Tensor] of variable-length clips; MelSpectrogram in batch mode
+pads them, runs the transform, and emits per-sample frame `lengths`
+for CTC's input_lengths argument — no separate pad/collate node.
 
 Vocabulary: lowercase a-z + space + apostrophe (28 chars + blank = 29 classes).
 LibriSpeech transcripts are auto-lowercased on load by `_load_librispeech`.
@@ -59,7 +61,6 @@ _VOCAB         = "abcdefghijklmnopqrstuvwxyz '"
 
 def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.input_marker        import InputMarkerNode
-    from nodes.pytorch.audio_pad_collate   import AudioPadCollateNode
     from nodes.pytorch.mel_spectrogram     import MelSpectrogramTransformNode
     from nodes.pytorch.tensor_reshape      import TensorReshapeNode
     from nodes.pytorch.layer               import LayerNode
@@ -86,17 +87,15 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     sent_in.inputs["modality"].default_value = "sentence"
     graph.add_node(sent_in); positions[sent_in.id] = pos(col=0, row=2)
 
-    # ── Audio path: pad → mel-spectrogram → encoder ─────────────────────────
-    pad = AudioPadCollateNode()
-    pad.inputs["frames_per_sample"].default_value = _HOP_LENGTH
-    graph.add_node(pad); positions[pad.id] = pos(col=1, row=0)
-
+    # ── Audio path: mel-spectrogram (batch mode) → encoder ──────────────────
+    # MelSpectrogram in list-input mode pads the variable-length clips
+    # internally and emits per-sample frame `lengths` for CTC.
     mel = MelSpectrogramTransformNode()
     mel.inputs["sample_rate"].default_value = _SAMPLE_RATE
     mel.inputs["n_mels"].default_value      = _N_MELS
     mel.inputs["n_fft"].default_value       = _N_FFT
-    mel.inputs["hop_length"].default_value  = _HOP_LENGTH   # match AudioPadCollate
-    graph.add_node(mel); positions[mel.id] = pos(col=2, row=0)
+    mel.inputs["hop_length"].default_value  = _HOP_LENGTH
+    graph.add_node(mel); positions[mel.id] = pos(col=1, row=0)
 
     # MelSpectrogram emits (B, n_mels, T) — transpose to (B, T, n_mels) so
     # the LSTM's batch_first=True / time-major interpretation lines up.
@@ -104,7 +103,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     mel_t.inputs["op"].default_value     = "transpose"
     mel_t.inputs["dim"].default_value    = 1
     mel_t.inputs["dim_b"].default_value  = 2
-    graph.add_node(mel_t); positions[mel_t.id] = pos(col=3, row=0)
+    graph.add_node(mel_t); positions[mel_t.id] = pos(col=2, row=0)
 
     # 3-layer bidirectional LSTM (Graves 2013). Output dim = HIDDEN * 2.
     lstm = RecurrentLayerNode()
@@ -113,20 +112,20 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     lstm.inputs["num_layers"].default_value    = _NUM_LAYERS
     lstm.inputs["bidirectional"].default_value = True
     lstm.inputs["batch_first"].default_value   = True
-    graph.add_node(lstm); positions[lstm.id] = pos(col=4, row=0)
+    graph.add_node(lstm); positions[lstm.id] = pos(col=3, row=0)
 
     # Project bi-LSTM output to vocab+blank logits — CTC will log-softmax.
     head = LayerNode()
     head.inputs["kind"].default_value         = "linear"
     head.inputs["out_features"].default_value = _VOCAB_SIZE
-    graph.add_node(head); positions[head.id] = pos(col=5, row=0)
+    graph.add_node(head); positions[head.id] = pos(col=4, row=0)
 
     # ── Text path: char-tokenize → CTC targets ──────────────────────────────
     tok = CharTokenizerNode()
     tok.inputs["vocab"].default_value     = _VOCAB
     tok.inputs["lowercase"].default_value = True
     tok.inputs["blank_idx"].default_value = 0
-    graph.add_node(tok); positions[tok.id] = pos(col=4, row=2)
+    graph.add_node(tok); positions[tok.id] = pos(col=3, row=2)
 
     # ── Preview (passthrough; CTC-decodes when vocab is set) ────────────────
     # Sits between head → loss as a passthrough so it runs every training
@@ -137,7 +136,7 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     preview = PreviewNode()
     preview.inputs["vocab"].default_value     = _VOCAB
     preview.inputs["blank_idx"].default_value = 0
-    graph.add_node(preview); positions[preview.id] = pos(col=6, row=0)
+    graph.add_node(preview); positions[preview.id] = pos(col=5, row=0)
 
     # ── CTC loss ────────────────────────────────────────────────────────────
     # Pred shape from the head is (B, T, vocab); LossCompute auto-transposes
@@ -146,17 +145,16 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     loss.inputs["loss_type"].default_value     = "ctc"
     loss.inputs["blank"].default_value         = 0
     loss.inputs["zero_infinity"].default_value = True
-    graph.add_node(loss); positions[loss.id] = pos(col=7, row=1)
+    graph.add_node(loss); positions[loss.id] = pos(col=6, row=1)
 
     data_out = TrainMarkerNode()
     data_out.inputs["kind"].default_value      = "loss"
     data_out.inputs["task_name"].default_value = "asr_ctc"
-    graph.add_node(data_out); positions[data_out.id] = pos(col=8, row=1)
+    graph.add_node(data_out); positions[data_out.id] = pos(col=7, row=1)
 
     # ── Wires ───────────────────────────────────────────────────────────────
-    # Audio path
-    graph.add_connection(audio_in.id, "tensor",      pad.id,    "audio")
-    graph.add_connection(pad.id,      "padded",      mel.id,    "waveform")
+    # Audio path — MelSpectrogram batch mode does the pad+lengths internally.
+    graph.add_connection(audio_in.id, "tensor",      mel.id,    "waveform")
     graph.add_connection(mel.id,      "spectrogram", mel_t.id,  "t1")
     graph.add_connection(mel_t.id,    "tensor",      lstm.id,   "input_seq")
     graph.add_connection(lstm.id,     "output",      head.id,   "tensor_in")
@@ -169,10 +167,11 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     # through unchanged into LossCompute.
     graph.add_connection(head.id,     "tensor_out",     preview.id, "value")
 
-    # CTC inputs: pred (passed through preview) + target + both lengths
+    # CTC inputs: pred (passed through preview) + target + both lengths.
+    # input_lengths comes from MelSpectrogram's frame-time `lengths` output.
     graph.add_connection(preview.id,  "value_out",      loss.id, "pred")
     graph.add_connection(tok.id,      "targets",        loss.id, "target")
-    graph.add_connection(pad.id,      "lengths",        loss.id, "input_lengths")
+    graph.add_connection(mel.id,      "lengths",        loss.id, "input_lengths")
     graph.add_connection(tok.id,      "target_lengths", loss.id, "target_lengths")
 
     # Train marker

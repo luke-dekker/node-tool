@@ -59,7 +59,6 @@ from nodes.pytorch.image_transform import ImageTransformNode
 from nodes.pytorch.mel_spectrogram import MelSpectrogramTransformNode
 from nodes.pytorch.hf_tokenizer_transform import HFTokenizerTransformNode
 from nodes.pytorch.char_tokenizer import CharTokenizerNode
-from nodes.pytorch.audio_pad_collate import AudioPadCollateNode
 from nodes.pytorch.preview          import PreviewNode
 
 # Tensor data / ops — consolidated 13 → 5 (with PrintTensor as side-effect node).
