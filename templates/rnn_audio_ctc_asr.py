@@ -62,8 +62,11 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     from nodes.pytorch.layer               import LayerNode
     from nodes.pytorch.recurrent_layer     import RecurrentLayerNode
     from nodes.pytorch.char_tokenizer      import CharTokenizerNode
+    from nodes.pytorch.ctc_greedy_decode   import CtcGreedyDecodeNode
     from nodes.pytorch.loss_compute        import LossComputeNode
     from nodes.pytorch.train_marker        import TrainMarkerNode
+    from nodes.pytorch.model_io            import ModelIONode
+    from nodes.pytorch.apply_module        import ApplyModuleNode
 
     pos = grid(step_x=240, step_y=160)
     positions: dict[str, tuple[int, int]] = {}
@@ -124,6 +127,17 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     tok.inputs["blank_idx"].default_value = 0
     graph.add_node(tok); positions[tok.id] = pos(col=4, row=2)
 
+    # ── Greedy CTC decode (passthrough on the loss path) ────────────────────
+    # Sits between head → loss as a passthrough so it runs every training
+    # step (it's on GraphAsModule's active cone). Throttled stdout prints
+    # 'truth → pred' every 25 batches — watch the `python launch_web.py`
+    # terminal to see the model converge in real time.
+    decode = CtcGreedyDecodeNode()
+    decode.inputs["vocab"].default_value       = _VOCAB
+    decode.inputs["blank_idx"].default_value   = 0
+    decode.inputs["print_every"].default_value = 25
+    graph.add_node(decode); positions[decode.id] = pos(col=6, row=0)
+
     # ── CTC loss ────────────────────────────────────────────────────────────
     # Pred shape from the head is (B, T, vocab); LossCompute auto-transposes
     # to (T, B, vocab) when input_lengths.shape[0] == B.
@@ -131,30 +145,50 @@ def build(graph: Graph) -> dict[str, tuple[int, int]]:
     loss.inputs["loss_type"].default_value     = "ctc"
     loss.inputs["blank"].default_value         = 0
     loss.inputs["zero_infinity"].default_value = True
-    graph.add_node(loss); positions[loss.id] = pos(col=6, row=1)
+    graph.add_node(loss); positions[loss.id] = pos(col=7, row=1)
 
     data_out = TrainMarkerNode()
     data_out.inputs["kind"].default_value      = "loss"
     data_out.inputs["task_name"].default_value = "asr_ctc"
-    graph.add_node(data_out); positions[data_out.id] = pos(col=7, row=1)
+    graph.add_node(data_out); positions[data_out.id] = pos(col=8, row=1)
+
+    # ── Off-cone: Save full model ────────────────────────────────────────────
+    # Disconnected from the train marker — won't run during training. Right-click
+    # this node and execute it manually after training to dump the encoder +
+    # head as a single torch.save bundle. Reload with another ModelIONode set
+    # to mode="load_full" to do inference outside the graph.
+    save = ModelIONode()
+    save.inputs["mode"].default_value = "save_full"
+    save.inputs["path"].default_value = "data/checkpoints/asr_ctc_model.pt"
+    graph.add_node(save); positions[save.id] = pos(col=8, row=3)
 
     # ── Wires ───────────────────────────────────────────────────────────────
     # Audio path
-    graph.add_connection(audio_in.id, "tensor",     pad.id,    "audio")
-    graph.add_connection(pad.id,      "padded",     mel.id,    "waveform")
+    graph.add_connection(audio_in.id, "tensor",      pad.id,    "audio")
+    graph.add_connection(pad.id,      "padded",      mel.id,    "waveform")
     graph.add_connection(mel.id,      "spectrogram", mel_t.id,  "t1")
-    graph.add_connection(mel_t.id,    "tensor",     lstm.id,   "input_seq")
-    graph.add_connection(lstm.id,     "output",     head.id,   "tensor_in")
+    graph.add_connection(mel_t.id,    "tensor",      lstm.id,   "input_seq")
+    graph.add_connection(lstm.id,     "output",      head.id,   "tensor_in")
 
     # Text path
-    graph.add_connection(sent_in.id,  "tensor",     tok.id,    "texts")
+    graph.add_connection(sent_in.id,  "tensor",      tok.id,    "texts")
 
-    # CTC inputs: pred + target + both lengths
-    graph.add_connection(head.id,     "tensor_out",     loss.id, "pred")
+    # Decode (passthrough) sits between head and loss + reads truth for display
+    graph.add_connection(head.id,     "tensor_out",     decode.id, "pred_in")
+    graph.add_connection(tok.id,      "targets",        decode.id, "targets")
+    graph.add_connection(tok.id,      "target_lengths", decode.id, "target_lengths")
+
+    # CTC inputs: pred (passed through decode) + target + both lengths
+    graph.add_connection(decode.id,   "pred_out",       loss.id, "pred")
     graph.add_connection(tok.id,      "targets",        loss.id, "target")
     graph.add_connection(pad.id,      "lengths",        loss.id, "input_lengths")
     graph.add_connection(tok.id,      "target_lengths", loss.id, "target_lengths")
 
     # Train marker
-    graph.add_connection(loss.id,     "loss",       data_out.id, "tensor_in")
+    graph.add_connection(loss.id,     "loss",        data_out.id, "tensor_in")
+
+    # Save node — wire encoder.module from the LSTM into Save's `model` input
+    # so the full LSTM stack gets serialized (left dangling on purpose; user
+    # can wire/unwire as desired without breaking the train path).
+    graph.add_connection(lstm.id,     "module",         save.id, "model")
     return positions
