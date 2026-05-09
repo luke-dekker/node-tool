@@ -189,7 +189,7 @@ def test_freeze_backbone():
     from nodes.pytorch.pretrained_backbone import PretrainedBackboneNode
     from nodes.pytorch.freeze_backbone import FreezeBackboneNode
     model = PretrainedBackboneNode().execute({"architecture": "resnet18", "pretrained": False, "num_classes": 10})["model"]
-    result = FreezeBackboneNode().execute({"model": model, "freeze_all": True})
+    result = FreezeBackboneNode().execute({"model": model, "mode": "all"})
     frozen_model = result["model"]
     assert all(not p.requires_grad for p in frozen_model.parameters())
     assert "frozen=" in result["info"]
@@ -198,8 +198,8 @@ def test_unfreeze_backbone():
     from nodes.pytorch.pretrained_backbone import PretrainedBackboneNode
     from nodes.pytorch.freeze_backbone import FreezeBackboneNode
     model = PretrainedBackboneNode().execute({"architecture": "resnet18", "pretrained": False, "num_classes": 10})["model"]
-    FreezeBackboneNode().execute({"model": model, "freeze_all": True})
-    result = FreezeBackboneNode().execute({"model": model, "freeze_all": False})
+    FreezeBackboneNode().execute({"model": model, "mode": "all"})
+    result = FreezeBackboneNode().execute({"model": model, "mode": "none"})
     assert all(p.requires_grad for p in result["model"].parameters())
 
 def test_model_info():

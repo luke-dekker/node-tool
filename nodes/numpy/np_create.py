@@ -35,6 +35,20 @@ class NpCreateNode(BaseNode):
         "  from_list — values (comma-separated), dtype"
     )
 
+    def relevant_inputs(self, values):
+        kind = (values.get("kind") or "zeros").strip().lower()
+        per_kind = {
+            "arange":    ["kind", "start", "stop", "step"],
+            "linspace":  ["kind", "start", "stop", "num"],
+            "ones":      ["kind", "shape"],
+            "zeros":     ["kind", "shape"],
+            "eye":       ["kind", "n"],
+            "rand":      ["kind", "shape", "seed"],
+            "randn":     ["kind", "shape", "seed"],
+            "from_list": ["kind", "values", "dtype"],
+        }
+        return per_kind.get(kind, ["kind"])
+
     def _setup_ports(self):
         self.add_input("kind",   PortType.STRING, default="zeros", choices=_KINDS)
         self.add_input("shape",  PortType.STRING, default="3,4",

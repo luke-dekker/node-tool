@@ -8,9 +8,6 @@ Single mode-dispatched node that absorbs the old FreezeNamedLayersNode:
   - "last_n":  freeze the last N top-level children
   - "by_name": freeze parameters whose name starts with any prefix in `names`
                (comma-separated, e.g. 'encoder,layer1')
-
-The legacy `freeze_all` BOOL is still accepted for backward compat with saved
-graphs and tests; new graphs should set `mode` instead.
 """
 from __future__ import annotations
 from core.node import BaseNode, PortType
@@ -39,20 +36,14 @@ class FreezeLayersNode(BaseNode):
                        description="by_name mode: CSV of name prefixes")
         self.add_input("freeze", PortType.BOOL, default=True,
                        description="by_name mode: True freezes, False unfreezes the matched params")
-        # Legacy boolean — still accepted for backward compat with old graphs
-        # and tests. If `mode` is the default "all" and freeze_all is explicitly
-        # set, we honor freeze_all. New graphs should leave this and use mode.
-        self.add_input("freeze_all", PortType.BOOL, default=True,
-                       description="DEPRECATED: use `mode` instead.")
         self.add_output("model", PortType.MODULE)
         self.add_output("info",  PortType.STRING)
 
     def relevant_inputs(self, values):
         mode = (values.get("mode") or "all").strip().lower()
-        if mode == "all":          return ["mode", "freeze_all"]
-        if mode == "none":         return ["mode"]
+        if mode in ("all", "none"):       return ["mode"]
         if mode in ("first_n", "last_n"): return ["mode", "n"]
-        if mode == "by_name":      return ["mode", "names", "freeze"]
+        if mode == "by_name":             return ["mode", "names", "freeze"]
         return ["mode"]
 
     def execute(self, inputs):
@@ -66,11 +57,9 @@ class FreezeLayersNode(BaseNode):
             children = list(model.children())
 
             if mode == "all":
-                # Honor legacy freeze_all bool here so old test/save defaults work
-                freeze = bool(inputs.get("freeze_all", True))
                 for p in model.parameters():
-                    p.requires_grad = not freeze
-                action = "frozen all" if freeze else "unfrozen all"
+                    p.requires_grad = False
+                action = "frozen all"
             elif mode == "none":
                 for p in model.parameters():
                     p.requires_grad = True
@@ -116,13 +105,12 @@ class FreezeLayersNode(BaseNode):
         iv_var  = ov.get("info",  "_frozen_model_info")
         mode    = str(self.inputs["mode"].default_value or "all").strip().lower()
         n       = max(0, int(self.inputs["n"].default_value or 0))
-        freeze_all_legacy = bool(self.inputs["freeze_all"].default_value)
 
         lines = [f"{mv} = {in_model}", f"_children = list({mv}.children())"]
 
         if mode == "all":
             lines.append(
-                f"for _p in {mv}.parameters(): _p.requires_grad = {not freeze_all_legacy}"
+                f"for _p in {mv}.parameters(): _p.requires_grad = False"
             )
         elif mode == "none":
             lines.append(f"for _p in {mv}.parameters(): _p.requires_grad = True")
