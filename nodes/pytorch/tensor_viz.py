@@ -54,8 +54,19 @@ class TensorVizNode(BaseNode):
         "Select mode to choose the rendering style."
     )
 
+    def relevant_inputs(self, values):
+        mode = (values.get("mode") or "heatmap").strip().lower()
+        per_mode = {
+            "heatmap":   ["mode", "title", "cmap"],
+            "histogram": ["mode", "title", "bins", "color"],
+            "scatter":   ["mode", "title", "alpha"],
+            "image":     ["mode", "title"],
+        }
+        return per_mode.get(mode, ["mode", "title"])
+
     def _setup_ports(self) -> None:
-        self.add_input("mode",   PortType.STRING, default="heatmap")
+        self.add_input("mode",   PortType.STRING, default="heatmap",
+                       choices=["heatmap", "histogram", "scatter", "image"])
         self.add_input("tensor", PortType.TENSOR, default=None)
         self.add_input("title",  PortType.STRING, default="Tensor Viz")
         # heatmap

@@ -31,6 +31,20 @@ class TrainMarkerNode(BaseNode):
         "function against the batch's label tensor."
     )
 
+    def relevant_inputs(self, values):
+        # Two axes of dispatch:
+        #   • kind=logits → `target` (column name) is relevant; kind=loss hides it
+        #     (the tensor IS the loss, no target lookup needed).
+        #   • primary=True → lr/optimizer/loss/epochs drive the shared optimizer;
+        #     primary=False hides them (they're ignored on non-primary markers).
+        base = ["group", "kind", "task_name", "primary"]
+        kind = (values.get("kind") or "logits").strip().lower()
+        if kind == "logits":
+            base.append("target")
+        if bool(values.get("primary")):
+            base += ["lr", "optimizer", "loss", "epochs"]
+        return base
+
     def _setup_ports(self) -> None:
         self.add_input("tensor_in", PortType.TENSOR, default=None,
                        description="Graph section output (logits or scalar loss)")

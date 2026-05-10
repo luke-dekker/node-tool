@@ -11,6 +11,17 @@ class LRSchedulerNode(BaseNode):
     subcategory = "Schedulers"
     description = "Construct a PyTorch LR scheduler selected by dropdown."
 
+    def relevant_inputs(self, values):
+        stype = (values.get("scheduler_type") or "step").strip().lower()
+        per_type = {
+            "step":        ["scheduler_type", "step_size", "gamma"],
+            "multistep":   ["scheduler_type", "milestones", "gamma"],
+            "exponential": ["scheduler_type", "gamma"],
+            "cosine":      ["scheduler_type", "T_max", "eta_min"],
+            "plateau":     ["scheduler_type", "mode", "factor", "patience"],
+        }
+        return per_type.get(stype, ["scheduler_type"])
+
     def _setup_ports(self):
         self.add_input("optimizer",      PortType.OPTIMIZER, default=None)
         self.add_input("scheduler_type", PortType.STRING,    default="step",

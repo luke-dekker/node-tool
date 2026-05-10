@@ -66,6 +66,25 @@ class VizPlotNode(BaseNode):
         "  image_grid — data=images (B,C,H,W tensor), nrow"
     )
 
+    def relevant_inputs(self, values):
+        # Each chart kind reads a different slice of the editable config.
+        # Wired data ports (data, data2, labels) are always shown; this only
+        # filters the inspector's form widgets.
+        kind = (values.get("kind") or "line").strip().lower()
+        per_kind = {
+            "line":        ["kind", "title", "xlabel", "ylabel", "color"],
+            "scatter":     ["kind", "title", "xlabel", "ylabel", "alpha"],
+            "bar":         ["kind", "title", "color"],
+            "hist":        ["kind", "title", "bins", "color"],
+            "heatmap":     ["kind", "title", "cmap"],
+            "box":         ["kind", "title"],
+            "conf_matrix": ["kind", "title"],
+            "pca_2d":      ["kind", "title", "xlabel", "ylabel"],
+            "loss_curve":  ["kind", "title", "xlabel", "ylabel"],
+            "image_grid":  ["kind", "title", "nrow"],
+        }
+        return per_kind.get(kind, ["kind", "title"])
+
     def _setup_ports(self):
         self.add_input("kind",   PortType.STRING, default="line", choices=_KINDS)
         # Polymorphic: depending on `kind` this can be NDARRAY, DATAFRAME,
